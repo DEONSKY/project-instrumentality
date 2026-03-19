@@ -1,0 +1,55 @@
+# Ruby on Rails code_path_patterns preset
+# Copy relevant sections into knowledge/_rules.md → code_path_patterns
+
+code_path_patterns:
+  - intent: validation
+    kb_target: "validation/common.md"
+    paths:
+      - "app/validators/**"
+      - "app/forms/**"
+
+  - intent: api-contract
+    kb_target: "features/{name}.api.md"
+    paths:
+      - "app/controllers/**_controller.rb"
+      - "app/controllers/api/**"
+    name_extraction:
+      strip_suffix: [Controller]
+      case: kebab
+
+  - intent: data-model
+    kb_target: "data/schema/{name}.md"
+    paths:
+      - "app/models/**"
+      - "db/schema.rb"
+      - "db/migrate/**"
+    name_extraction:
+      strip_suffix: []
+      case: kebab
+
+  - intent: service-logic
+    kb_target: "flows/{name}.md"
+    paths:
+      - "app/services/**"
+      - "app/jobs/**"
+      - "app/workers/**"
+
+  - intent: route-guard
+    kb_target: "flows/{name}.guards.md"
+    paths:
+      - "app/policies/**"
+      - "config/routes.rb"
+
+  - intent: form
+    kb_target: "features/{name}.md"
+    paths:
+      - "app/forms/**"
+    name_extraction:
+      strip_suffix: [Form]
+      case: kebab
+
+  - intent: component
+    kb_target: "ui/components.md"
+    paths:
+      - "app/components/**"
+      - "app/views/components/**"

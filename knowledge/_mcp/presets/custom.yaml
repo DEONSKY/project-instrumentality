@@ -1,0 +1,78 @@
+# Custom code_path_patterns template
+# Copy into knowledge/_rules.md → code_path_patterns and fill in your paths.
+#
+# Intent types (first match wins — put specific patterns before generic ones):
+#
+#   validation     → kb_target: validation/*.md
+#                    Matches form validators, DTOs, schema validators
+#
+#   form           → kb_target: features/{name}.md
+#                    Matches form/screen components — name is extracted
+#
+#   api-contract   → kb_target: features/{name}.api.md
+#                    Matches REST controllers, GraphQL resolvers, API handlers
+#
+#   data-model     → kb_target: data/schema/{name}.md
+#                    Matches DB models, entities, ORM schemas, migrations
+#
+#   service-logic  → kb_target: flows/{name}.md
+#                    Matches business logic services, use-cases, domain objects
+#
+#   route-guard    → kb_target: flows/{name}.guards.md
+#                    Matches auth middleware, guards, permissions, policies
+#
+#   component      → kb_target: ui/components.md
+#                    Matches reusable UI components (catch-all)
+#
+# name_extraction (optional — used when kb_target contains {name}):
+#   strip_suffix:  [List, of, suffixes, to, remove]
+#   strip_prefix:  [List, of, prefixes, to, remove]
+#   case:          kebab | snake | camel
+#
+# Glob syntax: ** matches any path segment, * matches within one segment.
+
+code_path_patterns:
+  - intent: validation
+    kb_target: "validation/common.md"
+    paths:
+      - "src/validators/**"
+      # Add your validator paths here
+
+  - intent: form
+    kb_target: "features/{name}.md"
+    paths:
+      - "src/components/**Form*"
+      # Add your form component paths here
+    name_extraction:
+      strip_suffix: [Form, Screen, Page, View, Container]
+      case: kebab
+
+  - intent: api-contract
+    kb_target: "features/{name}.api.md"
+    paths:
+      - "src/api/**"
+      # Add your API handler paths here
+
+  - intent: data-model
+    kb_target: "data/schema/{name}.md"
+    paths:
+      - "src/models/**"
+      # Add your model paths here
+
+  - intent: service-logic
+    kb_target: "flows/{name}.md"
+    paths:
+      - "src/services/**"
+      # Add your service paths here
+
+  - intent: route-guard
+    kb_target: "flows/{name}.guards.md"
+    paths:
+      - "src/middleware/**"
+      # Add your guard/middleware paths here
+
+  - intent: component
+    kb_target: "ui/components.md"
+    paths:
+      - "src/components/**"
+      # Add your component paths here

@@ -1,0 +1,53 @@
+# Django code_path_patterns preset
+# Copy relevant sections into knowledge/_rules.md → code_path_patterns
+
+code_path_patterns:
+  - intent: validation
+    kb_target: "validation/common.md"
+    paths:
+      - "*/forms.py"
+      - "*/serializers.py"
+      - "*/validators.py"
+
+  - intent: api-contract
+    kb_target: "features/{name}.api.md"
+    paths:
+      - "*/views.py"
+      - "*/viewsets.py"
+      - "*/api/views.py"
+      - "*/api/*.py"
+    name_extraction:
+      strip_suffix: [ViewSet, View, APIView, ListAPIView, RetrieveAPIView]
+      case: kebab
+
+  - intent: data-model
+    kb_target: "data/schema/{name}.md"
+    paths:
+      - "*/models.py"
+      - "*/models/*.py"
+    name_extraction:
+      strip_suffix: [Model]
+      case: kebab
+
+  - intent: service-logic
+    kb_target: "flows/{name}.md"
+    paths:
+      - "*/services.py"
+      - "*/services/*.py"
+      - "*/tasks.py"
+      - "*/tasks/*.py"
+
+  - intent: route-guard
+    kb_target: "flows/{name}.guards.md"
+    paths:
+      - "*/permissions.py"
+      - "*/middleware.py"
+      - "*/decorators.py"
+
+  - intent: form
+    kb_target: "features/{name}.md"
+    paths:
+      - "*/forms.py"
+    name_extraction:
+      strip_suffix: [Form, ModelForm]
+      case: kebab

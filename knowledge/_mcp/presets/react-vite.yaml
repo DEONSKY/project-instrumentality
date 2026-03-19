@@ -1,0 +1,55 @@
+# React + Vite code_path_patterns preset
+# Copy relevant sections into knowledge/_rules.md → code_path_patterns
+
+code_path_patterns:
+  - intent: validation
+    kb_target: "validation/common.md"
+    paths:
+      - "src/validators/**"
+      - "src/utils/validators/**"
+      - "src/schemas/**"
+
+  - intent: form
+    kb_target: "features/{name}.md"
+    paths:
+      - "src/components/**Form*"
+      - "src/features/**/components/**Form*"
+    name_extraction:
+      strip_suffix: [Form, Screen, Page, View, Container, Component]
+      case: kebab
+
+  - intent: api-contract
+    kb_target: "features/{name}.api.md"
+    paths:
+      - "src/api/**"
+      - "src/services/api/**"
+      - "src/hooks/use*Query*"
+      - "src/hooks/use*Mutation*"
+    name_extraction:
+      strip_prefix: [use]
+      strip_suffix: [Query, Mutation, Api]
+      case: kebab
+
+  - intent: data-model
+    kb_target: "data/schema/{name}.md"
+    paths:
+      - "src/models/**"
+      - "src/types/models/**"
+
+  - intent: service-logic
+    kb_target: "flows/{name}.md"
+    paths:
+      - "src/services/**"
+      - "src/features/**/services/**"
+
+  - intent: route-guard
+    kb_target: "flows/{name}.guards.md"
+    paths:
+      - "src/router/**"
+      - "src/routes/**"
+
+  - intent: component
+    kb_target: "ui/components.md"
+    paths:
+      - "src/components/**"
+      - "src/ui/**"
