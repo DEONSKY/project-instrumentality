@@ -55,12 +55,14 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'kb_drift',
-    description: 'Phase 1: Detect changed code files and return drift-summary prompts for the agent to process. Phase 2: Call with summaries=[{kb_target,summary}] to write notes to _index.yaml.',
+    description: 'Bidirectional drift detection. Phase 1: writes entries to sync/code-drift.md (keyed by KB target, tracks all code files + since-commit) and sync/kb-drift.md (keyed by KB file). Multiple commits accumulate automatically. Phase 2: summaries=KB updated, reverted=code file reverted, kb_confirmed=kb→code reviewed. To review pending entries: read the queue files then fetch diffs with git show.',
     inputSchema: {
       type: 'object',
       properties: {
         since: { type: 'string', description: 'Commit SHA or "last-sync"', default: 'last-sync' },
-        summaries: { type: 'array', description: 'Phase 2: agent-generated summaries to write as notes', items: { type: 'object', properties: { kb_target: { type: 'string' }, summary: { type: 'string' } }, required: ['kb_target', 'summary'] } }
+        summaries: { type: 'array', description: 'Phase 2a: code correct — write KB notes and close code-drift.md entries', items: { type: 'object', properties: { kb_target: { type: 'string' }, summary: { type: 'string' } }, required: ['kb_target', 'summary'] } },
+        reverted: { type: 'array', description: 'Phase 2b: code reverted — close code-drift.md entries without writing KB notes', items: { type: 'object', properties: { code_file: { type: 'string' } }, required: ['code_file'] } },
+        kb_confirmed: { type: 'array', description: 'Phase 2c: kb→code reviewed — close kb-drift.md entries', items: { type: 'object', properties: { kb_file: { type: 'string' } }, required: ['kb_file'] } }
       }
     }
   },

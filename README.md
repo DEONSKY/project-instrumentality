@@ -91,7 +91,7 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | `kb_reindex` | Rebuild `_index.yaml` from all KB files, run lint |
 | `kb_scaffold` | Create a new KB file from template. Two-phase when `description` is given: returns a fill prompt → agent fills → writes |
 | `kb_ask` | Ask a question about the KB. Classifies intent (query / brainstorm / challenge / onboard) and returns relevant context |
-| `kb_drift` | Two-phase drift detection: Phase 1 finds code changes without matching KB updates → returns summary prompts. Phase 2 writes summaries as notes |
+| `kb_drift` | Bidirectional drift detection. Phase 1: code→kb (code changed, KB stale) and kb→code (KB changed, code may be stale). Writes to queue files in `sync/`. Phase 2: three resolution types — `summaries` (KB updated), `reverted` (code was wrong), `kb_confirmed` (kb→code reviewed) |
 | `kb_impact` | Analyze what KB files are affected by a proposed change, using the dependency graph |
 | `kb_import` | Two-phase: Phase 1 chunks a document (PDF, DOCX, MD, TXT, HTML) and returns classify prompts. Phase 2 writes agent-classified files |
 | `kb_export` | Export KB as JSON (direct), or Markdown / HTML / Confluence / DOCX / PDF (two-phase via agent) |
@@ -112,7 +112,7 @@ Agent calls kb_scaffold({ type: "feature", id: "checkout", content: "<filled con
   → Server writes the file
 ```
 
-Same pattern applies to `kb_drift`, `kb_import`, and `kb_export`.
+Same pattern applies to `kb_import` and `kb_export`. `kb_drift` works differently — Phase 1 writes entries to queue files (no prompts returned). Review happens when PM or developer asks Claude to read the queue files; Claude fetches the git diff live and explains in plain English.
 
 ---
 
@@ -136,18 +136,61 @@ You're about to build a payment flow. Load relevant context first, then scaffold
 
 ### 2. Keeping KB in sync after code changes
 
-You merged a PR that changed the auth service. Run drift detection to see what KB docs need updating.
+Drift detection is bidirectional and PM-gated. Code changes don't update the KB automatically — a PM or tech lead reviews the queue first.
+
+**code→kb** (code changed, KB may be stale):
 
 ```
-"Check for drift since last sync"
-→ kb_drift({ since: "last-sync" })
-→ Returns list of changed files with summary prompts
+git push
+→ pre-push hook writes entry to knowledge/sync/code-drift.md:
 
-Agent reads each prompt and writes summaries
+  ## features/user-auth.md
+  - KB target: features/user-auth.md
+  - Code files:
+    - src/auth/tokenService.ts — since a1b2c3d (2026-03-20)
+  - Status: pending-review
 
-"Apply drift summaries"
-→ kb_drift({ summaries: [{ kb_target: "features/user-auth.md", summary: "Token expiry reduced to 24h, refresh flow now uses rotating tokens" }] })
-→ Server writes notes to _index.yaml
+PM opens Claude: "review code-drift.md"
+→ Claude fetches: git diff a1b2c3d..HEAD -- src/auth/tokenService.ts
+→ Explains in plain English: "token expiry changed from 7d to 24h, refresh tokens now rotate"
+→ PM decides
+
+"The change is correct, update the KB"
+→ kb_drift({ summaries: [{ kb_target: "features/user-auth.md", summary: "Token expiry reduced to 24h, refresh tokens now rotate" }] })
+→ Entry removed from code-drift.md, KB note written, resolution logged to drift-log.md
+```
+
+Multiple commits to the same file before PM reviews — no duplicate entries. Claude always fetches `git diff since..HEAD` so it sees all accumulated changes.
+
+If the code was wrong instead:
+```
+PM: "That change was a mistake, it will be reverted"
+→ kb_drift({ reverted: [{ code_file: "src/auth/tokenService.ts" }] })
+→ Code file removed from entry, no KB update written
+```
+
+**kb→code** (KB spec changed, code may be stale):
+
+```
+PM updates knowledge/features/checkout.md and pushes
+→ pre-push hook writes entry to knowledge/sync/kb-drift.md:
+
+  ## features/checkout.md
+  - KB file: features/checkout.md
+  - Code areas to review:
+    - src/app/api/checkout/**
+    - src/components/**Form*
+  - Since: c3d4e5f (2026-03-20)
+  - Status: pending-review
+
+Developer opens Claude: "review kb-drift.md"
+→ Claude fetches: git diff c3d4e5f..HEAD -- knowledge/features/checkout.md
+→ Explains what spec changed in plain English
+→ Developer checks the listed code areas
+
+"Code already matches the updated spec"
+→ kb_drift({ kb_confirmed: [{ kb_file: "features/checkout.md" }] })
+→ Entry closed, resolution logged to drift-log.md
 ```
 
 ---
@@ -240,10 +283,48 @@ All prompts used by the tools are in `knowledge/_templates/prompts/`. To overrid
 
 `kb_init` installs:
 
-- **Pre-commit hook** — lints KB files (warns, never blocks)
-- **Pre-push hook** — runs drift detection
+- **Pre-commit hook** — lints KB files (warns, never blocks); warns if Tier 1 auto-generated files are staged
+- **Pre-push hook** — runs bidirectional drift detection; appends entries to `sync/code-drift.md` (code changed) and `sync/kb-drift.md` (KB changed)
 - **Post-merge hook** — rebuilds `_index.yaml` after pulls
 - **Merge drivers** — `kb-reindex` for `_index.yaml`, `kb-conflict` for feature/flow files, `union` for sync logs
+
+---
+
+## File ownership
+
+Files in `knowledge/` have three ownership tiers. Violating them causes silent data loss — the server overwrites manual edits on the next tool run.
+
+### Tier 1 — Agent only, never edit manually
+
+| File | Managed by |
+|------|-----------|
+| `_index.yaml` | `kb_reindex` (runs after every `kb_write`) |
+| `sync/drift-log.md` | `kb_drift` Phase 2 — append-only audit trail |
+| `sync/changelog.md` | `kb_reindex` — auto-generated change history |
+
+The pre-commit hook warns if any of these are staged. `_index.yaml` has a `# AUTO-GENERATED` header that `kb_lint` checks for.
+
+### Tier 2 — Humans directly, no agent needed
+
+| File | Purpose |
+|------|---------|
+| `_rules.md` | Project config — depth policy, code path patterns, secrets |
+| `_templates/` | Customize KB file templates |
+| `_prompt-overrides/` | Override bundled prompts for your project |
+| `features/*.md`, `flows/*.md`, etc. | KB content — developers and PMs edit directly; agent can too |
+
+### Tier 3 — Shared / hybrid
+
+Written by the server automatically, reviewed and resolved by humans via Claude.
+
+| File | Written by | Human role |
+|------|-----------|------------|
+| `sync/code-drift.md` | pre-push hook (code changed) | PM decides: update KB or revert code |
+| `sync/kb-drift.md` | pre-push hook (KB changed) | Developer confirms code still matches |
+| `sync/review-queue.md` | lint violations, challenge intent, merge conflicts | Add notes, resolve via Claude |
+| `sync/import-review.md` | `kb_import` | Classify unresolved chunks via Claude |
+
+Do not delete entries from Tier 3 files manually — always resolve through `kb_drift` or the relevant tool so the resolution is logged to `drift-log.md`.
 
 ---
 

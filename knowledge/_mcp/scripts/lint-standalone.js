@@ -96,8 +96,17 @@ function lintFile(filePath, rules) {
     return [{ file: filePath, severity: 'error', message: `Cannot read: ${e.message}` }]
   }
 
-  // Skip index and rules
-  if (filePath.endsWith('_index.yaml') || filePath.endsWith('_rules.md')) return []
+  // Skip rules
+  if (filePath.endsWith('_rules.md')) return []
+
+  // Tier 1: _index.yaml must have AUTO-GENERATED header
+  if (filePath.endsWith('_index.yaml')) {
+    const firstLine = content.split('\n')[0] || ''
+    if (!firstLine.startsWith('# AUTO-GENERATED')) {
+      violations.push({ file: filePath, severity: 'warn', message: '_index.yaml missing AUTO-GENERATED header — was it edited manually? Run kb_reindex to restore.' })
+    }
+    return violations
+  }
 
   // Conflict markers
   if (content.includes('<<<<<<<')) {
@@ -169,7 +178,8 @@ function collectKBFiles() {
       if (entry.isDirectory()) {
         if (!SKIP_DIRS.has(entry.name)) walk(full)
       } else if (entry.name.endsWith('.md')) {
-        files.push(full)
+        const SYNC_SKIP = new Set(['drift-log.md', 'changelog.md', 'code-drift.md', 'kb-drift.md'])
+        if (!SYNC_SKIP.has(entry.name)) files.push(full)
       }
     })
   }

@@ -47,8 +47,17 @@ function lintFile(filePath, rules, graph) {
     return [{ file: filePath, line: 0, severity: 'error', message: `Cannot read file: ${e.message}` }]
   }
 
-  // Skip _index.yaml and non-KB files
-  if (filePath.endsWith('_index.yaml') || filePath.endsWith('_rules.md')) return []
+  // Skip rules file
+  if (filePath.endsWith('_rules.md')) return []
+
+  // Tier 1: _index.yaml must have AUTO-GENERATED header
+  if (filePath.endsWith('_index.yaml')) {
+    const firstLine = content.split('\n')[0] || ''
+    if (!firstLine.startsWith('# AUTO-GENERATED')) {
+      return [{ file: filePath, line: 1, severity: 'warn', message: '_index.yaml missing AUTO-GENERATED header — was it edited manually? Run kb_reindex to restore.' }]
+    }
+    return []
+  }
 
   // Check for conflict markers
   if (content.includes('<<<<<<<')) {
@@ -191,7 +200,8 @@ function collectKBFiles() {
       } else if (entry.name.endsWith('.md')) {
         // Skip sync stub files that intentionally have no front-matter
         if (entry.name === 'drift-log.md' || entry.name === 'review-queue.md' ||
-            entry.name === 'changelog.md' || entry.name === 'import-review.md') return
+            entry.name === 'changelog.md' || entry.name === 'import-review.md' ||
+            entry.name === 'code-drift.md' || entry.name === 'kb-drift.md') return
         files.push(full)
       }
     })
