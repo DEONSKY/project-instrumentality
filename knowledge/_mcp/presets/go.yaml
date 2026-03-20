@@ -1,0 +1,112 @@
+# Go backend code_path_patterns preset
+# Works with standard Go project layouts (github.com/golang-standards/project-layout)
+# Copy relevant sections into knowledge/_rules.md → code_path_patterns
+
+code_path_patterns:
+  - intent: validation
+    kb_target: "validation/common.md"
+    paths:
+      - "internal/**/validator/**"
+      - "internal/**/validation/**"
+      - "pkg/**/validator/**"
+      - "internal/**/*_validator.go"
+      - "internal/**/*_validation.go"
+
+  - intent: api-contract
+    kb_target: "features/{name}.api.md"
+    paths:
+      - "internal/**/handler/**"
+      - "internal/**/handlers/**"
+      - "internal/**/*_handler.go"
+      - "internal/**/controller/**"
+      - "internal/**/*_controller.go"
+      - "api/**/*.go"
+    name_extraction:
+      strip_suffix: [Handler, Controller, Resource]
+      case: kebab
+
+  - intent: data-model
+    kb_target: "data/schema/{name}.md"
+    paths:
+      - "internal/**/model/**"
+      - "internal/**/models/**"
+      - "internal/**/*_model.go"
+      - "internal/**/entity/**"
+      - "internal/**/*_entity.go"
+      - "internal/**/domain/**"
+      - "db/migrations/**"
+      - "migrations/**"
+    name_extraction:
+      strip_suffix: [Model, Entity]
+      case: kebab
+
+  - intent: service-logic
+    kb_target: "flows/{name}.md"
+    paths:
+      - "internal/**/service/**"
+      - "internal/**/services/**"
+      - "internal/**/*_service.go"
+      - "internal/**/usecase/**"
+      - "internal/**/*_usecase.go"
+    name_extraction:
+      strip_suffix: [Service, Usecase, UseCase]
+      case: kebab
+
+  - intent: route-guard
+    kb_target: "flows/{name}.guards.md"
+    paths:
+      - "internal/**/middleware/**"
+      - "internal/**/*_middleware.go"
+      - "internal/**/auth/**"
+      - "internal/**/*_auth.go"
+
+  - intent: repository
+    kb_target: "data/schema/{name}.md"
+    paths:
+      - "internal/**/repository/**"
+      - "internal/**/repo/**"
+      - "internal/**/*_repository.go"
+      - "internal/**/*_repo.go"
+      - "internal/**/store/**"
+      - "internal/**/*_store.go"
+    name_extraction:
+      strip_suffix: [Repository, Repo, Store]
+      case: kebab
+
+  - intent: integration
+    kb_target: "integrations/{name}.md"
+    paths:
+      - "internal/**/client/**"
+      - "internal/**/*_client.go"
+      - "internal/**/external/**"
+      - "pkg/**/client/**"
+    name_extraction:
+      strip_suffix: [Client]
+      case: kebab
+
+  - intent: event-messaging
+    kb_target: "flows/{name}.events.md"
+    paths:
+      - "internal/**/consumer/**"
+      - "internal/**/*_consumer.go"
+      - "internal/**/producer/**"
+      - "internal/**/*_producer.go"
+      - "internal/**/worker/**"
+      - "internal/**/*_worker.go"
+      - "internal/**/kafka/**"
+      - "internal/**/queue/**"
+      - "internal/**/pubsub/**"
+    name_extraction:
+      strip_suffix: [Consumer, Producer, Worker]
+      case: kebab
+
+  - intent: grpc
+    kb_target: "integrations/{name}.grpc.md"
+    paths:
+      - "proto/**/*.proto"
+      - "internal/**/*_grpc.go"
+      - "internal/**/grpc/**"
+      - "api/grpc/**"
+    name_extraction:
+      strip_suffix: [Server, Client, Service]
+      case: kebab

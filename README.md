@@ -221,6 +221,8 @@ Export the full KB as a Markdown document to share with non-technical stakeholde
 - `django.yaml`
 - `rails.yaml`
 - `nestjs.yaml`
+- `spring-boot.yaml`
+- `go.yaml`
 - `monorepo.yaml`
 - `custom.yaml`
 

@@ -1,0 +1,95 @@
+# Spring Boot code_path_patterns preset
+# Copy relevant sections into knowledge/_rules.md → code_path_patterns
+
+code_path_patterns:
+  - intent: validation
+    kb_target: "validation/common.md"
+    paths:
+      - "src/main/java/**/*Request.java"
+      - "src/main/java/**/*RequestDto.java"
+      - "src/main/java/**/*Form.java"
+      - "src/main/java/**/validator/**"
+      - "src/main/java/**/validation/**"
+
+  - intent: api-contract
+    kb_target: "features/{name}.api.md"
+    paths:
+      - "src/main/java/**/*Controller.java"
+      - "src/main/java/**/*RestController.java"
+      - "src/main/java/**/controller/**"
+      - "src/main/java/**/web/**"
+    name_extraction:
+      strip_suffix: [Controller, RestController, Resource]
+      case: kebab
+
+  - intent: data-model
+    kb_target: "data/schema/{name}.md"
+    paths:
+      - "src/main/java/**/*Entity.java"
+      - "src/main/java/**/*Model.java"
+      - "src/main/java/**/entity/**"
+      - "src/main/java/**/model/**"
+      - "src/main/java/**/domain/**"
+      - "src/main/resources/**/migration/**"
+      - "src/main/resources/db/migration/**"
+    name_extraction:
+      strip_suffix: [Entity, Model]
+      case: kebab
+
+  - intent: service-logic
+    kb_target: "flows/{name}.md"
+    paths:
+      - "src/main/java/**/*Service.java"
+      - "src/main/java/**/*ServiceImpl.java"
+      - "src/main/java/**/service/**"
+    name_extraction:
+      strip_suffix: [Service, ServiceImpl]
+      case: kebab
+
+  - intent: route-guard
+    kb_target: "flows/{name}.guards.md"
+    paths:
+      - "src/main/java/**/*Filter.java"
+      - "src/main/java/**/*Interceptor.java"
+      - "src/main/java/**/*SecurityConfig.java"
+      - "src/main/java/**/security/**"
+      - "src/main/java/**/config/Security*.java"
+    name_extraction:
+      strip_suffix: [Filter, Interceptor, SecurityConfig, Config]
+      case: kebab
+
+  - intent: integration
+    kb_target: "integrations/{name}.md"
+    paths:
+      - "src/main/java/**/*Client.java"
+      - "src/main/java/**/*FeignClient.java"
+      - "src/main/java/**/client/**"
+      - "src/main/java/**/external/**"
+      - "src/main/java/**/feign/**"
+    name_extraction:
+      strip_suffix: [Client, FeignClient]
+      case: kebab
+
+  - intent: event-messaging
+    kb_target: "flows/{name}.events.md"
+    paths:
+      - "src/main/java/**/*Consumer.java"
+      - "src/main/java/**/*Producer.java"
+      - "src/main/java/**/*Listener.java"
+      - "src/main/java/**/*EventHandler.java"
+      - "src/main/java/**/kafka/**"
+      - "src/main/java/**/messaging/**"
+      - "src/main/java/**/event/**"
+    name_extraction:
+      strip_suffix: [Consumer, Producer, Listener, EventHandler]
+      case: kebab
+
+  - intent: repository
+    kb_target: "data/schema/{name}.md"
+    paths:
+      - "src/main/java/**/*Repository.java"
+      - "src/main/java/**/*Dao.java"
+      - "src/main/java/**/repository/**"
+    name_extraction:
+      strip_suffix: [Repository, JpaRepository, Dao]
+      case: kebab
