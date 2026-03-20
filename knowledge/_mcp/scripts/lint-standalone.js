@@ -13,7 +13,7 @@ const matter = require('gray-matter')
 
 const KB_ROOT = 'knowledge'
 const REQUIRED_FRONTMATTER = ['id', 'app_scope', 'created']
-const SKIP_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules'])
+const SKIP_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules', '_templates', 'sync'])
 
 // ─── Rules loading (inline — no require('../lib/rules') to stay standalone) ───
 
@@ -78,8 +78,10 @@ function getMaxDepth(filePath, rules) {
 // ─── @mention extraction ──────────────────────────────────────────────────────
 
 function extractMentions(content) {
+  // Strip fenced code blocks before scanning to avoid matching @user in URLs/connection strings
+  const stripped = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '')
   const regex = /@[\w/-]+(?:#[\w-]+)?/g
-  return [...new Set(content.match(regex) || [])]
+  return [...new Set(stripped.match(regex) || [])]
 }
 
 // ─── Lint a single file ───────────────────────────────────────────────────────

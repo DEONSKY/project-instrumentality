@@ -9,9 +9,10 @@ const { runTool: reindex } = require('./reindex')
 const KB_ROOT = 'knowledge'
 
 /**
- * kb_drift — Two-phase drift detection.
+ * kb_drift — Two-phase drift detection. Supports plain repos and git submodule monorepos.
  *
  * Phase 1 (no summaries): Classify changed code files against code_path_patterns.
+ *   Detects changes in the main repo AND in any git submodules (.gitmodules).
  *   Returns { manifests, prompts } — the calling agent processes the prompts
  *   and generates summaries, then calls kb_drift({ summaries }) to write notes.
  *
@@ -21,34 +22,53 @@ const KB_ROOT = 'knowledge'
 async function runTool({ since = 'last-sync', summaries } = {}) {
   // ── Phase 2: write notes from agent-generated summaries ───────────────────
   if (summaries && Array.isArray(summaries)) {
-    return applyDriftSummaries(summaries, since)
+    return applyDriftSummaries(summaries)
   }
 
   // ── Phase 1: classify changed files, return prompts for agent ──────────────
-  const git = simpleGit(process.cwd())
+  const mainGit = simpleGit(process.cwd())
   const rules = loadRules(KB_ROOT)
+  const ref = since === 'last-sync' ? 'HEAD~1' : since
 
-  let changedFiles = []
+  // Collect changed files from main repo + all submodules
+  let changedEntries = [] // [{ file, git, localFile }]
+
   try {
-    const diffResult = await git.diff(['--name-only', since === 'last-sync' ? 'HEAD~1' : since, 'HEAD'])
-    changedFiles = diffResult.split('\n').filter(f => f.trim())
+    const mainFiles = await getChangedFiles(mainGit, ref)
+    changedEntries.push(...mainFiles.map(f => ({ file: f, git: mainGit, localFile: f })))
   } catch (e) {
     return { notes_written: 0, manifests: [], error: e.message }
+  }
+
+  const submodules = await detectSubmodules()
+  for (const sub of submodules) {
+    try {
+      const subGit = simpleGit(sub.fullPath)
+      const subFiles = await getChangedFiles(subGit, ref)
+      changedEntries.push(...subFiles.map(f => ({
+        file: `${sub.path}/${f}`,  // prefix with submodule path for pattern matching
+        git: subGit,
+        localFile: f               // local path within the submodule for diffs
+      })))
+    } catch {
+      // submodule may not have enough history — skip silently
+    }
   }
 
   const patterns = rules.getCodePathPatterns()
   const manifests = []
 
-  for (const codeFile of changedFiles) {
-    if (codeFile.startsWith('knowledge/')) continue
-    const match = matchPattern(codeFile, patterns)
+  for (const entry of changedEntries) {
+    if (entry.file.startsWith('knowledge/')) continue
+    const match = matchPattern(entry.file, patterns)
     if (!match) continue
-    const kbTarget = resolveKbTarget(match, codeFile)
-    manifests.push({ code_file: codeFile, kb_target: kbTarget, intent: match.intent })
+    const kbTarget = resolveKbTarget(match, entry.file)
+    manifests.push({ code_file: entry.file, kb_target: kbTarget, intent: match.intent, _entry: entry })
   }
 
   if (manifests.length === 0) {
-    return { notes_written: 0, manifests: [], message: 'No code changes matched KB targets.' }
+    const submoduleInfo = submodules.length > 0 ? ` (checked ${submodules.length} submodule(s): ${submodules.map(s => s.path).join(', ')})` : ''
+    return { notes_written: 0, manifests: [], message: `No code changes matched KB targets.${submoduleInfo}` }
   }
 
   // One prompt per unique kb_target
@@ -63,7 +83,9 @@ async function runTool({ since = 'last-sync', summaries } = {}) {
 
     let codeDiff = ''
     try {
-      codeDiff = await git.diff([since === 'last-sync' ? 'HEAD~1' : since, 'HEAD', '--', manifest.code_file])
+      // Use the git instance that owns this file (main repo or submodule)
+      const { git, localFile } = manifest._entry
+      codeDiff = await git.diff([ref, 'HEAD', '--', localFile])
     } catch (e) {
       codeDiff = `(diff unavailable: ${e.message})`
     }
@@ -81,9 +103,13 @@ async function runTool({ since = 'last-sync', summaries } = {}) {
     }
   }
 
+  // Strip internal _entry before returning
+  const cleanManifests = manifests.map(({ _entry, ...rest }) => rest)
+
   return {
-    manifests,
+    manifests: cleanManifests,
     prompts,
+    submodules_checked: submodules.map(s => s.path),
     _instruction: [
       'For each entry in prompts[], read the prompt and generate a 1-sentence drift summary.',
       'Then call kb_drift({ summaries: [{ kb_target, summary }] }) to write the notes.'
@@ -91,7 +117,36 @@ async function runTool({ since = 'last-sync', summaries } = {}) {
   }
 }
 
-async function applyDriftSummaries(summaries, since) {
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+async function getChangedFiles(git, ref) {
+  const result = await git.diff(['--name-only', ref, 'HEAD'])
+  return result.split('\n').filter(f => f.trim())
+}
+
+/**
+ * Parse .gitmodules and return submodule descriptors.
+ * Returns [] if no .gitmodules exists or it has no valid entries.
+ */
+async function detectSubmodules() {
+  const gitmodulesPath = path.join(process.cwd(), '.gitmodules')
+  if (!fs.existsSync(gitmodulesPath)) return []
+
+  const content = fs.readFileSync(gitmodulesPath, 'utf8')
+  const submodules = []
+
+  for (const match of content.matchAll(/\[submodule\s+"([^"]+)"\][^\[]*path\s*=\s*(.+)/g)) {
+    const subPath = match[2].trim()
+    const fullPath = path.join(process.cwd(), subPath)
+    if (fs.existsSync(fullPath)) {
+      submodules.push({ name: match[1].trim(), path: subPath, fullPath })
+    }
+  }
+
+  return submodules
+}
+
+async function applyDriftSummaries(summaries) {
   const git = simpleGit(process.cwd())
   const graph = loadGraph(KB_ROOT)
 

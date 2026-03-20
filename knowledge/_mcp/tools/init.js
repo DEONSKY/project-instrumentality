@@ -62,7 +62,39 @@ LOCAL="knowledge/_mcp/server.js"
 BUNDLED="${_SERVER_SCRIPT}"
 SERVER="$LOCAL"
 [ -f "$BUNDLED" ] && SERVER="$BUNDLED"
-node -e "require('$SERVER/../tools/drift').runTool({})" 2>/dev/null || true
+node -e "
+const fs = require('fs');
+const drift = require('$SERVER/../tools/drift');
+drift.runTool({}).then(result => {
+  if (result.error) {
+    process.stderr.write('[kb-drift] skipped: ' + result.error + '\\\\n');
+    return;
+  }
+  if (result.message) {
+    process.stderr.write('[kb-drift] ' + result.message + '\\\\n');
+    return;
+  }
+  if (result.manifests && result.manifests.length > 0) {
+    const date = new Date().toISOString().split('T')[0];
+    const lines = ['', '## ' + date, ''];
+    result.manifests.forEach(m => {
+      lines.push('- \`' + m.code_file + '\` → \`' + m.kb_target + '\` (' + m.intent + ')');
+    });
+    lines.push('');
+    lines.push('> Run \`kb_drift\` in Claude to generate and write sync notes.');
+    lines.push('');
+    const logPath = 'knowledge/sync/drift-log.md';
+    if (fs.existsSync(logPath)) {
+      fs.appendFileSync(logPath, lines.join('\\\\n'));
+    }
+    process.stderr.write('[kb-drift] drift detected in ' + result.manifests.length + ' file(s):\\\\n');
+    result.manifests.forEach(m => {
+      process.stderr.write('[kb-drift]   ' + m.code_file + ' -> ' + m.kb_target + '\\\\n');
+    });
+    process.stderr.write('[kb-drift] Written to knowledge/sync/drift-log.md — run kb_drift in Claude to sync.\\\\n');
+  }
+}).catch(() => {});
+" 2>&1 || true
 `
 
 const POST_MERGE_HOOK = `#!/bin/sh
@@ -135,29 +167,43 @@ async function runTool({ interactive = true, config = null } = {}) {
     filesCreated.push(gitAttrPath)
   }
 
-  // 6. Install git hooks
+  // 6. Ensure git repo exists — auto-init if not (hooks require .git)
+  let gitInitialized = false
+  if (!fs.existsSync('.git')) {
+    const { execSync } = require('child_process')
+    try {
+      execSync('git init', { cwd: process.cwd(), stdio: 'ignore' })
+      gitInitialized = true
+      console.log('[kb-init] No git repository found — ran `git init` automatically.')
+    } catch (e) {
+      console.warn('[kb-init] Could not run `git init`:', e.message)
+    }
+  }
+
+  // 7. Install git hooks
   const hooksInstalled = installGitHooks()
 
-  // 7. Install git merge drivers in .git/config
+  // 8. Install git merge drivers in .git/config
   installMergeDrivers()
 
-  // 8. Write .cursor/mcp.json
+  // 9. Write .cursor/mcp.json
   const cursorDir = '.cursor'
   if (!fs.existsSync(cursorDir)) fs.mkdirSync(cursorDir, { recursive: true })
   fs.writeFileSync(path.join(cursorDir, 'mcp.json'), JSON.stringify(CURSOR_MCP, null, 2))
   filesCreated.push('.cursor/mcp.json')
 
-  // 9. Generate initial _index.yaml
+  // 10. Generate initial _index.yaml
   await reindex({ silent: true })
   filesCreated.push(path.join(KB_ROOT, '_index.yaml'))
 
-  // 10. Print setup guide
+  // 11. Print setup guide
   printSetupGuide(cfg)
 
   return {
     setup_complete: true,
     files_created: filesCreated,
-    hooks_installed: hooksInstalled
+    hooks_installed: hooksInstalled,
+    ...(gitInitialized && { git_initialized: true, note: '`git init` was run automatically — remember to set your remote with `git remote add origin <url>`' })
   }
 }
 
@@ -185,6 +231,7 @@ function generateRulesContent(cfg) {
   return `---
 version: "1.0"
 project_name: "${cfg.projectName || 'My Project'}"
+app_names: [${appNames}]
 
 depth_policy:
   default_max: 3
@@ -356,6 +403,7 @@ function printSetupGuide(cfg) {
   console.log(`
 ╔══════════════════════════════════════════════════════╗
 ║           KB-MCP Setup Complete                      ║
+║  Project: ${(cfg.projectName || 'My Project').padEnd(42)}║
 ╚══════════════════════════════════════════════════════╝
 
 Next steps:
