@@ -63,6 +63,21 @@ Explain what spec changed. Check whether the listed code areas still match.
 
 ---
 
+---
+
+**Step 4 — internal consistency check** (always run before closing any entry):
+
+Before calling `kb_drift` to close the entry, scan the KB file for contradictions within the document itself:
+
+- Does the ## Description say a different value than ## Business rules for the same thing?
+- Does any number, limit, endpoint path, or field name appear in two sections with different values?
+- Does the ## Changelog reflect the change that was just described?
+
+If you find a contradiction, **do not close the drift entry**. Instead report:
+> "Internal inconsistency found: ## Description says X but ## Business rules says Y. Please correct the KB file first, then re-run sync."
+
+---
+
 ## Summary format
 
 When writing drift summaries for `kb_drift`, use this format:

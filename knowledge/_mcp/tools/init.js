@@ -52,6 +52,7 @@ const _LINT_SCRIPT = path.join(__dirname, '../scripts/lint-standalone.js')
 const _SERVER_SCRIPT = path.join(__dirname, '../server.js')
 
 const PRE_COMMIT_HOOK = `#!/bin/sh
+# kb-mcp managed — updated by kb_init. Do not remove this line.
 # Warn if Tier 1 auto-generated files are staged
 STAGED=$(git diff --cached --name-only 2>/dev/null)
 TIER1=$(echo "$STAGED" | grep -E "knowledge/_index\\.yaml|knowledge/sync/drift-log/" || true)
@@ -69,6 +70,7 @@ fi
 `
 
 const PRE_PUSH_HOOK = `#!/bin/sh
+# kb-mcp managed — updated by kb_init. Do not remove this line.
 LOCAL="knowledge/_mcp/server.js"
 BUNDLED="${_SERVER_SCRIPT}"
 SERVER="$LOCAL"
@@ -87,9 +89,16 @@ drift.runTool({}).then(result => {
   if (result.message) process.stderr.write('[kb-drift] ' + result.message + '\\\\n');
 }).catch(() => {});
 " 2>&1 || true
+
+# Commit drift files so they travel with the push — PM sees them on remote immediately
+git add knowledge/sync/code-drift.md knowledge/sync/kb-drift.md 2>/dev/null || true
+if ! git diff --cached --quiet -- knowledge/sync/code-drift.md knowledge/sync/kb-drift.md 2>/dev/null; then
+  git commit -m "chore(kb): update drift queue" 2>/dev/null && printf '[kb-drift] drift queue committed — included in this push\\n' >&2 || true
+fi
 `
 
 const POST_MERGE_HOOK = `#!/bin/sh
+# kb-mcp managed — updated by kb_init. Do not remove this line.
 # 1. Rebuild _index.yaml
 LOCAL_REINDEX="knowledge/_mcp/tools/reindex.js"
 BUNDLED_REINDEX="${path.join(__dirname, '../tools/reindex.js')}"
@@ -121,6 +130,7 @@ fi
 `
 
 const POST_CHECKOUT_HOOK = `#!/bin/sh
+# kb-mcp managed — updated by kb_init. Do not remove this line.
 LOCAL="knowledge/_mcp/scripts/lint-standalone.js"
 BUNDLED="${_LINT_SCRIPT}"
 if [ -f "$LOCAL" ]; then node "$LOCAL"
@@ -131,7 +141,7 @@ fi
 async function runTool({ interactive = true, config = null } = {}) {
   let cfg = config
 
-  if (interactive && !cfg) {
+  if (interactive && !cfg && process.stdin.isTTY) {
     cfg = await promptConfig()
   } else if (!cfg) {
     cfg = getDefaultConfig()
@@ -357,10 +367,12 @@ function detectStackHints() {
     } catch { /* non-fatal — fall through to null */ }
   }
 
-  // Monorepo: multiple package.json in subdirs
+  // Monorepo: multiple package.json in subdirs (skip node_modules / hidden dirs)
   if (!hints.stack) {
+    const SKIP_SCAN = new Set(['node_modules', '.git', '.next', 'dist', 'build', 'out', 'coverage'])
     const subdirs = fs.readdirSync(cwd, { withFileTypes: true })
-      .filter(e => e.isDirectory() && fs.existsSync(path.join(cwd, e.name, 'package.json')))
+      .filter(e => e.isDirectory() && !e.name.startsWith('.') && !SKIP_SCAN.has(e.name) &&
+        fs.existsSync(path.join(cwd, e.name, 'package.json')))
     if (subdirs.length >= 2) hints.stack = 'monorepo'
   }
 
@@ -462,10 +474,13 @@ function installGitHooks() {
   const installed = []
   Object.entries(hooks).forEach(([name, content]) => {
     const hookPath = path.join(hooksDir, name)
-    if (!fs.existsSync(hookPath)) {
+    const exists = fs.existsSync(hookPath)
+    const isManagedByKb = exists && fs.readFileSync(hookPath, 'utf8').includes('# kb-mcp managed')
+
+    if (!exists || isManagedByKb) {
       fs.writeFileSync(hookPath, content)
       fs.chmodSync(hookPath, '755')
-      installed.push(name)
+      installed.push(exists ? `${name} (updated)` : name)
     }
   })
 
