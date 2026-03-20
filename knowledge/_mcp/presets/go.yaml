@@ -110,3 +110,16 @@ code_path_patterns:
     name_extraction:
       strip_suffix: [Server, Client, Service]
       case: kebab
+
+  - intent: dependency
+    kb_target: "foundation/tech-stack.md"
+    paths:
+      - "go.mod"
+      - "go.sum"
+
+  - intent: config
+    kb_target: "foundation/conventions.md"
+    paths:
+      - ".golangci.yml"
+      - ".golangci.yaml"
+      - "Makefile"

@@ -178,7 +178,7 @@ function collectKBFiles() {
       if (entry.isDirectory()) {
         if (!SKIP_DIRS.has(entry.name)) walk(full)
       } else if (entry.name.endsWith('.md')) {
-        const SYNC_SKIP = new Set(['drift-log.md', 'changelog.md', 'code-drift.md', 'kb-drift.md'])
+        const SYNC_SKIP = new Set(['code-drift.md', 'kb-drift.md'])
         if (!SYNC_SKIP.has(entry.name)) files.push(full)
       }
     })

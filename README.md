@@ -22,6 +22,12 @@ your-project/
     integrations/        ← third-party integrations
     decisions/           ← architectural decisions
     foundation/          ← tech stack, conventions, global rules
+    sync/
+      code-drift.md      ← code changed, KB may be stale (PM reviews)
+      kb-drift.md        ← KB changed, code may be stale (dev reviews)
+      review-queue.md    ← git merge conflicts on KB files
+      import-review.md   ← unclassified import chunks
+      drift-log/         ← resolved drift audit trail (one file per month)
     _index.yaml          ← auto-generated dependency graph
     _rules.md            ← KB configuration
     _mcp/                ← MCP server (do not edit)
@@ -96,7 +102,6 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | `kb_import` | Two-phase: Phase 1 chunks a document (PDF, DOCX, MD, TXT, HTML) and returns classify prompts. Phase 2 writes agent-classified files |
 | `kb_export` | Export KB as JSON (direct), or Markdown / HTML / Confluence / DOCX / PDF (two-phase via agent) |
 | `kb_migrate` | Migrate KB files after `_rules.md` structure changes |
-| `kb_note_resolve` | Resolve and remove a sync note from `_index.yaml` |
 
 ### Two-phase tools
 
@@ -138,6 +143,10 @@ You're about to build a payment flow. Load relevant context first, then scaffold
 
 Drift detection is bidirectional and PM-gated. Code changes don't update the KB automatically — a PM or tech lead reviews the queue first.
 
+Drift entries are written automatically by two hooks:
+- **pre-push** — when you push your branch
+- **post-merge** — when branches are merged (catches cross-branch semantic conflicts)
+
 **code→kb** (code changed, KB may be stale):
 
 ```
@@ -157,7 +166,7 @@ PM opens Claude: "review code-drift.md"
 
 "The change is correct, update the KB"
 → kb_drift({ summaries: [{ kb_target: "features/user-auth.md", summary: "Token expiry reduced to 24h, refresh tokens now rotate" }] })
-→ Entry removed from code-drift.md, KB note written, resolution logged to drift-log.md
+→ Entry removed from code-drift.md, KB note written, resolution logged to sync/drift-log/
 ```
 
 Multiple commits to the same file before PM reviews — no duplicate entries. Claude always fetches `git diff since..HEAD` so it sees all accumulated changes.
@@ -190,7 +199,7 @@ Developer opens Claude: "review kb-drift.md"
 
 "Code already matches the updated spec"
 → kb_drift({ kb_confirmed: [{ kb_file: "features/checkout.md" }] })
-→ Entry closed, resolution logged to drift-log.md
+→ Entry closed, resolution logged to sync/drift-log/
 ```
 
 ---
@@ -253,6 +262,36 @@ Export the full KB as a Markdown document to share with non-technical stakeholde
 
 ---
 
+### 7. Catching cross-branch semantic conflicts after a merge
+
+Two developers work in parallel. Neither causes a git conflict, but together they create an inconsistency.
+
+```
+Dev A (branch: feature/new-auth):
+→ Updates knowledge/features/user-auth.md
+  "Session tokens now expire after 24h, refresh tokens rotate on every use"
+
+Dev B (branch: fix/auth-service):
+→ Updates src/auth/tokenService.ts
+  (still implements 7-day expiry, rotation disabled)
+
+Both branches merge to main — git has no conflict (different files)
+
+→ post-merge hook runs drift from ORIG_HEAD:
+  - sees user-auth.md changed on one branch → writes entry to kb-drift.md
+  - sees tokenService.ts changed on other branch → writes entry to code-drift.md
+
+Developer opens Claude: "review kb-drift.md"
+→ Claude fetches git diff, explains: "KB now requires 24h expiry and rotating refresh tokens"
+→ Developer updates tokenService.ts to match
+
+PM opens Claude: "review code-drift.md"
+→ Claude fetches git diff, explains what changed in tokenService.ts
+→ PM approves: kb_drift({ summaries: [{ kb_target: "features/user-auth.md", summary: "..." }] })
+```
+
+---
+
 ## Presets
 
 `_rules.md` controls how drift detection maps your codebase to KB files. Presets for common stacks are in `knowledge/_mcp/presets/`:
@@ -285,7 +324,7 @@ All prompts used by the tools are in `knowledge/_templates/prompts/`. To overrid
 
 - **Pre-commit hook** — lints KB files (warns, never blocks); warns if Tier 1 auto-generated files are staged
 - **Pre-push hook** — runs bidirectional drift detection; appends entries to `sync/code-drift.md` (code changed) and `sync/kb-drift.md` (KB changed)
-- **Post-merge hook** — rebuilds `_index.yaml` after pulls
+- **Post-merge hook** — rebuilds `_index.yaml`; then runs drift detection from `ORIG_HEAD` to catch semantic conflicts between branches (KB changed on one branch, related code changed on another)
 - **Merge drivers** — `kb-reindex` for `_index.yaml`, `kb-conflict` for feature/flow files, `union` for sync logs
 
 ---
@@ -299,8 +338,7 @@ Files in `knowledge/` have three ownership tiers. Violating them causes silent d
 | File | Managed by |
 |------|-----------|
 | `_index.yaml` | `kb_reindex` (runs after every `kb_write`) |
-| `sync/drift-log.md` | `kb_drift` Phase 2 — append-only audit trail |
-| `sync/changelog.md` | `kb_reindex` — auto-generated change history |
+| `sync/drift-log/YYYY-MM.md` | `kb_drift` Phase 2 — append-only audit trail, split by month |
 
 The pre-commit hook warns if any of these are staged. `_index.yaml` has a `# AUTO-GENERATED` header that `kb_lint` checks for.
 
@@ -319,12 +357,12 @@ Written by the server automatically, reviewed and resolved by humans via Claude.
 
 | File | Written by | Human role |
 |------|-----------|------------|
-| `sync/code-drift.md` | pre-push hook (code changed) | PM decides: update KB or revert code |
-| `sync/kb-drift.md` | pre-push hook (KB changed) | Developer confirms code still matches |
-| `sync/review-queue.md` | lint violations, challenge intent, merge conflicts | Add notes, resolve via Claude |
+| `sync/code-drift.md` | pre-push + post-merge hooks (code changed, KB may be stale) | PM decides: update KB or revert code |
+| `sync/kb-drift.md` | pre-push + post-merge hooks (KB changed, code may be stale) | Developer confirms code still matches |
+| `sync/review-queue.md` | git merge conflict driver (same KB file edited on two branches) | Resolve conflict markers in file, then close entry |
 | `sync/import-review.md` | `kb_import` | Classify unresolved chunks via Claude |
 
-Do not delete entries from Tier 3 files manually — always resolve through `kb_drift` or the relevant tool so the resolution is logged to `drift-log.md`.
+Do not delete entries from Tier 3 files manually — always resolve through `kb_drift` or the relevant tool so the resolution is logged to `sync/drift-log/`.
 
 ---
 

@@ -1,8 +1,6 @@
 const { resolvePrompt } = require('../lib/prompts')
 const { runTool: get } = require('./get')
 
-const KB_ROOT = 'knowledge'
-
 /**
  * kb_ask — Returns a resolved prompt + KB context for the calling agent to answer.
  * The agent (Claude Code, Cursor, etc.) IS the LLM — no separate API call needed.
@@ -36,6 +34,7 @@ function classifyIntent(question) {
   if (/walk me through|explain|onboard|tour|new to|getting started/.test(q)) return 'onboard'
   if (/what's missing|what is missing|gaps?|wrong|inconsisten|challenge|review/.test(q)) return 'challenge'
   if (/should|could|what if|brainstorm|option|alternative|recommend/.test(q)) return 'brainstorm'
+  if (/^generate|^implement|^write code|^create code|^build .*(feature|endpoint|component|service)/.test(q)) return 'generate'
   return 'query'
 }
 
@@ -45,7 +44,8 @@ function intentToPrompt(intent) {
     brainstorm: 'ask-brainstorm',
     challenge: 'ask-challenge',
     sync: 'ask-sync',
-    onboard: 'onboard-dev'
+    onboard: 'onboard-dev',
+    generate: 'generate-feature'
   }
   return map[intent] || 'ask-query'
 }
@@ -68,10 +68,10 @@ function buildKbContext(files) {
 function buildPromptVars(question, intent, context) {
   const base = { question, kb_context: buildKbContext(context) }
 
-  if (intent === 'sync') {
-    const parts = question.split(/\s+/)
-    base.feature_id = parts[1] || ''
-    base.note_id = parts[2] || ''
+  if (intent === 'sync' || intent === 'generate') {
+    // Extract the first path/identifier after the intent keyword
+    const parts = question.trim().split(/\s+/)
+    base.feature_id = parts.slice(1).join(' ') || ''
   }
 
   return base

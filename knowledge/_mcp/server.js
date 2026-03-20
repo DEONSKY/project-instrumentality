@@ -12,7 +12,6 @@ const tools = {
   kb_ask: require('./tools/ask'),
   kb_init: require('./tools/init'),
   kb_migrate: require('./tools/migrate'),
-  kb_note_resolve: require('./tools/note-resolve'),
   kb_import: require('./tools/import'),
   kb_export: require('./tools/export')
 }
@@ -120,18 +119,6 @@ const TOOL_DEFINITIONS = [
     inputSchema: {
       type: 'object',
       properties: {}
-    }
-  },
-  {
-    name: 'kb_note_resolve',
-    description: 'Resolve and remove a sync note from _index.yaml.',
-    inputSchema: {
-      type: 'object',
-      required: ['file_path', 'note_id'],
-      properties: {
-        file_path: { type: 'string', description: 'KB file path (e.g. knowledge/features/invoice.md)' },
-        note_id: { type: 'string', description: 'Note ID from _index.yaml' }
-      }
     }
   },
   {

@@ -93,3 +93,21 @@ code_path_patterns:
     name_extraction:
       strip_suffix: [Repository, JpaRepository, Dao]
       case: kebab
+
+  - intent: dependency
+    kb_target: "foundation/tech-stack.md"
+    paths:
+      - "pom.xml"
+      - "build.gradle"
+      - "build.gradle.kts"
+      - "settings.gradle"
+      - "settings.gradle.kts"
+
+  - intent: config
+    kb_target: "foundation/conventions.md"
+    paths:
+      - "src/main/resources/application.yml"
+      - "src/main/resources/application.yaml"
+      - "src/main/resources/application.properties"
+      - "checkstyle.xml"
+      - ".editorconfig"

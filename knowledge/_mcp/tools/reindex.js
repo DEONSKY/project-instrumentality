@@ -2,14 +2,14 @@ const fs = require('fs')
 const path = require('path')
 const matter = require('gray-matter')
 const yaml = require('js-yaml')
-const { loadGraph, saveGraph } = require('../lib/graph')
+const { loadGraph } = require('../lib/graph')
 const { loadRules } = require('../lib/rules')
 const { estimateTokens } = require('../lib/budget')
 const { runTool: lint } = require('./lint')
 
 const KB_ROOT = 'knowledge'
-const SKIP_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules'])
-const SKIP_FILES = new Set(['_index.yaml'])
+const SKIP_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules', 'drift-log', '_templates', 'sync'])
+const SKIP_FILES = new Set(['_index.yaml', '_rules.md'])
 
 async function runTool({ silent = false } = {}) {
   const rules = loadRules(KB_ROOT)
@@ -56,14 +56,9 @@ async function runTool({ silent = false } = {}) {
         groups[groupKey] = { ...entry, file_count: 0, group_path: relative }
       }
 
-      // Preserve existing sync_state and notes
+      // Preserve existing sync_state
       const existing = (existingGraph.files || {})[relative]
-      if (existing) {
-        if (existing.sync_state) entry.sync_state = existing.sync_state
-        if (existing.notes && existing.notes.length > 0) {
-          entry.notes = deduplicateNotes(existing.notes)
-        }
-      }
+      if (existing && existing.sync_state) entry.sync_state = existing.sync_state
 
       // Determine group membership
       const parts = relative.split('/')
@@ -87,14 +82,6 @@ async function runTool({ silent = false } = {}) {
     }
   })
 
-  // Detect orphaned notes
-  let orphansFound = 0
-  Object.entries(existingGraph.files || {}).forEach(([fp, entry]) => {
-    if (entry.notes && !files[fp]) {
-      orphansFound++
-      appendToDriftLog(`Orphaned note path: ${fp} (file no longer exists)`)
-    }
-  })
 
   const newGraph = {
     version: '1.0',
@@ -112,8 +99,7 @@ async function runTool({ silent = false } = {}) {
 
   let written = false
   if (oldContent.trim() !== newContent.trim()) {
-    saveGraph(newGraph, KB_ROOT)
-    appendToChangelog(`reindex: updated _index.yaml (${Object.keys(files).length} files)`)
+    fs.writeFileSync(path.join(KB_ROOT, '_index.yaml'), newContent, 'utf8')
     written = true
   }
 
@@ -130,28 +116,18 @@ async function runTool({ silent = false } = {}) {
 
   return {
     files_indexed: Object.keys(files).length,
-    notes_deduped: 0,
-    orphans_found: orphansFound,
     lint_errors: lintResult.error_count,
     lint_warnings: lintResult.warn_count,
     index_written: written
   }
 }
 
-function deduplicateNotes(notes) {
-  const seen = new Set()
-  return notes.filter(note => {
-    if (seen.has(note.id)) return false
-    seen.add(note.id)
-    return true
-  })
-}
-
 function extractMentions(content) {
+  const stripped = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '')
   const regex = /@([\w/-]+(?:#[\w-]+)?)/g
   const mentions = []
   let match
-  while ((match = regex.exec(content)) !== null) {
+  while ((match = regex.exec(stripped)) !== null) {
     mentions.push(match[1].split('#')[0])
   }
   return [...new Set(mentions)]
@@ -177,30 +153,5 @@ function collectMdFiles(dir) {
   return files
 }
 
-function appendToDriftLog(message) {
-  try {
-    const driftLogPath = path.join(KB_ROOT, 'sync/drift-log.md')
-    const date = new Date().toISOString().split('T')[0]
-    const header = fs.existsSync(driftLogPath)
-      ? ''
-      : '<!-- AUTO-GENERATED audit trail — do not edit manually. -->\n\n# Drift Log\n\nResolved drift events. Append-only.\n'
-    const entry = `\n## ${date} · system\n\n- ${message}\n`
-    fs.appendFileSync(driftLogPath, header + entry)
-  } catch (e) {
-    // Non-fatal
-  }
-}
-
-function appendToChangelog(message) {
-  try {
-    const changelogPath = path.join(KB_ROOT, 'sync/changelog.md')
-    const timestamp = new Date().toISOString()
-    const entry = `\n- ${timestamp}: ${message}`
-    const header = fs.existsSync(changelogPath) ? '' : '# Changelog\n\nAuto-generated KB change history.\n'
-    fs.appendFileSync(changelogPath, header + entry)
-  } catch (e) {
-    // Non-fatal
-  }
-}
 
 module.exports = { runTool }

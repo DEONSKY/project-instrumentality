@@ -53,3 +53,17 @@ code_path_patterns:
     paths:
       - "app/components/**"
       - "app/views/components/**"
+
+  - intent: dependency
+    kb_target: "foundation/tech-stack.md"
+    paths:
+      - "Gemfile"
+      - "Gemfile.lock"
+      - ".ruby-version"
+
+  - intent: config
+    kb_target: "foundation/conventions.md"
+    paths:
+      - ".rubocop.yml"
+      - "config/application.rb"
+      - "config/environments/*.rb"

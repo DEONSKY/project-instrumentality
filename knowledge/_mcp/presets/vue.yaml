@@ -55,3 +55,25 @@ code_path_patterns:
     paths:
       - "src/components/**"
       - "components/**"
+
+  - intent: dependency
+    kb_target: "foundation/tech-stack.md"
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - "yarn.lock"
+      - "pnpm-lock.yaml"
+      - ".nvmrc"
+      - ".node-version"
+
+  - intent: config
+    kb_target: "foundation/conventions.md"
+    paths:
+      - "tsconfig.json"
+      - "tsconfig.*.json"
+      - ".eslintrc*"
+      - "eslint.config.*"
+      - ".prettierrc*"
+
+      - "vite.config.*"
+      - "nuxt.config.*"

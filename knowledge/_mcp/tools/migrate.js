@@ -2,7 +2,6 @@ const fs = require('fs')
 const path = require('path')
 const matter = require('gray-matter')
 const simpleGit = require('simple-git')
-const { loadRules } = require('../lib/rules')
 const { resolvePrompt } = require('../lib/prompts')
 
 const KB_ROOT = 'knowledge'
@@ -66,7 +65,7 @@ async function runTool({} = {}) {
 
 function collectKBFiles() {
   const files = []
-  const skipDirs = new Set(['_mcp', 'exports', 'assets', 'node_modules', '_templates'])
+  const skipDirs = new Set(['_mcp', 'exports', 'assets', 'node_modules', '_templates', 'sync'])
 
   function walk(dir) {
     if (!fs.existsSync(dir)) return

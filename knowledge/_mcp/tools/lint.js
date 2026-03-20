@@ -10,7 +10,7 @@ const KB_ROOT = 'knowledge'
 const REQUIRED_FRONTMATTER = ['id', 'app_scope', 'created']
 
 // Folders whose files are not KB content — skip linting
-const SKIP_LINT_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules', '_templates'])
+const SKIP_LINT_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules', '_templates', 'drift-log'])
 
 // Called only by kb_reindex — never directly by tools
 async function runTool({ file_path = 'all' } = {}) {
@@ -183,8 +183,9 @@ function lintPromptOverride(filePath, data, rules, violations) {
 }
 
 function extractMentions(content) {
+  const stripped = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '')
   const regex = /@[\w/-]+(?:#[\w-]+)?/g
-  return [...new Set(content.match(regex) || [])]
+  return [...new Set(stripped.match(regex) || [])]
 }
 
 function collectKBFiles() {
@@ -199,8 +200,7 @@ function collectKBFiles() {
         if (!SKIP_LINT_DIRS.has(entry.name)) walk(full)
       } else if (entry.name.endsWith('.md')) {
         // Skip sync stub files that intentionally have no front-matter
-        if (entry.name === 'drift-log.md' || entry.name === 'review-queue.md' ||
-            entry.name === 'changelog.md' || entry.name === 'import-review.md' ||
+        if (entry.name === 'review-queue.md' || entry.name === 'import-review.md' ||
             entry.name === 'code-drift.md' || entry.name === 'kb-drift.md') return
         files.push(full)
       }

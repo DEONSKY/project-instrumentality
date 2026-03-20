@@ -51,3 +51,21 @@ code_path_patterns:
     name_extraction:
       strip_suffix: [Form, ModelForm]
       case: kebab
+
+  - intent: dependency
+    kb_target: "foundation/tech-stack.md"
+    paths:
+      - "requirements.txt"
+      - "requirements/*.txt"
+      - "pyproject.toml"
+      - "Pipfile"
+      - "poetry.lock"
+
+  - intent: config
+    kb_target: "foundation/conventions.md"
+    paths:
+      - "setup.cfg"
+      - ".flake8"
+      - "pyproject.toml"
+      - "*/settings.py"
+      - "*/settings/*.py"

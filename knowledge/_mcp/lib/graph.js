@@ -64,14 +64,4 @@ function getAlwaysLoad(graph) {
     .map(([filePath, entry]) => ({ path: filePath, ...entry }))
 }
 
-function getAllNotes(graph) {
-  const notes = []
-  for (const [filePath, entry] of Object.entries(graph.files || {})) {
-    if (entry.notes && entry.notes.length > 0) {
-      entry.notes.forEach(note => notes.push({ path: filePath, note }))
-    }
-  }
-  return notes
-}
-
-module.exports = { loadGraph, saveGraph, getFile, getGroup, getDependents, getByScope, getAlwaysLoad, getAllNotes }
+module.exports = { loadGraph, saveGraph, getFile, getGroup, getDependents, getByScope, getAlwaysLoad }

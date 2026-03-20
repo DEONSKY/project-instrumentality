@@ -55,3 +55,24 @@ code_path_patterns:
       - "packages/ui/**"
       - "packages/components/**"
       - "apps/web/src/components/**"
+
+  - intent: dependency
+    kb_target: "foundation/tech-stack.md"
+    paths:
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "yarn.lock"
+      - "package-lock.json"
+      - "packages/*/package.json"
+      - "apps/*/package.json"
+
+  - intent: config
+    kb_target: "foundation/conventions.md"
+    paths:
+      - "tsconfig.json"
+      - "tsconfig.base.json"
+      - ".eslintrc*"
+      - "eslint.config.*"
+      - ".prettierrc*"
+      - "turbo.json"
+      - "nx.json"
