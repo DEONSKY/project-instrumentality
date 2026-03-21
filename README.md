@@ -1,4 +1,4 @@
-# KB-MCP
+# Instrumentality-MCP
 
 A structured knowledge base for monorepos, managed through MCP tools. Works with Claude Code, Cursor, and any MCP-compatible agent.
 
@@ -8,7 +8,7 @@ A structured knowledge base for monorepos, managed through MCP tools. Works with
 
 ## What it does
 
-KB-MCP creates a `knowledge/` folder in your project and keeps it synchronized with your codebase. Instead of scattering product context across Notion, Confluence, and README files, everything lives as structured Markdown beside your code — versioned in git, loaded automatically into your agent's context when relevant.
+Instrumentality-MCP creates a `knowledge/` folder in your project and keeps it synchronized with your codebase — in both directions. Code changes are detected and surfaced for KB review (code→KB); KB spec changes are flagged for developers to verify the implementation still matches (KB→code). Instead of scattering product context across Notion, Confluence, and README files, everything lives as structured Markdown beside your code — versioned in git, loaded automatically into your agent's context when relevant.
 
 ```
 your-project/
@@ -38,15 +38,18 @@ your-project/
 
 ## Installation
 
-**1. Copy the server into your project**
+**1. Install dependencies**
+
+Clone this repo and install:
 
 ```bash
-cp -r knowledge/_mcp your-project/knowledge/_mcp
-cp -r knowledge/_templates your-project/knowledge/_templates
-cd your-project/knowledge/_mcp && npm install
+git clone <this-repo> kb-mcp
+cd kb-mcp/knowledge/_mcp && npm install
 ```
 
 **2. Configure your agent**
+
+Point your agent's MCP config to the server using its absolute path on disk.
 
 For Cursor, add to `.cursor/mcp.json` (or run `kb_init` — it writes this automatically):
 
@@ -55,7 +58,7 @@ For Cursor, add to `.cursor/mcp.json` (or run `kb_init` — it writes this autom
   "mcpServers": {
     "kb": {
       "command": "node",
-      "args": ["knowledge/_mcp/server.js"]
+      "args": ["/absolute/path/to/kb-mcp/knowledge/_mcp/server.js"]
     }
   }
 }
@@ -68,7 +71,7 @@ For Claude Code, add to `.claude/mcp.json`:
   "mcpServers": {
     "kb": {
       "command": "node",
-      "args": ["knowledge/_mcp/server.js"]
+      "args": ["/absolute/path/to/kb-mcp/knowledge/_mcp/server.js"]
     }
   }
 }
@@ -91,17 +94,18 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 
 | Tool | What it does |
 |------|-------------|
-| `kb_init` | Bootstrap `knowledge/` folder, git hooks, merge drivers, and MCP config |
-| `kb_get` | Load relevant KB files into agent context (keyword + scope filtering, token budget aware) |
-| `kb_write` | Write a KB file and auto-reindex |
-| `kb_reindex` | Rebuild `_index.yaml` from all KB files, run lint |
-| `kb_scaffold` | Create a new KB file from template. Two-phase when `description` is given: returns a fill prompt → agent fills → writes |
-| `kb_ask` | Ask a question about the KB. Classifies intent (query / brainstorm / challenge / onboard) and returns relevant context |
+| `kb_init` | Bootstrap `knowledge/` folder, git hooks, merge drivers, and MCP config. Re-run to update `code_path_patterns` when stack changes |
+| `kb_get` | Load relevant KB files into agent context (keyword + scope filtering, token budget aware). `max_tokens` overrides the budget; default reads `token_budget` from `_rules.md` |
+| `kb_write` | Write a KB file and auto-reindex. Rejects paths outside `knowledge/` |
+| `kb_reindex` | Rebuild `_index.yaml` from all KB files, run lint. Returns up to 20 lint violations in the result |
+| `kb_lint` | Lint KB files for front-matter correctness and secret patterns |
+| `kb_scaffold` | Create a new KB file from template. Two-phase when `description` is given: loads related KB context, returns a fill prompt → agent fills → writes |
+| `kb_ask` | Ask a question about the KB. Classifies intent (query / brainstorm / challenge / onboard / generate) and returns relevant context. Short tech terms (api, jwt, sql, etc.) are preserved in keyword extraction |
 | `kb_drift` | Bidirectional drift detection. Phase 1: code→kb (code changed, KB stale) and kb→code (KB changed, code may be stale). Writes to queue files in `sync/`. Phase 2: three resolution types — `summaries` (KB updated), `reverted` (code was wrong), `kb_confirmed` (kb→code reviewed) |
 | `kb_impact` | Analyze what KB files are affected by a proposed change, using the dependency graph |
-| `kb_import` | Two-phase: Phase 1 chunks a document (PDF, DOCX, MD, TXT, HTML) and returns classify prompts. Phase 2 writes agent-classified files |
-| `kb_export` | Export KB as JSON (direct), or Markdown / HTML / Confluence / DOCX / PDF (two-phase via agent) |
-| `kb_migrate` | Migrate KB files after `_rules.md` structure changes |
+| `kb_import` | Two-phase: Phase 1 chunks a document (PDF, DOCX, MD, TXT, HTML) and returns classify prompts. Phase 2 writes agent-classified files. Rejects paths outside `knowledge/` |
+| `kb_export` | Export KB as JSON (direct), or Markdown / HTML / Confluence / DOCX / PDF (two-phase via agent). Project name read from `_rules.md` first, then `foundation/global-rules.md` |
+| `kb_migrate` | Migrate KB files after `_rules.md` structure changes. `since` sets the comparison ref (auto-detected if omitted); `dry_run` previews prompts without writing |
 
 ### Two-phase tools
 
@@ -117,7 +121,7 @@ Agent calls kb_scaffold({ type: "feature", id: "checkout", content: "<filled con
   → Server writes the file
 ```
 
-Same pattern applies to `kb_import` and `kb_export`. `kb_drift` works differently — Phase 1 writes entries to queue files (no prompts returned). Review happens when PM or developer asks Claude to read the queue files; Claude fetches the git diff live and explains in plain English.
+Same pattern applies to `kb_import` and `kb_export`. `kb_scaffold` also loads related KB files before returning the fill prompt, so the agent can align new content with existing docs. `kb_drift` works differently — Phase 1 writes entries to queue files (no prompts returned). Review happens when PM or developer asks Claude to read the queue files; Claude fetches the git diff live and explains in plain English.
 
 ---
 
@@ -323,7 +327,7 @@ All prompts used by the tools are in `knowledge/_templates/prompts/`. To overrid
 `kb_init` installs:
 
 - **Pre-commit hook** — lints KB files (warns, never blocks); warns if Tier 1 auto-generated files are staged
-- **Pre-push hook** — runs bidirectional drift detection; appends entries to `sync/code-drift.md` (code changed) and `sync/kb-drift.md` (KB changed)
+- **Pre-push hook** — runs bidirectional drift detection; appends entries to `sync/code-drift.md` (code changed) and `sync/kb-drift.md` (KB changed). Compares against the remote tracking branch tip (covers all unpushed commits, not just the last one). Re-entry guard prevents double-commits when the hook auto-commits drift files
 - **Post-merge hook** — rebuilds `_index.yaml`; then runs drift detection from `ORIG_HEAD` to catch semantic conflicts between branches (KB changed on one branch, related code changed on another)
 - **Merge drivers** — `kb-reindex` for `_index.yaml`, `kb-conflict` for feature/flow files, `union` for sync logs
 
