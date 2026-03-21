@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="instrumentality-mcp-logo.svg" width="200" alt="Instrumentality-MCP logo" />
+  <img src="instrumentality-mcp-logo.svg" width="400" alt="Instrumentality-MCP logo" />
 </div>
 
 # Instrumentality-MCP
