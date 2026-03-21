@@ -75,9 +75,20 @@ async function runTool({ silent = false } = {}) {
     }
   })
 
-  // Update group file counts
+  // Second pass: assign group membership (handles case where _group.md is processed after child files)
   Object.entries(files).forEach(([fp, entry]) => {
-    if (entry.group && groups[entry.group]) {
+    const parts = fp.split('/')
+    if (parts.length >= 2) {
+      const groupKey = parts.slice(0, -1).join('/')
+      if (groups[groupKey] && !entry.group) {
+        entry.group = groupKey
+      }
+    }
+  })
+
+  // Update group file counts (exclude the _group.md file itself)
+  Object.entries(files).forEach(([fp, entry]) => {
+    if (entry.group && groups[entry.group] && path.basename(fp) !== '_group.md') {
       groups[entry.group].file_count = (groups[entry.group].file_count || 0) + 1
     }
   })
@@ -118,6 +129,7 @@ async function runTool({ silent = false } = {}) {
     files_indexed: Object.keys(files).length,
     lint_errors: lintResult.error_count,
     lint_warnings: lintResult.warn_count,
+    lint_violations: lintResult.violations.slice(0, 20),
     index_written: written
   }
 }

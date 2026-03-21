@@ -3,12 +3,16 @@ const path = require('path')
 const matter = require('gray-matter')
 const { loadGraph, getAlwaysLoad, getByScope } = require('../lib/graph')
 const { estimateTokens, totalTokens } = require('../lib/budget')
+const { loadRules } = require('../lib/rules')
 
 const KB_ROOT = 'knowledge'
 const DEFAULT_MAX_TOKENS = 8000
 
-async function runTool({ task_type, keywords, app_scope, scope } = {}) {
+async function runTool({ task_type, keywords, app_scope, scope, max_tokens } = {}) {
   const graph = loadGraph(KB_ROOT)
+  const rules = loadRules(KB_ROOT)
+  const raw = rules.getRaw()
+  const tokenBudget = max_tokens || (raw.token_budget) || DEFAULT_MAX_TOKENS
 
   // Always load foundation files first
   const alwaysLoadEntries = getAlwaysLoad(graph)
@@ -23,7 +27,7 @@ async function runTool({ task_type, keywords, app_scope, scope } = {}) {
 
   // Standard mode: keyword-based traversal
   const candidates = findCandidates(graph, keywords, app_scope)
-  const selectedFiles = selectWithinBudget(alwaysLoadFiles, candidates, DEFAULT_MAX_TOKENS)
+  const selectedFiles = selectWithinBudget(alwaysLoadFiles, candidates, tokenBudget)
 
   return { files: selectedFiles }
 }

@@ -4,6 +4,7 @@ const { loadRules } = require('../lib/rules')
 const { validateDepth } = require('../lib/depth')
 const { resolvePrompt } = require('../lib/prompts')
 const { runTool: write } = require('./write')
+const { runTool: get } = require('./get')
 
 const KB_ROOT = 'knowledge'
 // Project-local templates take priority; fall back to templates bundled with the MCP server.
@@ -97,10 +98,15 @@ async function runTool({ type, id, group, description, content } = {}) {
 
   // Description provided → return prompt for agent to fill
   if (description) {
+    // Load related KB context so the agent can align with existing files
+    const context = await get({ keywords: description.split(/\s+/).filter(w => w.length > 2) })
+    const kbContext = (context.files || []).map(f => `<!-- ${f.path} -->\n${f.content}`).join('\n\n---\n\n')
+
     const prompt = resolvePrompt('scaffold-fill', {
       template: templateContent,
       description,
       kb_type: type,
+      kb_context: kbContext,
       id: id || 'new-item',
       date: today
     })

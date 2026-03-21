@@ -12,13 +12,15 @@ function scan(content, patterns = DEFAULT_PATTERNS) {
   const lines = content.split('\n')
 
   lines.forEach((line, index) => {
+    const lineLower = line.toLowerCase()
     patterns.forEach(pattern => {
-      if (line.includes(pattern)) {
-        const column = line.indexOf(pattern)
+      const patLower = pattern.toLowerCase()
+      const col = lineLower.indexOf(patLower)
+      if (col !== -1) {
         violations.push({
           pattern,
           line: index + 1,
-          column: column + 1,
+          column: col + 1,
           snippet: line.trim().slice(0, 60)
         })
       }

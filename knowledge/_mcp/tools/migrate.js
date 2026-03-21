@@ -14,19 +14,22 @@ const KB_ROOT = 'knowledge'
  * Signal: if the agent determines a file is already compliant, skip it.
  * Otherwise, generate updated content and call kb_write.
  */
-async function runTool({} = {}) {
+async function runTool({ since, dry_run = false } = {}) {
   const git = simpleGit(process.cwd())
   const rulesPath = path.join(KB_ROOT, '_rules.md')
 
+  // Find the commit where _rules.md last changed, or use explicit ref
   let rulesDiff = ''
+  const ref = since || await findLastRulesChange(git, rulesPath)
   try {
-    rulesDiff = await git.diff(['HEAD~1', 'HEAD', '--', rulesPath])
+    rulesDiff = await git.diff([ref, 'HEAD', '--', rulesPath])
   } catch (e) {
-    rulesDiff = '(git diff unavailable)'
+    rulesDiff = ''
   }
 
-  if (!rulesDiff) {
-    return { message: 'No changes detected in _rules.md. Run after committing _rules.md changes.' }
+  // No-change detection: if diff is empty or only whitespace, short-circuit
+  if (!rulesDiff || !rulesDiff.trim()) {
+    return { message: 'No changes detected in _rules.md since last commit. Nothing to migrate.', total_files: 0, files: [] }
   }
 
   const allKbFiles = collectKBFiles()
@@ -59,8 +62,21 @@ async function runTool({} = {}) {
   return {
     total_files: files.length,
     files,
-    note: 'For each file, process the prompt. If already compliant, skip. Otherwise call kb_write with updated content.'
+    dry_run,
+    note: dry_run
+      ? 'Dry run — review the prompts above. No files will be written. Re-run without dry_run to apply.'
+      : 'For each file, process the prompt. If already compliant, skip. Otherwise call kb_write with updated content.'
   }
+}
+
+async function findLastRulesChange(git, rulesPath) {
+  try {
+    // Find the commit before the most recent change to _rules.md
+    const log = await git.log({ file: rulesPath, maxCount: 2 })
+    if (log.all && log.all.length >= 2) return log.all[1].hash
+    if (log.all && log.all.length === 1) return log.all[0].hash + '~1'
+  } catch { /* fall through */ }
+  return 'HEAD~1'
 }
 
 function collectKBFiles() {

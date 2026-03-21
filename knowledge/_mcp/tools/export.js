@@ -115,10 +115,23 @@ function stripFrontMatter(content) {
 }
 
 function getProjectName() {
+  // Primary source: _rules.md front-matter (set by kb_init)
+  const rulesPath = 'knowledge/_rules.md'
+  if (fs.existsSync(rulesPath)) {
+    try {
+      const parsed = matter(fs.readFileSync(rulesPath, 'utf8'))
+      if (parsed.data.project_name) return parsed.data.project_name
+    } catch { /* fall through */ }
+  }
+  // Fallback: foundation/global-rules.md
   const globalRulesPath = 'knowledge/foundation/global-rules.md'
-  if (!fs.existsSync(globalRulesPath)) return 'Project'
-  const parsed = matter(fs.readFileSync(globalRulesPath, 'utf8'))
-  return parsed.data.project_name || 'Project'
+  if (fs.existsSync(globalRulesPath)) {
+    try {
+      const parsed = matter(fs.readFileSync(globalRulesPath, 'utf8'))
+      if (parsed.data.project_name) return parsed.data.project_name
+    } catch { /* fall through */ }
+  }
+  return 'Project'
 }
 
 function buildOutputPath(format, scope, exportDate) {

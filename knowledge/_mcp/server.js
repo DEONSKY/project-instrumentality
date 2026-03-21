@@ -13,7 +13,8 @@ const tools = {
   kb_init: require('./tools/init'),
   kb_migrate: require('./tools/migrate'),
   kb_import: require('./tools/import'),
-  kb_export: require('./tools/export')
+  kb_export: require('./tools/export'),
+  kb_lint: require('./tools/lint')
 }
 
 const TOOL_DEFINITIONS = [
@@ -26,7 +27,8 @@ const TOOL_DEFINITIONS = [
         task_type: { type: 'string', description: 'Type of task (e.g. generate, review, export)' },
         keywords: { description: 'Keywords to match KB files', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
         app_scope: { type: 'string', description: 'Filter by app scope (e.g. frontend, backend)' },
-        scope: { type: 'string', description: 'Export scope: domain name, feature id, or "all"' }
+        scope: { type: 'string', description: 'Export scope: domain name, feature id, or "all"' },
+        max_tokens: { type: 'number', description: 'Override token budget (default: 8000, or token_budget from _rules.md)' }
       }
     }
   },
@@ -93,7 +95,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'kb_ask',
-    description: 'Ask a question about the KB. Supports query, brainstorm, challenge, sync, and onboard intents.',
+    description: 'Ask a question about the KB. Supports query, brainstorm, challenge, sync, onboard, and generate intents.',
     inputSchema: {
       type: 'object',
       required: ['question'],
@@ -118,7 +120,10 @@ const TOOL_DEFINITIONS = [
     description: 'Migrate KB files after _rules.md changes. Manual trigger only.',
     inputSchema: {
       type: 'object',
-      properties: {}
+      properties: {
+        since: { type: 'string', description: 'Commit SHA to diff _rules.md from. Auto-detected if omitted.' },
+        dry_run: { type: 'boolean', description: 'Preview migration prompts without writing files', default: false }
+      }
     }
   },
   {

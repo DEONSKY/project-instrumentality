@@ -1,6 +1,5 @@
 const fs = require('fs')
 const path = require('path')
-const matter = require('gray-matter')
 const { resolvePrompt } = require('../lib/prompts')
 const { runTool: reindex } = require('./reindex')
 
@@ -66,12 +65,28 @@ async function runTool({ source, dry_run = false, files_to_write } = {}) {
   }
 }
 
+function validateKbPath(filePath) {
+  const resolved = path.resolve(filePath)
+  const kbDir = path.resolve('knowledge')
+  if (!resolved.startsWith(kbDir + path.sep) && resolved !== kbDir) {
+    return 'file_path must be inside the knowledge/ directory'
+  }
+  return null
+}
+
 async function applyImportFiles(files_to_write, dry_run) {
   const written = []
   const skipped = []
 
   for (const { path: filePath, content } of files_to_write) {
     if (!filePath || !content) continue
+
+    // Path traversal guard
+    const pathError = validateKbPath(filePath)
+    if (pathError) {
+      skipped.push({ path: filePath, reason: pathError })
+      continue
+    }
 
     // Never overwrite existing KB files
     if (fs.existsSync(filePath)) {
@@ -124,11 +139,25 @@ async function extractText(filePath) {
 }
 
 function chunkDocument(text) {
+  // Replace fenced code blocks with placeholders to avoid splitting on # inside code.
+  // Preserve the same number of newlines so that heading detection positions stay correct.
+  const codeBlocks = []
+  const safeText = text.replace(/```[^\n]*\n[\s\S]*?\n```/g, (match) => {
+    codeBlocks.push(match)
+    const newlineCount = (match.match(/\n/g) || []).length
+    return `__CODE_BLOCK_${codeBlocks.length - 1}__` + '\n'.repeat(Math.max(0, newlineCount - 1))
+  })
+
   const chunks = []
-  const sections = text.split(/\n#{1,3} /)
+  const sections = safeText.split(/\n#{1,3} /)
   sections.forEach((section, i) => {
-    if (section.trim().length < 50) return
-    const lines = section.trim().split('\n')
+    // Restore code blocks in this section
+    let restored = section
+    codeBlocks.forEach((block, idx) => {
+      restored = restored.replace(`__CODE_BLOCK_${idx}__`, block)
+    })
+    if (restored.trim().length < 50) return
+    const lines = restored.trim().split('\n')
     chunks.push({
       id: `chunk-${i + 1}`,
       heading: lines[0].replace(/^#+\s*/, '').trim(),

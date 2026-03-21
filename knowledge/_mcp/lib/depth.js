@@ -23,9 +23,13 @@ function suggestFlatter(filePath) {
   const normalized = filePath.replace(/^knowledge\//, '')
   const parts = normalized.split('/')
   if (parts.length < 3) return filePath
-  const last = parts.pop()
-  const secondLast = parts.pop()
-  parts.push(`${secondLast}-${last}`)
+  // Merge the last two directory segments, keeping the filename separate
+  // e.g. features/a/b/c/file.md → features/a/b-c/file.md
+  const fileName = parts.pop()        // "file.md"
+  const deepest = parts.pop()         // "c"
+  const parent = parts.pop()          // "b"
+  parts.push(`${parent}-${deepest}`)  // "b-c"
+  parts.push(fileName)                // "file.md"
   return 'knowledge/' + parts.join('/')
 }
 

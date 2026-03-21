@@ -65,7 +65,16 @@ async function runTool({ since = 'last-sync', summaries, reverted, kb_confirmed 
 async function detectDrift(since) {
   const mainGit = simpleGit(process.cwd())
   const rules = loadRules(KB_ROOT)
-  const ref = since === 'last-sync' ? 'HEAD~1' : since
+
+  // Resolve the comparison ref:
+  // - explicit SHA/ref → use directly
+  // - 'last-sync' → find the remote tracking branch tip, fall back to HEAD~1
+  let ref
+  if (since !== 'last-sync') {
+    ref = since
+  } else {
+    ref = await resolveLastSyncRef(mainGit)
+  }
 
   // Get HEAD commit info for "since" tracking
   let headCommit = 'unknown'
@@ -357,9 +366,41 @@ function isKbContentFile(file) {
 
 // ── git helpers ───────────────────────────────────────────────────────────────
 
+/**
+ * Resolve the best "last sync" ref for drift comparison.
+ * Prefers the remote tracking branch (covers multi-commit pushes).
+ * Falls back to HEAD~1, then to an empty-tree SHA for initial commits.
+ */
+async function resolveLastSyncRef(git) {
+  // Try the upstream tracking ref (e.g. origin/main) — covers all unpushed commits
+  try {
+    const upstream = await git.raw(['rev-parse', '--abbrev-ref', '@{upstream}'])
+    if (upstream && upstream.trim()) return upstream.trim()
+  } catch { /* no upstream configured */ }
+
+  // Fall back to HEAD~1 if there are at least 2 commits
+  try {
+    await git.raw(['rev-parse', 'HEAD~1'])
+    return 'HEAD~1'
+  } catch { /* only one commit */ }
+
+  // Initial commit — compare against empty tree
+  return '4b825dc642cb6eb9a060e54bf899d15f7dcb6820'
+}
+
 async function getChangedFiles(git, ref) {
-  const result = await git.diff(['--name-only', ref, 'HEAD'])
-  return result.split('\n').filter(f => f.trim())
+  try {
+    const result = await git.diff(['--name-only', ref, 'HEAD'])
+    return result.split('\n').filter(f => f.trim())
+  } catch {
+    // Fallback for edge cases (detached HEAD, shallow clone, etc.)
+    try {
+      const result = await git.diff(['--name-only', '4b825dc642cb6eb9a060e54bf899d15f7dcb6820', 'HEAD'])
+      return result.split('\n').filter(f => f.trim())
+    } catch {
+      return []
+    }
+  }
 }
 
 async function detectSubmodules() {

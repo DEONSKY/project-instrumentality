@@ -79,12 +79,19 @@ async function runTool({ change_description } = {}) {
   }
 }
 
+const SHORT_KEEP = new Set([
+  'api', 'jwt', 'sso', 'sql', 'css', 'otp', 'mfa', 'url', 'uri', 'db',
+  'cdn', 'dns', 'ssh', 'tls', 'ssl', 'xml', 'csv', 'pdf', 'ui', 'ux',
+  'aws', 'gcp', 'k8s', 'cli', 'sdk', 'orm', 'dto', 'dao', 'rbac', 'acl'
+])
+const STOP_WORDS = new Set(['the', 'and', 'for', 'that', 'this', 'with', 'from', 'when', 'will', 'should'])
+
 function extractKeywords(text) {
   return text
     .toLowerCase()
     .split(/[\s,;.]+/)
-    .filter(w => w.length > 3)
-    .filter(w => !['the', 'and', 'for', 'that', 'this', 'with', 'from', 'when', 'will', 'should'].includes(w))
+    .filter(w => w.length > 3 || SHORT_KEEP.has(w))
+    .filter(w => !STOP_WORDS.has(w))
 }
 
 module.exports = { runTool }

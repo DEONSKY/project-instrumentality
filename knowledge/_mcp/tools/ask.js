@@ -14,10 +14,15 @@ async function runTool({ question } = {}) {
   const promptVars = buildPromptVars(question, intent, context)
   const promptName = intentToPrompt(intent)
 
-  const prompt = resolvePrompt(promptName, promptVars)
+  let prompt
+  try {
+    prompt = resolvePrompt(promptName, promptVars)
+  } catch (e) {
+    return { error: e.message, intent, context_files: context.map(f => f.path) }
+  }
 
-  if (!prompt) {
-    return { error: `Prompt template not found: ${promptName}`, intent, context_files: context.map(f => f.path) }
+  if (prompt === null) {
+    return { suppressed: true, prompt_name: promptName, intent, message: `Prompt "${promptName}" is suppressed via override.`, context_files: context.map(f => f.path) }
   }
 
   return {
@@ -50,12 +55,19 @@ function intentToPrompt(intent) {
   return map[intent] || 'ask-query'
 }
 
+// Short terms that are meaningful in tech contexts — don't discard them
+const SHORT_KEEP = new Set([
+  'api', 'jwt', 'sso', 'sql', 'css', 'otp', 'mfa', 'url', 'uri', 'db',
+  'cdn', 'dns', 'ssh', 'tls', 'ssl', 'xml', 'csv', 'pdf', 'ui', 'ux',
+  'aws', 'gcp', 'k8s', 'cli', 'sdk', 'orm', 'dto', 'dao', 'rbac', 'acl'
+])
+
 async function loadContext(question) {
   const keywords = question
     .toLowerCase()
-    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/[^a-z0-9\- ]/g, ' ')
     .split(/\s+/)
-    .filter(w => w.length > 3)
+    .filter(w => w.length > 3 || SHORT_KEEP.has(w))
 
   const result = await get({ keywords })
   return result.files || []

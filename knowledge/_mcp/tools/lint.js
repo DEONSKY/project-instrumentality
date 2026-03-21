@@ -134,8 +134,11 @@ function lintFile(filePath, rules, graph) {
       }
     }
 
-    // Check file exists
-    if (!fs.existsSync(fullPath)) {
+    // Check file exists — try exact path, then with .md extension, then as directory
+    const exists = fs.existsSync(fullPath) ||
+      fs.existsSync(fullPath + '.md') ||
+      (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory())
+    if (!exists) {
       violations.push({
         file: filePath,
         line: 1,

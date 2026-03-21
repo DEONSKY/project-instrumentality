@@ -91,9 +91,12 @@ drift.runTool({}).then(result => {
 " 2>&1 || true
 
 # Commit drift files so they travel with the push — PM sees them on remote immediately
-git add knowledge/sync/code-drift.md knowledge/sync/kb-drift.md 2>/dev/null || true
-if ! git diff --cached --quiet -- knowledge/sync/code-drift.md knowledge/sync/kb-drift.md 2>/dev/null; then
-  git commit -m "chore(kb): update drift queue" 2>/dev/null && printf '[kb-drift] drift queue committed — included in this push\\n' >&2 || true
+# Guard against re-entry: if this hook already created a drift commit, skip
+if [ -z "$KB_DRIFT_COMMITTING" ]; then
+  git add knowledge/sync/code-drift.md knowledge/sync/kb-drift.md 2>/dev/null || true
+  if ! git diff --cached --quiet -- knowledge/sync/code-drift.md knowledge/sync/kb-drift.md 2>/dev/null; then
+    KB_DRIFT_COMMITTING=1 git commit -m "chore(kb): update drift queue" 2>/dev/null && printf '[kb-drift] drift queue committed — included in this push\\n' >&2 || true
+  fi
 fi
 `
 
@@ -186,6 +189,28 @@ async function runTool({ interactive = true, config = null } = {}) {
     const rulesContent = generateRulesContent(cfg, hints)
     fs.writeFileSync(rulesPath, rulesContent)
     filesCreated.push(rulesPath)
+  } else if (hints.stack) {
+    // Re-init: update code_path_patterns if stack changed, preserving other user edits
+    const existing = fs.readFileSync(rulesPath, 'utf8')
+    const parsed = matter(existing)
+    const presetBlock = loadPresetPatternBlock(hints.stack)
+    // Only update if the detected stack doesn't match what's currently configured
+    if (presetBlock && (!parsed.data._detected_stack || parsed.data._detected_stack !== hints.stack)) {
+      const newPatternsYaml = generateCodePathPatterns(hints)
+      // Replace the code_path_patterns section in the raw file
+      const updatedContent = existing.replace(
+        /code_path_patterns:[\s\S]*?(?=\n\w|\n---|\Z)/,
+        newPatternsYaml + '\n'
+      )
+      if (updatedContent !== existing) {
+        // Also update _detected_stack in front-matter
+        const updatedParsed = matter(updatedContent)
+        updatedParsed.data._detected_stack = hints.stack
+        const final = matter.stringify(updatedParsed.content, updatedParsed.data)
+        fs.writeFileSync(rulesPath, final)
+        filesCreated.push(rulesPath + ' (updated code_path_patterns)')
+      }
+    }
   }
 
   // 4. Copy templates from _mcp internal templates
@@ -264,6 +289,7 @@ function generateRulesContent(cfg, hints = {}) {
 version: "1.0"
 project_name: "${cfg.projectName || 'My Project'}"
 app_names: [${appNames}]
+_detected_stack: "${hints.stack || 'unknown'}"
 
 depth_policy:
   default_max: 3
