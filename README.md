@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="instrumentality-mcp-logo.svg" width="200" alt="Instrumentality-MCP logo" />
+</div>
+
 # Instrumentality-MCP
 
 A structured knowledge base for monorepos, managed through MCP tools. Works with Claude Code, Cursor, and any MCP-compatible agent.
