@@ -108,7 +108,7 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | `kb_drift` | Bidirectional drift detection. Phase 1: code→kb (code changed, KB stale) and kb→code (KB changed, code may be stale). Writes to queue files in `sync/`. Phase 2: three resolution types — `summaries` (KB updated), `reverted` (code was wrong), `kb_confirmed` (kb→code reviewed) |
 | `kb_impact` | Analyze what KB files are affected by a proposed change, using the dependency graph |
 | `kb_import` | Import documents (PDF, DOCX, MD, TXT, HTML) into KB files. **Auto-classify mode** (recommended): paginated batches with multi-label classification, cross-reference generation, and an import plan for review before writing. **Classic mode**: Phase 1 returns chunks, Phase 2 writes agent-generated files. Supports DOCX images. Rejects paths outside `knowledge/` |
-| `kb_export` | Export KB as JSON (direct), or Markdown / HTML / Confluence / DOCX / PDF (two-phase via agent). Project name read from `_rules.md` first, then `foundation/global-rules.md` |
+| `kb_export` | Export KB as JSON (direct), or Markdown / HTML / Confluence / DOCX / PDF (two-phase via agent). Supports `purpose` to guide tone/structure, `type` filter (e.g. all flows), multi-scope (array of ids/domains), and automatic pagination for large KBs. PDF and DOCX output includes proper headings, lists, and inline formatting |
 | `kb_migrate` | Migrate KB files after `_rules.md` structure changes. `since` sets the comparison ref (auto-detected if omitted); `dry_run` previews prompts without writing |
 
 ### Two-phase tools
@@ -276,16 +276,36 @@ and items needing review (low confidence)
 
 ### 6. Exporting for stakeholders
 
-Export the full KB as a Markdown document to share with non-technical stakeholders.
+Export the KB with an optional `purpose` to guide tone, depth, and structure. Filter by `type` (all flows, all integrations) or pass multiple scopes.
 
 ```
-"Export the KB as markdown"
-→ kb_export({ scope: "all", format: "markdown" })
-→ Returns { prompt, output_path } — agent renders a clean stakeholder-friendly summary
+# Full KB as markdown for a client demo
+"Export the KB as a client-facing overview"
+→ kb_export({ scope: "all", format: "markdown",
+    purpose: "Client demo — emphasize capabilities, hide implementation details" })
+→ Returns { prompt, output_path } — agent renders content tailored to the purpose
 
 → kb_export({ scope: "all", format: "markdown", rendered_content: "<rendered>" })
-→ Writes to knowledge/exports/kb-export.md
+→ Writes to knowledge/exports/all-2026-03-22.md
+
+# All flows as PDF
+"Export all user flows as a PDF"
+→ kb_export({ type: "flow", format: "pdf",
+    purpose: "QA team reference for all user workflows" })
+→ Agent renders → PDF with proper headings, bullet lists, page breaks per section
+
+# Specific features as DOCX for CFO review
+"Export billing features for the CFO"
+→ kb_export({ scope: ["invoice-create", "payment-process", "refund-flow"],
+    format: "docx", purpose: "CFO review of billing features — business value focus" })
+→ DOCX with Heading 1/2/3 styles, numbered lists, bold/italic formatting
+
+# Combine type + scope: all validations in a domain
+→ kb_export({ scope: "billing", type: "validation", format: "markdown",
+    purpose: "QA team needs all billing validation rules" })
 ```
+
+Large KBs are paginated automatically — the agent renders each page and combines them before writing.
 
 ---
 

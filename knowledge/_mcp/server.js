@@ -144,13 +144,16 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'kb_export',
-    description: 'Phase 1: Gathers KB content and returns an export prompt for the agent (or writes json directly). Phase 2: Call with rendered_content to write agent-rendered output to disk.',
+    description: 'Export KB content. Supports optional purpose to guide tone/structure, type filter (e.g. "flow"), and multi-scope (array of ids/domains). Phase 1: Gathers KB content and returns an export prompt for the agent (or writes json directly). Large KBs are paginated automatically. Phase 2: Call with rendered_content to write agent-rendered output to disk.',
     inputSchema: {
       type: 'object',
       properties: {
-        scope: { type: 'string', description: 'Domain, feature id, or "all"', default: 'all' },
+        scope: { description: 'Domain name, feature/flow id, or "all". Accepts an array for multi-scope export.', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], default: 'all' },
         format: { type: 'string', description: 'Output format: pdf|docx|markdown|confluence|notion|html|json', default: 'markdown' },
+        type: { type: 'string', description: 'Filter by KB type: feature, flow, schema, validation, integration, decision, foundation, enums, ui-permissions, ui-copy' },
+        purpose: { type: 'string', description: 'Optional: describe the purpose and desired style of the export (e.g. "client-facing API overview", "onboarding guide for new backend engineers")' },
         app_scope: { type: 'string', description: 'Filter by app scope' },
+        page: { type: 'number', description: 'Page number for paginated exports of large KBs (returned by previous call)' },
         dry_run: { type: 'boolean', description: 'Preview without writing', default: false },
         rendered_content: { type: 'string', description: 'Phase 2: agent-rendered content to write to disk' }
       }

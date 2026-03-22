@@ -8,7 +8,7 @@ const { loadRules } = require('../lib/rules')
 const KB_ROOT = 'knowledge'
 const DEFAULT_MAX_TOKENS = 8000
 
-async function runTool({ task_type, keywords, app_scope, scope, max_tokens } = {}) {
+async function runTool({ task_type, keywords, app_scope, scope, max_tokens, type } = {}) {
   const graph = loadGraph(KB_ROOT)
   const rules = loadRules(KB_ROOT)
   const raw = rules.getRaw()
@@ -22,7 +22,7 @@ async function runTool({ task_type, keywords, app_scope, scope, max_tokens } = {
 
   // Export mode: load all files in scope
   if (task_type === 'export' || scope) {
-    return handleExportScope(graph, scope, app_scope, alwaysLoadFiles)
+    return handleExportScope(graph, scope, app_scope, alwaysLoadFiles, type)
   }
 
   // Standard mode: keyword-based traversal
@@ -32,23 +32,52 @@ async function runTool({ task_type, keywords, app_scope, scope, max_tokens } = {
   return { files: selectedFiles }
 }
 
-function handleExportScope(graph, scope, appScopeFilter, alwaysLoadFiles) {
-  let entries
+function handleExportScope(graph, scope, appScopeFilter, alwaysLoadFiles, typeFilter) {
+  const scopes = Array.isArray(scope) ? scope : [scope || 'all']
+  const allEntries = new Map()
 
-  if (!scope || scope === 'all') {
-    entries = getByScope(graph, appScopeFilter)
-  } else {
-    // scope could be a domain (e.g. "billing") or feature id
-    entries = Object.entries(graph.files || {}).filter(([fp, entry]) => {
-      const matchesDomain = fp.includes(scope)
-      const matchesId = entry.id === scope
-      const matchesGroup = entry.group && entry.group.includes(scope)
-      return matchesDomain || matchesId || matchesGroup
-    })
+  for (const s of scopes) {
+    if (!s || s === 'all') {
+      const entries = getByScope(graph, appScopeFilter)
+      for (const [fp, entry] of entries) {
+        allEntries.set(fp, entry)
+      }
+    } else {
+      for (const [fp, entry] of Object.entries(graph.files || {})) {
+        const matchesDomain = fp.includes(s)
+        const matchesId = entry.id === s
+        const matchesGroup = entry.group && entry.group.includes(s)
+        if (matchesDomain || matchesId || matchesGroup) {
+          allEntries.set(fp, entry)
+        }
+      }
+    }
   }
 
-  const files = entries
-    .map(([fp]) => loadFile(fp))
+  // Apply app_scope filter for non-"all" scopes
+  if (appScopeFilter) {
+    for (const [fp, entry] of allEntries) {
+      const entryScope = entry.app_scope
+      if (entryScope !== 'all' && entryScope !== appScopeFilter) {
+        if (!Array.isArray(entryScope) || (!entryScope.includes(appScopeFilter) && !entryScope.includes('all'))) {
+          allEntries.delete(fp)
+        }
+      }
+    }
+  }
+
+  // Apply type filter
+  if (typeFilter) {
+    for (const [fp, entry] of allEntries) {
+      const fileType = entry.type || inferType(fp)
+      if (fileType !== typeFilter) {
+        allEntries.delete(fp)
+      }
+    }
+  }
+
+  const files = [...allEntries.keys()]
+    .map(fp => loadFile(fp))
     .filter(Boolean)
 
   const all = [...alwaysLoadFiles, ...files.filter(f =>

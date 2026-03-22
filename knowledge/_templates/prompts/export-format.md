@@ -22,6 +22,18 @@ human-readable document for {{export_format}} output.
 Export scope: {{scope_label}}
 Date: {{export_date}}
 
+## Export purpose
+
+{{purpose}}
+
+If a purpose is specified, tailor the document to match:
+- **Client demo** → emphasize capabilities, hide implementation details, professional tone
+- **Onboarding guide** → explain context, define terms, link concepts progressively
+- **Technical reference** → precise, complete, include edge cases and constraints
+- **Stakeholder summary** → high-level, business value, omit code-level details
+
+If no purpose is given, produce a neutral technical reference document.
+
 ## KB content
 
 {{kb_files}}
