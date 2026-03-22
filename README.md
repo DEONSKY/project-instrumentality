@@ -331,7 +331,7 @@ All prompts used by the tools are in `knowledge/_templates/prompts/`. To overrid
 `kb_init` installs:
 
 - **Pre-commit hook** — lints KB files (warns, never blocks); warns if Tier 1 auto-generated files are staged
-- **Pre-push hook** — runs bidirectional drift detection; appends entries to `sync/code-drift.md` (code changed) and `sync/kb-drift.md` (KB changed). Compares against the remote tracking branch tip (covers all unpushed commits, not just the last one). Re-entry guard prevents double-commits when the hook auto-commits drift files
+- **Pre-push hook** — submodule branch guard (blocks push if owned submodule is on wrong branch); runs bidirectional drift detection; appends entries to `sync/code-drift.md` (code changed) and `sync/kb-drift.md` (KB changed). Compares against the remote tracking branch tip (covers all unpushed commits, not just the last one). Re-entry guard prevents double-commits when the hook auto-commits drift files
 - **Post-merge hook** — rebuilds `_index.yaml`; then runs drift detection from `ORIG_HEAD` to catch semantic conflicts between branches (KB changed on one branch, related code changed on another)
 - **Merge drivers** — `kb-reindex` for `_index.yaml`, `kb-conflict` for feature/flow files, `union` for sync logs
 
@@ -371,6 +371,87 @@ Written by the server automatically, reviewed and resolved by humans via Claude.
 | `sync/import-review.md` | `kb_import` | Classify unresolved chunks via Claude |
 
 Do not delete entries from Tier 3 files manually — always resolve through `kb_drift` or the relevant tool so the resolution is logged to `sync/drift-log/`.
+
+---
+
+## Git submodule support
+
+Projects that use git submodules (e.g., separate `backend/` and `frontend/` repos) get additional safety and drift tracking.
+
+### Two kinds of submodule
+
+| Type | Example | Branch rule | Drift behavior |
+|------|---------|------------|----------------|
+| **Owned** | `backend/`, `frontend/` | Must match parent branch | Drift entries prefixed with submodule path |
+| **Shared** | `client-sdk/`, `common-lib/` | Independent (own branch) | Drift entries tagged with `**Shared module:** true` |
+
+Mark a submodule as shared in `.gitmodules`:
+
+```ini
+[submodule "client-sdk"]
+    path = client-sdk
+    url = git@github.com:org/client-sdk.git
+    kb-shared = true
+```
+
+### Pre-push branch guard
+
+The pre-push hook checks owned submodules whose pointer changed in the push. If a submodule is on a different branch than the parent, the push is blocked:
+
+```
+[kb] ERROR: Submodule branch mismatch — push blocked.
+[kb] Parent is on 'feature/auth' but these submodules are not:
+  backend  (on 'main', expected 'feature/auth')
+```
+
+Shared submodules are not blocked — only a warning is printed when their pointer changes.
+
+### kb-feature.sh — push helper
+
+`kb-feature.sh` ensures submodules are pushed before the parent in the correct order:
+
+```bash
+# Show status of all submodules
+./knowledge/_mcp/scripts/kb-feature.sh status
+
+# Push submodules first, then parent
+./knowledge/_mcp/scripts/kb-feature.sh push
+```
+
+Push behavior:
+- **Owned submodules** are pushed to the parent's branch name (`-u origin feature/auth`)
+- **Shared submodules** are pushed to their own current branch (`-u origin main`)
+- If any submodule push fails, the parent push is skipped
+- The parent is pushed last
+
+### Merge order (feature branch back to main)
+
+```
+1. In each involved submodule: merge feature → main, push
+2. In parent on main: git submodule update (pointer tracks submodule's main)
+3. In parent: merge feature → main, push
+```
+
+Wrong order leaves parent's main pointing to a submodule commit that only exists on a feature branch.
+
+### Drift detection in submodules
+
+Drift uses a per-submodule comparison ref (not the parent's ref), so it correctly detects all unpushed commits within each submodule. Code path patterns in `_rules.md` must include the submodule prefix:
+
+```yaml
+code_path_patterns:
+  - intent: service-logic
+    kb_target: "features/{name}.md"
+    paths:
+      - "src/services/**"           # direct parent code
+      - "backend/src/services/**"   # submodule code
+```
+
+`kb_init` will suggest prefixed patterns when it detects submodules.
+
+### Mixed setups
+
+Not all code needs to be in submodules. Direct parent code and submodule code coexist naturally — drift scans parent files first, then submodule files, both feed into the same drift queue. If no `.gitmodules` exists, all submodule features are no-ops.
 
 ---
 

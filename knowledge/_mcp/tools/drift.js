@@ -108,13 +108,16 @@ async function detectDrift(since) {
           subDate = subLog.latest.date.split('T')[0]
         }
       } catch { /* non-fatal */ }
-      const subFiles = await getChangedFiles(subGit, ref)
+      let subRef
+      try { subRef = await resolveLastSyncRef(subGit) } catch { subRef = 'HEAD~1' }
+      const subFiles = await getChangedFiles(subGit, subRef)
       changedEntries.push(...subFiles.map(f => ({
         file: `${sub.path}/${f}`,
         git: subGit,
         localFile: f,
         commit: subCommit,
-        date: subDate
+        date: subDate,
+        isShared: sub.isShared
       })))
     } catch { /* submodule may not have enough history */ }
   }
@@ -124,7 +127,7 @@ async function detectDrift(since) {
   let kbEntriesWritten = 0
 
   for (const entry of changedEntries) {
-    const { file, commit, date } = entry
+    const { file, commit, date, isShared } = entry
 
     if (isKbContentFile(file)) {
       // kb→code: KB file changed — find all associated code areas
@@ -139,19 +142,25 @@ async function detectDrift(since) {
       const matches = matchAllPatterns(file, patterns)
       for (const match of matches) {
         const kbTarget = resolveKbTarget(match, file)
-        const wasNew = upsertCodeDriftEntry(kbTarget, file, commit, date)
+        const wasNew = upsertCodeDriftEntry(kbTarget, file, commit, date, isShared)
         if (wasNew) codeEntriesWritten++
       }
     }
   }
 
   const noDrift = codeEntriesWritten === 0 && kbEntriesWritten === 0
-  const subInfo = submodules.length > 0 ? ` (checked submodule(s): ${submodules.map(s => s.path).join(', ')})` : ''
+  const ownedSubs = submodules.filter(s => !s.isShared).map(s => s.path)
+  const sharedSubs = submodules.filter(s => s.isShared).map(s => s.path)
+  const subParts = []
+  if (ownedSubs.length > 0) subParts.push(`owned: ${ownedSubs.join(', ')}`)
+  if (sharedSubs.length > 0) subParts.push(`shared: ${sharedSubs.join(', ')}`)
+  const subInfo = subParts.length > 0 ? ` (submodules — ${subParts.join('; ')})` : ''
 
   return {
     code_entries: codeEntriesWritten,
     kb_entries: kbEntriesWritten,
-    submodules_checked: submodules.map(s => s.path),
+    submodules_owned: ownedSubs,
+    submodules_shared: sharedSubs,
     ...(noDrift
       ? { message: `No drift detected.${subInfo}` }
       : { message: `${codeEntriesWritten} code→KB entry(s) in sync/code-drift.md, ${kbEntriesWritten} KB→code entry(s) in sync/kb-drift.md.${subInfo}` }
@@ -224,12 +233,13 @@ function readCodeDriftEntries() {
   const entries = blocks.map(block => {
     const headingMatch = block.match(/^## (.+)/)
     const kbTarget = headingMatch ? headingMatch[1].trim() : null
+    const hasShared = /\*\*Shared module:\*\*\s*true/.test(block)
     const codeFiles = []
     for (const line of block.split('\n')) {
       const m = line.match(/^\s+-\s+`([^`]+)`\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)/)
       if (m) codeFiles.push({ path: m[1], sinceCommit: m[2], sinceDate: m[3] })
     }
-    return { kbTarget, codeFiles }
+    return { kbTarget, codeFiles, hasShared }
   }).filter(e => e.kbTarget)
 
   return { header, entries }
@@ -238,7 +248,8 @@ function readCodeDriftEntries() {
 function writeCodeDriftEntries(header, entries) {
   const body = entries.map(entry => {
     const fileLines = entry.codeFiles.map(f => `  - \`${f.path}\` — since \`${f.sinceCommit}\` (${f.sinceDate})`)
-    return `## ${entry.kbTarget}\n\n- **KB target:** \`${entry.kbTarget}\`\n- **Code files:**\n${fileLines.join('\n')}`
+    const sharedLine = entry.hasShared ? '\n- **Shared module:** true' : ''
+    return `## ${entry.kbTarget}\n\n- **KB target:** \`${entry.kbTarget}\`\n- **Code files:**\n${fileLines.join('\n')}${sharedLine}`
   }).join('\n\n')
   fs.writeFileSync(CODE_DRIFT_PATH, header + (body ? '\n' + body + '\n' : ''), 'utf8')
 }
@@ -247,19 +258,20 @@ function writeCodeDriftEntries(header, entries) {
  * Upsert a code file into the entry for a KB target.
  * Returns true if a new entry was created, false if existing was updated or skipped.
  */
-function upsertCodeDriftEntry(kbTarget, codeFile, sinceCommit, sinceDate) {
+function upsertCodeDriftEntry(kbTarget, codeFile, sinceCommit, sinceDate, isShared) {
   const { header, entries } = readCodeDriftEntries()
   const existing = entries.find(e => e.kbTarget === kbTarget)
 
   if (existing) {
     if (!existing.codeFiles.some(f => f.path === codeFile)) {
       existing.codeFiles.push({ path: codeFile, sinceCommit, sinceDate })
+      if (isShared) existing.hasShared = true
       writeCodeDriftEntries(header, entries)
     }
     return false // entry already existed
   }
 
-  entries.push({ kbTarget, codeFiles: [{ path: codeFile, sinceCommit, sinceDate }] })
+  entries.push({ kbTarget, codeFiles: [{ path: codeFile, sinceCommit, sinceDate }], hasShared: !!isShared })
   writeCodeDriftEntries(header, entries)
   return true // new entry created
 }
@@ -408,10 +420,16 @@ async function detectSubmodules() {
   if (!fs.existsSync(gitmodulesPath)) return []
   const content = fs.readFileSync(gitmodulesPath, 'utf8')
   const submodules = []
-  for (const match of content.matchAll(/\[submodule\s+"([^"]+)"\][^\[]*path\s*=\s*(.+)/g)) {
-    const subPath = match[2].trim()
+  const blocks = content.split(/(?=\[submodule\s+"[^"]+"\])/).filter(b => b.trim())
+  for (const block of blocks) {
+    const nameMatch = block.match(/\[submodule\s+"([^"]+)"\]/)
+    const pathMatch = block.match(/path\s*=\s*(.+)/)
+    if (!nameMatch || !pathMatch) continue
+    const name = nameMatch[1].trim()
+    const subPath = pathMatch[1].trim()
     const fullPath = path.join(process.cwd(), subPath)
-    if (fs.existsSync(fullPath)) submodules.push({ name: match[1].trim(), path: subPath, fullPath })
+    const isShared = /kb-shared\s*=\s*true/.test(block)
+    if (fs.existsSync(fullPath)) submodules.push({ name, path: subPath, fullPath, isShared })
   }
   return submodules
 }

@@ -828,3 +828,127 @@ estimateTokens("hello world") // 11 chars → ceil(11/4) = 3
 `knowledge/features/a/b/c/file.md` → depth 4, max 3.
 
 **Pass:** `{ valid: false, actual: 4, max: 3, suggestion: "knowledge/features/a/b-c/file.md" }`. The suggestion merges the last two *directory* segments (`b` + `c` → `b-c`), keeping the filename (`file.md`) separate.
+
+---
+
+## 19. Git Submodule Support
+
+### TC-19.1 Pre-push guard — owned submodule, branch mismatch blocked
+
+```
+# Parent on feature/auth, owned submodule on main, pointer changed
+git checkout -b feature/auth        # parent
+git -C backend checkout main        # submodule stays on main
+# make commit in backend, then: git add backend/ && git commit
+git push
+```
+
+**Pass:** Push blocked with `[kb] ERROR: Submodule branch mismatch`. Error message includes both fix options (accidental staging vs intentional).
+
+### TC-19.2 Pre-push guard — owned submodule, pointer unchanged (not involved)
+
+```
+# Parent on feature/auth, owned submodule on main, but pointer NOT changed
+git checkout -b feature/auth
+# do NOT stage submodule pointer change
+git push
+```
+
+**Pass:** Push proceeds without error — submodule not involved.
+
+### TC-19.3 Pre-push guard — shared submodule, non-blocking warning
+
+```
+# .gitmodules has kb-shared = true for client-sdk
+# client-sdk pointer changed, client-sdk on different branch than parent
+git push
+```
+
+**Pass:** Push proceeds with `[kb] WARNING: Shared submodule pointer(s) updated` — NOT blocked.
+
+### TC-19.4 Pre-push guard — no .gitmodules, backward compatibility
+
+```
+# Project has no .gitmodules file
+git push
+```
+
+**Pass:** Guard block is a no-op, push proceeds normally. No errors or warnings about submodules.
+
+### TC-19.5 Drift — per-submodule since-ref resolution
+
+```
+# Submodule has 3 unpushed commits on feature/auth with upstream set (origin/feature/auth)
+# Parent pushes, triggering drift
+```
+
+**Pass:** Drift reports all 3 commits worth of changed files (not just the last one). Return includes `submodules_owned` and `submodules_shared` arrays.
+
+### TC-19.6 Drift — shared submodule tag in code-drift.md
+
+```
+# Change a file in a shared submodule that matches a code_path_pattern
+# Push parent
+```
+
+**Pass:** `knowledge/sync/code-drift.md` entry includes `- **Shared module:** true` line.
+
+### TC-19.7 Drift — shared flag round-trip
+
+```
+# After TC-19.6, trigger drift again (no new changes)
+```
+
+**Pass:** The `Shared module: true` line survives the read→write cycle — it's still present in code-drift.md.
+
+### TC-19.8 Drift — mixed setup (direct code + submodules)
+
+```
+# Parent has code in src/ AND a backend/ submodule
+# Change files in both, push
+```
+
+**Pass:** Drift creates entries for both. Parent files matched by `src/**` patterns, submodule files by `backend/src/**` patterns.
+
+### TC-19.9 detectSubmodules — parses kb-shared attribute
+
+```
+# .gitmodules:
+# [submodule "backend"]
+#   path = backend
+#   url = ...
+# [submodule "client-sdk"]
+#   path = client-sdk
+#   url = ...
+#   kb-shared = true
+```
+
+**Pass:** `detectSubmodules()` returns backend with `isShared: false`, client-sdk with `isShared: true`.
+
+### TC-19.10 kb-feature push — correct order
+
+```
+# Owned submodule has commits on feature/auth, no upstream set yet
+# git add backend/ && git commit in parent
+./knowledge/_mcp/scripts/kb-feature.sh push
+```
+
+**Pass:** Submodule pushed first with `-u origin feature/auth`, then parent. No branch mismatch error from hook.
+
+### TC-19.11 kb-feature status — shows all info
+
+```
+./knowledge/_mcp/scripts/kb-feature.sh status
+```
+
+**Pass:** Output shows parent branch, each submodule's branch, pointer-changed flag, owned/shared label.
+
+### TC-19.12 kb_init — submodule pattern suggestion
+
+```
+# Project has .gitmodules with backend/ submodule
+# _rules.md has no patterns starting with backend/
+kb_init({ interactive: false })
+```
+
+**Pass:** Setup guide prints suggestion to add `backend/` prefixed patterns to code_path_patterns. Does NOT auto-modify `_rules.md`.

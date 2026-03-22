@@ -1,10 +1,10 @@
 # KB-MCP Test Results Report
 
-**Date:** 2026-03-21 (updated after TEST_CASES.md revision)
+**Date:** 2026-03-22 (updated with Section 19 submodule tests)
 **Project:** kb-test-project4
 **Server:** `/home/mc/Projects/pi/project-instrumentality/knowledge/_mcp/server.js`
-**Total Cases:** 101
-**Pass:** 86 | **Fail:** 7 | **Partial:** 8
+**Total Cases:** 109
+**Pass:** 94 | **Fail:** 7 | **Partial:** 8
 
 ---
 
@@ -30,6 +30,7 @@
 | 16 | Pre-push hook | 3 | 3 | 0 | 0 |
 | 17 | Prompt overrides | 5 | 4 | 0 | 1 |
 | 18 | Cross-cutting | 3 | 2 | 0 | 1 |
+| 19 | Git submodules | 8 | 8 | 0 | 0 |
 
 ---
 
@@ -428,6 +429,43 @@
 
 ---
 
+## Section 19 — Git Submodules
+
+### TC-19.1 Re-init KB with submodules (E.1) ✅ PASS
+- `kb_init` detects submodules (backend, client-sdk). `detected_stack: "react-vite"`.
+- Pre-push hook updated with submodule branch guard.
+- `kb-feature.sh` available from bundled server path.
+
+### TC-19.2 Submodule-prefixed code path patterns (E.2) ✅ PASS
+- Added `backend/src/controllers/**`, `backend/src/services/**`, `client-sdk/src/**` to `_rules.md`.
+- Patterns correctly match submodule files during drift detection.
+
+### TC-19.3 Drift detection in owned submodule (E.3) ✅ PASS
+- Change in `backend/src/services/UserService.ts` → drift entry created for `flows/user.md`.
+- File path correctly prefixed with `backend/` in drift entry.
+
+### TC-19.4 Shared submodule drift tagging (E.4) ✅ PASS (with fix)
+- `- **Shared module:** true` appears in drift entry for `client-sdk/src/auth-client.ts`.
+- **Bug found in test script:** `git config --file .gitmodules submodule.client-sdk-repo.kb-shared true` creates a separate `[submodule "client-sdk-repo"]` section instead of adding to existing `[submodule "client-sdk"]`. Correct command: `submodule.client-sdk.kb-shared true`. Test script fixed.
+
+### TC-19.5 kb-feature.sh status (E.5) ✅ PASS
+- Shows parent branch, `backend [owned]` with `pointer-changed=true`, `client-sdk [shared]` with `pointer-changed=true`.
+
+### TC-19.6 Branch guard blocks push — owned mismatch (E.6) ✅ PASS
+- `[kb] ERROR: Submodule branch mismatch` — backend on `master`, expected `feature/auth`.
+- Two fix options shown (restore staged / checkout branch).
+- Push blocked (exit 1).
+
+### TC-19.7 Fix mismatch + push via kb-feature (E.7) ✅ PASS (with note)
+- Backend pushed with `-u origin feature/auth`, client-sdk pushed to `master` (its own branch), parent pushed.
+- **Note:** `kb-feature.sh push` uses bare `git push` for parent — upstream must be pre-set on first push (e.g., `git push -u origin feature/auth` initially).
+
+### TC-19.8 Shared submodule warning — non-blocking (E.8) ✅ PASS
+- Warning printed about shared submodule pointer update. Push proceeds.
+- `client-sdk` pushed to `master` (its own branch), not `feature/auth`. Parent `feature/auth` pushed successfully.
+
+---
+
 ## Bugs Found
 
 | # | Severity | Status | Component | Description |
@@ -438,24 +476,27 @@
 | BUG-3 | Medium | **Open** | `import.js` | Chunker mishandles `##` headings inside fenced code blocks — second section not split. |
 | BUG-4 | Medium | **Open** | `migrate.js` | No-change detection missing — `kb_migrate` always runs even when `_rules.md` unchanged. |
 | BUG-5 | Low | **Open** | `migrate.js` + MCP schema | `dry_run` implemented in `runTool()` but not exposed in MCP tool schema. |
-| BUG-6 | Low | **Open** | `init.js` | `matter` library used at line 195–209 but not imported — `re-init updates stack` path throws `"matter is not defined"`. |
+| BUG-6 | Low | **FIXED** | `init.js` | `matter` library used at line 195–209 but not imported — `re-init updates stack` path threw `"matter is not defined"`. Fixed: added `const matter = require('gray-matter')`. |
 | BUG-7 | Low | **Open** | `reindex.js` | Group entries in `_index.yaml` missing `file_count` field. |
 | BUG-8 | Low | **Open** | `depth.js` `suggestFlatter()` | Suggestion merges deepest folder+filename instead of two folder segments. |
 | BUG-9 | Low | **Open** | Prompt suppress | `suppress` override returns "Prompt template not found" error rather than `{ suppressed: true, ... }` response. |
+| BUG-10 | Low | **FIXED** | `TEST_PROMPTS.md` E.0 | Test script used `submodule.client-sdk-repo.kb-shared` (repo name) instead of `submodule.client-sdk.kb-shared` (path name) — created a separate `.gitmodules` section. Fixed in test script. |
 
 ---
 
 ## Overall Verdict
 
-**86 PASS / 8 PARTIAL / 7 FAIL** out of 101 test cases.
+**94 PASS / 8 PARTIAL / 7 FAIL** out of 109 test cases.
 
 ### Key improvements since initial test run:
 - **BUG-1 fixed**: @mention `.md` extension resolution now works in MCP lint tool.
 - **BUG-2 was incorrect**: Secret pattern matching IS case-insensitive (corrected from FAIL to PASS).
+- **BUG-6 fixed**: `matter` (gray-matter) import added to `init.js` — re-init stack update path now works.
+- **BUG-10 fixed**: Test script E.0 used wrong `.gitmodules` key for shared submodule.
 - 22 new test cases added (Sections 14-16 and expanded existing sections) — all pass.
+- 8 new submodule test cases added (Section 19) — all pass.
 
 ### Remaining critical issues:
 1. **BUG-1b**: `lint-standalone.js` not patched with the same `.md` fix as `lint.js`.
 2. **BUG-3**: Import chunker — fenced code block splits incorrectly.
 3. **BUG-4**: `kb_migrate` no-change detection missing.
-4. **BUG-6**: `matter` not imported in `init.js` breaks re-init stack update path.

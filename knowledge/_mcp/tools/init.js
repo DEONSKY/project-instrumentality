@@ -1,6 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const readline = require('readline')
+const matter = require('gray-matter')
 const { runTool: reindex } = require('./reindex')
 
 const KB_ROOT = 'knowledge'
@@ -71,6 +72,69 @@ fi
 
 const PRE_PUSH_HOOK = `#!/bin/sh
 # kb-mcp managed — updated by kb_init. Do not remove this line.
+
+# ── Submodule branch guard ────────────────────────────────────────────────────
+if [ -f .gitmodules ]; then
+  PARENT_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
+  REMOTE_REF=$(git rev-parse @{upstream} 2>/dev/null) || REMOTE_REF=""
+  TMPFILE=$(mktemp)
+  MISMATCH=""
+  SHARED_WARN=""
+  git config --file .gitmodules --get-regexp 'submodule\\..*\\.path' > "$TMPFILE" 2>/dev/null
+  while IFS= read -r line; do
+    key=$(printf '%s' "$line" | awk '{print $1}')
+    subpath=$(printf '%s' "$line" | awk '{print $2}')
+    subname=$(printf '%s' "$key" | sed 's/submodule\\.\\(.*\\)\\.path/\\1/')
+
+    IS_SHARED=$(git config --file .gitmodules submodule."$subname".kb-shared 2>/dev/null)
+    if [ "$IS_SHARED" = "true" ]; then
+      # Shared — no branch enforcement, but warn if pointer changed
+      LOCAL_SUB=$(git ls-tree HEAD "$subpath" 2>/dev/null | awk '{print $3}')
+      if [ -n "$REMOTE_REF" ]; then
+        REMOTE_SUB=$(git ls-tree "$REMOTE_REF" "$subpath" 2>/dev/null | awk '{print $3}')
+      else
+        REMOTE_SUB=""
+      fi
+      if [ "$LOCAL_SUB" != "$REMOTE_SUB" ]; then
+        SHARED_WARN="$SHARED_WARN\\n  $subpath"
+      fi
+      continue
+    fi
+
+    # Owned — check if pointer changed in this push
+    LOCAL_SUB=$(git ls-tree HEAD "$subpath" 2>/dev/null | awk '{print $3}')
+    if [ -n "$REMOTE_REF" ]; then
+      REMOTE_SUB=$(git ls-tree "$REMOTE_REF" "$subpath" 2>/dev/null | awk '{print $3}')
+    else
+      REMOTE_SUB=""
+    fi
+    [ "$LOCAL_SUB" = "$REMOTE_SUB" ] && continue
+
+    SUB_BRANCH=$(git -C "$subpath" symbolic-ref --short HEAD 2>/dev/null)
+    if [ -n "$SUB_BRANCH" ] && [ "$SUB_BRANCH" != "$PARENT_BRANCH" ]; then
+      MISMATCH="$MISMATCH\\n  $subpath  (on '$SUB_BRANCH', expected '$PARENT_BRANCH')"
+    fi
+  done < "$TMPFILE"
+  rm -f "$TMPFILE"
+
+  if [ -n "$MISMATCH" ]; then
+    printf "[kb] ERROR: Submodule branch mismatch — push blocked.\\n" >&2
+    printf "[kb] Parent is on '%s' but these submodules are not:%b\\n" "$PARENT_BRANCH" "$MISMATCH" >&2
+    printf "[kb]\\n" >&2
+    printf "[kb] If the submodule is NOT part of this feature (accidental staging):\\n" >&2
+    printf "[kb]   git restore --staged <submodule-path>/\\n" >&2
+    printf "[kb]\\n" >&2
+    printf "[kb] If the submodule IS part of this feature:\\n" >&2
+    printf "[kb]   cd <submodule> && git checkout %s\\n" "$PARENT_BRANCH" >&2
+    exit 1
+  fi
+
+  if [ -n "$SHARED_WARN" ]; then
+    printf "[kb] WARNING: Shared submodule pointer(s) updated:%b\\n" "$SHARED_WARN" >&2
+    printf "[kb] These affect all projects consuming the module(s). Ensure changes are mergeable to main.\\n" >&2
+  fi
+fi
+
 LOCAL="knowledge/_mcp/server.js"
 BUNDLED="${_SERVER_SCRIPT}"
 SERVER="$LOCAL"
@@ -252,8 +316,12 @@ async function runTool({ interactive = true, config = null } = {}) {
   await reindex({ silent: true })
   filesCreated.push(path.join(KB_ROOT, '_index.yaml'))
 
-  // 11. Print setup guide
-  printSetupGuide(cfg, hints)
+  // 11. Check for submodule pattern gaps
+  const { loadRules } = require('../lib/rules')
+  const submoduleGaps = detectSubmodulePatternGaps(loadRules(KB_ROOT))
+
+  // 12. Print setup guide
+  printSetupGuide(cfg, hints, submoduleGaps)
 
   return {
     setup_complete: true,
@@ -510,7 +578,41 @@ function installGitHooks() {
     }
   })
 
+  // Install kb-feature.sh helper script (committed to repo, not in .git/)
+  const kbFeatureSrc = path.join(__dirname, '../scripts/kb-feature.sh')
+  if (fs.existsSync(kbFeatureSrc)) {
+    fs.chmodSync(kbFeatureSrc, '755')
+    installed.push('kb-feature.sh (scripts)')
+  }
+
   return installed
+}
+
+/**
+ * Detect submodules from .gitmodules and check if code_path_patterns
+ * already include prefixed patterns for each submodule path.
+ * Returns suggestions for missing patterns (informational only).
+ */
+function detectSubmodulePatternGaps(rules) {
+  const gitmodulesPath = '.gitmodules'
+  if (!fs.existsSync(gitmodulesPath)) return []
+  const content = fs.readFileSync(gitmodulesPath, 'utf8')
+  const blocks = content.split(/(?=\[submodule\s+"[^"]+"\])/).filter(b => b.trim())
+  const patterns = rules ? rules.getCodePathPatterns() : []
+  const allPaths = patterns.flatMap(p => p.paths || [])
+
+  const suggestions = []
+  for (const block of blocks) {
+    const nameMatch = block.match(/\[submodule\s+"([^"]+)"\]/)
+    const pathMatch = block.match(/path\s*=\s*(.+)/)
+    if (!nameMatch || !pathMatch) continue
+    const subPath = pathMatch[1].trim()
+    const hasCoverage = allPaths.some(p => p.startsWith(subPath + '/'))
+    if (!hasCoverage) {
+      suggestions.push(subPath)
+    }
+  }
+  return suggestions
 }
 
 function installMergeDrivers() {
@@ -532,10 +634,25 @@ function installMergeDrivers() {
   }
 }
 
-function printSetupGuide(cfg, hints = {}) {
+function printSetupGuide(cfg, hints = {}, submoduleGaps = []) {
   const stackLine = hints.stack
     ? `   Detected stack: ${hints.stack} — code_path_patterns pre-filled from preset.`
     : `   No stack detected — copy patterns from knowledge/_mcp/presets/<stack>.yaml`
+
+  let submoduleLine = ''
+  if (submoduleGaps.length > 0) {
+    submoduleLine = `
+6. Submodule code path patterns needed:
+   The following submodules have no matching code_path_patterns in _rules.md:
+${submoduleGaps.map(s => `     - ${s}/  →  add patterns like: ${s}/src/**`).join('\n')}
+   Without prefixed patterns, drift detection won't match files inside these submodules.
+   Edit knowledge/_rules.md → code_path_patterns to add them.
+
+   Push helper: ./knowledge/_mcp/scripts/kb-feature.sh push
+   (Pushes submodules first with -u, then parent — correct order for drift)
+`
+  }
+
   console.log(`
 ╔══════════════════════════════════════════════════════╗
 ║           KB-MCP Setup Complete                      ║
@@ -561,7 +678,7 @@ ${stackLine}
 
 5. Open in Cursor/Claude Code — the MCP server auto-starts.
    No API key needed — the agent IS the LLM.
-
+${submoduleLine}
 KB root: knowledge/
 MCP config: .cursor/mcp.json
 Rules: knowledge/_rules.md

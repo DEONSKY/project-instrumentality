@@ -697,3 +697,155 @@ git add -A && git commit -m "tighten depth policy"
 > We're changing the auth token format from JWT to opaque tokens. What's the impact?
 
 **Expected:** Impact returns all three files (auth → checkout → payment) via transitive dependency.
+
+---
+
+## Part E — Git Submodule Support
+
+> **Important:** This test runs inside an **existing** test project that already has kb-mcp
+> initialized (e.g. the TaskFlow project from Part A). The submodule source repos are created
+> in a temporary directory — NOT inside or next to the test project.
+
+### E.0 Add submodules to existing project (run in terminal — not MCP)
+
+```bash
+# Save your test project path (run from inside your test project root)
+PROJECT_DIR=$(pwd)
+
+# Create submodule source repos in a temp directory
+TMPDIR=$(mktemp -d)
+
+# Backend repo (owned submodule)
+git init "$TMPDIR/backend-repo"
+mkdir -p "$TMPDIR/backend-repo/src/controllers" "$TMPDIR/backend-repo/src/services"
+cat > "$TMPDIR/backend-repo/src/controllers/UserController.ts" << 'EOF'
+export class UserController { async getUser(id: string) {} }
+EOF
+cat > "$TMPDIR/backend-repo/src/services/UserService.ts" << 'EOF'
+export class UserService { async findById(id: string) {} }
+EOF
+git -C "$TMPDIR/backend-repo" add -A && git -C "$TMPDIR/backend-repo" commit -m "init backend"
+
+# Client SDK repo (shared submodule)
+git init "$TMPDIR/client-sdk-repo"
+mkdir -p "$TMPDIR/client-sdk-repo/src"
+cat > "$TMPDIR/client-sdk-repo/src/auth-client.ts" << 'EOF'
+export function authenticate(token: string) { return fetch('/auth/verify') }
+EOF
+git -C "$TMPDIR/client-sdk-repo" add -A && git -C "$TMPDIR/client-sdk-repo" commit -m "init client-sdk"
+
+# Add submodules to test project (still in $PROJECT_DIR)
+cd "$PROJECT_DIR"
+git submodule add "$TMPDIR/backend-repo" backend
+git submodule add "$TMPDIR/client-sdk-repo" client-sdk
+
+# Mark client-sdk as shared (use the submodule path name, not the repo name)
+git config --file .gitmodules submodule.client-sdk.kb-shared true
+git add .gitmodules && git commit -m "add submodules"
+```
+
+### E.1 Re-initialize KB to pick up submodules
+
+> **Prompt to agent:**
+> Re-initialize the knowledge base. The project now has git submodules — a backend (owned) and a client-sdk (shared, marked with kb-shared = true).
+
+**Expected:**
+- `kb_init` detects submodules (backend, client-sdk)
+- Setup guide mentions that `backend/` and `client-sdk/` need prefixed code_path_patterns in `_rules.md`
+- Pre-push hook updated with submodule branch guard
+- kb-feature.sh script marked executable
+
+### E.2 Add submodule-prefixed patterns
+
+> **Prompt to agent:**
+> Add code path patterns for the backend submodule. Backend has controllers in `backend/src/controllers/` and services in `backend/src/services/`. Also add a pattern for `client-sdk/src/**`.
+
+**Expected:** `_rules.md` updated with patterns like `backend/src/controllers/**`, `backend/src/services/**`, `client-sdk/src/**`.
+
+### E.3 Scaffold KB files and test drift detection
+
+> **Prompt to agent:**
+> Scaffold a feature KB file called `user-management` that covers user CRUD operations.
+
+**Expected:** `features/user-management.md` created.
+
+Now trigger drift manually:
+
+```bash
+# Make a change in the backend submodule
+cd backend
+echo 'export function deleteUser(id: string) {}' >> src/services/UserService.ts
+git add -A && git commit -m "add deleteUser"
+cd ..
+git add backend && git commit -m "update backend pointer"
+```
+
+> **Prompt to agent:**
+> Run drift detection to see if any code changes need KB updates.
+
+**Expected:** Drift entry created for `features/user-management.md` with code file `backend/src/services/UserService.ts`.
+
+### E.4 Test shared submodule drift tagging
+
+```bash
+# Make a change in the shared client-sdk
+cd client-sdk
+echo 'export function refreshToken(token: string) {}' >> src/auth-client.ts
+git add -A && git commit -m "add refreshToken"
+cd ..
+git add client-sdk && git commit -m "update client-sdk pointer"
+```
+
+> **Prompt to agent:**
+> Run drift detection.
+
+**Expected:** Drift entry includes `- **Shared module:** true` line, signaling PM that this change may affect other projects.
+
+### E.5 Test kb-feature status
+
+```bash
+./knowledge/_mcp/scripts/kb-feature.sh status
+```
+
+**Expected:** Output shows:
+- Parent branch
+- `backend` with `[owned]` label
+- `client-sdk` with `[shared]` label
+- Pointer-changed status for each
+
+### E.6 Test branch guard (owned submodule mismatch)
+
+```bash
+git checkout -b feature/auth
+cd backend
+git checkout main   # backend stays on main — deliberate mismatch
+cd ..
+# backend pointer already changed from E.3, so it's staged
+git push origin feature/auth
+```
+
+**Expected:** Push blocked with `[kb] ERROR: Submodule branch mismatch`. Error shows backend is on 'main', expected 'feature/auth'. Provides two fix options.
+
+### E.7 Fix mismatch and push with kb-feature
+
+```bash
+cd backend && git checkout -b feature/auth && cd ..
+git add backend && git commit -m "fix backend branch"
+./knowledge/_mcp/scripts/kb-feature.sh push
+```
+
+**Expected:** kb-feature pushes backend first with `-u origin feature/auth`, then pushes parent. No errors.
+
+### E.8 Test shared submodule warning (non-blocking)
+
+```bash
+# client-sdk is on main, parent is on feature/auth — but client-sdk is shared
+cd client-sdk
+echo 'export function logout() {}' >> src/auth-client.ts
+git add -A && git commit -m "add logout"
+cd ..
+git add client-sdk && git commit -m "update client-sdk"
+./knowledge/_mcp/scripts/kb-feature.sh push
+```
+
+**Expected:** Warning printed about shared submodule pointer update, but push proceeds. client-sdk pushed to its own branch (main), not feature/auth.
