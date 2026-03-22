@@ -128,13 +128,16 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'kb_import',
-    description: 'Phase 1: Extract and chunk a document (PDF, DOCX, MD, TXT, HTML), returns classify prompts for the agent. Phase 2: Call with files_to_write=[{path,content}] to write agent-classified files.',
+    description: 'Import a document into the KB. Classic mode: Phase 1 returns all chunks + classify prompts, Phase 2 writes files. Auto-classify mode (auto_classify: true): returns chunks in batches of 5 for agent to classify, then writes files automatically on final batch. Combine auto_classify + dry_run to preview proposed mappings.',
     inputSchema: {
       type: 'object',
       properties: {
-        source: { type: 'string', description: 'Path to the source document (required for Phase 1)' },
+        source: { type: 'string', description: 'Path to the source document (PDF, DOCX, MD, TXT, HTML)' },
         dry_run: { type: 'boolean', description: 'Preview without writing', default: false },
-        files_to_write: { type: 'array', description: 'Phase 2: agent-generated files to write', items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } }
+        auto_classify: { type: 'boolean', description: 'Paginated classification mode — returns chunks in batches for agent to classify, writes files on final batch', default: false },
+        classifications: { type: 'array', description: 'Agent classification results from previous batch (auto_classify continuation)', items: { type: 'object', properties: { chunk_id: { type: 'string' }, type: { type: 'string' }, confidence: { type: 'number' }, suggested_id: { type: 'string' } }, required: ['chunk_id', 'type', 'confidence', 'suggested_id'] } },
+        cursor: { type: 'number', description: 'Current position in chunk list (returned by previous auto_classify call)' },
+        files_to_write: { type: 'array', description: 'Classic Phase 2: agent-generated files to write', items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } }
       }
     }
   },
