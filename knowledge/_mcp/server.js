@@ -128,14 +128,15 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'kb_import',
-    description: 'Import a document into the KB. Classic mode: Phase 1 returns all chunks + classify prompts, Phase 2 writes files. Auto-classify mode (auto_classify: true): returns chunks in batches of 5 for agent to classify, then writes files automatically on final batch. Combine auto_classify + dry_run to preview proposed mappings.',
+    description: 'Import a document into the KB. Auto-classify mode (recommended): Phase 1 extracts and classifies in batches (multi-label). Phase 2 returns an import plan with proposed files and cross-references. Phase 3 (approve: true) writes files. Classic mode: Phase 1 returns chunks, Phase 2 writes agent-generated files.',
     inputSchema: {
       type: 'object',
       properties: {
         source: { type: 'string', description: 'Path to the source document (PDF, DOCX, MD, TXT, HTML)' },
         dry_run: { type: 'boolean', description: 'Preview without writing', default: false },
-        auto_classify: { type: 'boolean', description: 'Paginated classification mode — returns chunks in batches for agent to classify, writes files on final batch', default: false },
-        classifications: { type: 'array', description: 'Agent classification results from previous batch (auto_classify continuation)', items: { type: 'object', properties: { chunk_id: { type: 'string' }, type: { type: 'string' }, confidence: { type: 'number' }, suggested_id: { type: 'string' } }, required: ['chunk_id', 'type', 'confidence', 'suggested_id'] } },
+        auto_classify: { type: 'boolean', description: 'Paginated classification mode — returns chunks in batches for agent to classify, then returns import plan for approval', default: false },
+        approve: { type: 'boolean', description: 'Execute a previously generated import plan (requires auto_classify)', default: false },
+        classifications: { type: 'array', description: 'Agent multi-label classification results from previous batch', items: { type: 'object', properties: { chunk_id: { type: 'string' }, types: { type: 'array', items: { type: 'object', properties: { type: { type: 'string' }, confidence: { type: 'number' }, suggested_id: { type: 'string' }, reason: { type: 'string' } }, required: ['type', 'confidence', 'suggested_id'] } }, suggested_group: { type: 'string' }, duplicate_of: { type: 'string' } }, required: ['chunk_id', 'types'] } },
         cursor: { type: 'number', description: 'Current position in chunk list (returned by previous auto_classify call)' },
         files_to_write: { type: 'array', description: 'Classic Phase 2: agent-generated files to write', items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } }
       }

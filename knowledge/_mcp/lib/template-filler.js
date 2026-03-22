@@ -8,7 +8,7 @@ const { getTemplatesDir, TYPE_TO_TEMPLATE } = require('./kb-paths')
  * No LLM — inserts raw chunk text under an "## Imported Content" section
  * and fills frontmatter fields.
  */
-function fillTemplate(chunk, classification, sourceFile) {
+function fillTemplate(chunk, classification, sourceFile, dependsOn = []) {
   const scaffoldType = classification.scaffoldType
   const templateFile = TYPE_TO_TEMPLATE[scaffoldType]
   if (!templateFile) return null
@@ -38,6 +38,9 @@ function fillTemplate(chunk, classification, sourceFile) {
   fm.status = 'draft'
   fm.import_source = sourceFile
   fm.import_chunk = chunk.id
+  if (dependsOn.length > 0) {
+    fm.depends_on = [...new Set([...(fm.depends_on || []), ...dependsOn])]
+  }
 
   // Build body: insert imported content after first heading, preserve rest
   const body = parsed.content

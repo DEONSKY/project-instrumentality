@@ -107,7 +107,7 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | `kb_ask` | Ask a question about the KB. Classifies intent (query / brainstorm / challenge / onboard / generate) and returns relevant context. Short tech terms (api, jwt, sql, etc.) are preserved in keyword extraction |
 | `kb_drift` | Bidirectional drift detection. Phase 1: code→kb (code changed, KB stale) and kb→code (KB changed, code may be stale). Writes to queue files in `sync/`. Phase 2: three resolution types — `summaries` (KB updated), `reverted` (code was wrong), `kb_confirmed` (kb→code reviewed) |
 | `kb_impact` | Analyze what KB files are affected by a proposed change, using the dependency graph |
-| `kb_import` | Two-phase: Phase 1 chunks a document (PDF, DOCX, MD, TXT, HTML) and returns classify prompts. Phase 2 writes agent-classified files. Rejects paths outside `knowledge/` |
+| `kb_import` | Import documents (PDF, DOCX, MD, TXT, HTML) into KB files. **Auto-classify mode** (recommended): paginated batches with multi-label classification, cross-reference generation, and an import plan for review before writing. **Classic mode**: Phase 1 returns chunks, Phase 2 writes agent-generated files. Supports DOCX images. Rejects paths outside `knowledge/` |
 | `kb_export` | Export KB as JSON (direct), or Markdown / HTML / Confluence / DOCX / PDF (two-phase via agent). Project name read from `_rules.md` first, then `foundation/global-rules.md` |
 | `kb_migrate` | Migrate KB files after `_rules.md` structure changes. `since` sets the comparison ref (auto-detected if omitted); `dry_run` previews prompts without writing |
 
@@ -125,7 +125,7 @@ Agent calls kb_scaffold({ type: "feature", id: "checkout", content: "<filled con
   → Server writes the file
 ```
 
-Same pattern applies to `kb_import` and `kb_export`. `kb_scaffold` also loads related KB files before returning the fill prompt, so the agent can align new content with existing docs. `kb_drift` works differently — Phase 1 writes entries to queue files (no prompts returned). Review happens when PM or developer asks Claude to read the queue files; Claude fetches the git diff live and explains in plain English.
+Same pattern applies to `kb_export`. `kb_scaffold` also loads related KB files before returning the fill prompt, so the agent can align new content with existing docs. `kb_import` supports a **3-phase auto-classify mode**: (1) extract and return chunks in paginated batches for agent classification, (2) return an import plan with proposed files and cross-references, (3) write files on approval. `kb_drift` works differently — Phase 1 writes entries to queue files (no prompts returned). Review happens when PM or developer asks Claude to read the queue files; Claude fetches the git diff live and explains in plain English.
 
 ---
 
@@ -240,18 +240,37 @@ New backend engineer joining. Give them a structured onboarding prompt from the 
 
 ### 5. Importing a spec document
 
-Product handed you a 40-page PRD as a DOCX. Convert it into KB files.
+Product handed you a 115-page specification as a DOCX. Convert it into KB files with auto-classify mode.
 
 ```
-"Import the PRD"
-→ kb_import({ source: "docs/product-requirements.docx" })
-→ Returns chunks with classify prompts (type, suggested_id, confidence)
+"Import the spec using auto-classify"
+→ kb_import({ source: "docs/spec.docx", auto_classify: true })
+→ Server extracts text (preserving headings and images from DOCX),
+  chunks by heading hierarchy, returns first batch of 5 chunks
+  with a classify prompt
 
-Agent classifies each chunk
+Agent classifies each batch (multi-label: one chunk can be a feature + flow + validation)
 
-→ kb_import({ files_to_write: [{ path: "knowledge/features/user-onboarding.md", content: "..." }, ...] })
-→ Server writes all files and reindexes
+→ kb_import({ source: "docs/spec.docx", auto_classify: true,
+    classifications: [
+      { chunk_id: "chunk-1", types: [
+        { type: "feature", confidence: 0.9, suggested_id: "invoice-create", reason: "..." },
+        { type: "validation", confidence: 0.75, suggested_id: "invoice-create-rules", reason: "..." }
+      ], suggested_group: "billing" }
+    ], cursor: 5 })
+→ Returns next batch (or import plan when all batches classified)
+
+Import plan includes proposed files, cross-references (depends_on),
+and items needing review (low confidence)
+
+"Looks good, write it"
+→ kb_import({ source: "docs/spec.docx", auto_classify: true, approve: true })
+→ Server writes all files with cross-references in frontmatter and reindexes
 ```
+
+**Classic mode** (without `auto_classify`) still works as before — Phase 1 returns all chunks with classify prompts, Phase 2 writes agent-generated files via `files_to_write`.
+
+**DOCX image support**: Embedded images are extracted to `knowledge/assets/imports/` and referenced as markdown image links in the chunked text.
 
 ---
 
