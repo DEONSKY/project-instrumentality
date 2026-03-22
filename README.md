@@ -490,3 +490,4 @@ screenshot: false
 - Node.js 18+
 - Git repository
 - MCP-compatible agent (Claude Code, Cursor, etc.)
+- Windows: Git for Windows (provides sh.exe, awk, sed, grep used by git hooks)

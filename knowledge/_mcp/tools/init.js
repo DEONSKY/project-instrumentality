@@ -49,8 +49,12 @@ const CURSOR_MCP = {
 
 // Hooks check local path first, then fall back to the MCP server's own location.
 // This makes them work whether or not the MCP server is installed inside the project.
-const _LINT_SCRIPT = path.join(__dirname, '../scripts/lint-standalone.js')
-const _SERVER_SCRIPT = path.join(__dirname, '../server.js')
+// On Windows, convert C:\... paths to /c/... so Git's sh.exe (MSYS2) can resolve them.
+const toShPath = p => process.platform === 'win32'
+  ? p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`)
+  : p
+const _LINT_SCRIPT = toShPath(path.join(__dirname, '../scripts/lint-standalone.js'))
+const _SERVER_SCRIPT = toShPath(path.join(__dirname, '../server.js'))
 
 const PRE_COMMIT_HOOK = `#!/bin/sh
 # kb-mcp managed — updated by kb_init. Do not remove this line.
