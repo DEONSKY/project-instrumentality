@@ -16,6 +16,7 @@ const TYPE_TO_PATH = {
   validation: 'validation/{id}.md',
   integration: 'integrations/{id}.md',
   decision: 'decisions/{id}.md',
+  capability: 'capabilities/{id}.md',
   group: '{folder}/_group.md',
   enums: 'data/enums.md',
   relations: 'data/relations.md',
@@ -34,6 +35,7 @@ const TYPE_TO_TEMPLATE = {
   validation: 'validation.md',
   integration: 'integration.md',
   decision: 'decision.md',
+  capability: 'capability.md',
   group: 'group.md',
   enums: 'data/enums.md',
   relations: 'data/relations.md',
@@ -54,6 +56,7 @@ const CLASSIFY_TYPE_TO_SCAFFOLD = {
   'integration': 'integration',
   'decision': 'decision',
   'foundation': 'global-rules',
+  'capability': 'capability',
   'enums': 'enums',
   'ui-permissions': 'permissions',
   'ui-copy': 'copy'
@@ -66,7 +69,8 @@ function getGroupFolder(type) {
     schema: 'data/schema',
     validation: 'validation',
     integration: 'integrations',
-    decision: 'decisions'
+    decision: 'decisions',
+    capability: 'capabilities'
   }
   return map[type] || 'features'
 }

@@ -6,16 +6,21 @@ owner: {{owner}}
 created: {{date}}
 ---
 
-## Auth and roles
+## When implementing auth-related code
 
-Supported roles: {{roles}}
-Auth mechanism: {{auth_mechanism}}
-Token strategy: {{token_strategy}}
-Session timeout: {{session_timeout}}
+Follow these rules for all authentication and authorization:
 
-## Error format
+- Supported roles: {{roles}}
+- Auth mechanism: {{auth_mechanism}}
+- Token strategy: {{token_strategy}}
+- Session timeout: {{session_timeout}}
 
-All API errors return:
+Never hardcode tokens, secrets, or credentials. Reference them by environment variable name only.
+
+## When handling errors in API endpoints
+
+All API errors MUST return this format — do not deviate:
+
 ```json
 {
   "error": {
@@ -26,12 +31,19 @@ All API errors return:
 }
 ```
 
-## Pagination
+When generating error handling code:
+1. Always use a consistent error code from the project's error catalog
+2. Never expose stack traces or internal details in the message
+3. Include the `field` property only for validation errors
 
-Strategy: {{cursor|offset}}
-Default page size: {{page_size}}
-Max page size: {{max_page_size}}
-Response envelope:
+## When implementing list endpoints
+
+Use {{cursor_or_offset}} pagination with these defaults:
+
+- Default page size: {{page_size}}
+- Max page size: {{max_page_size}}
+
+Response envelope must always be:
 ```json
 {
   "data": [],
@@ -39,20 +51,26 @@ Response envelope:
 }
 ```
 
-## Date and time
+Do not create list endpoints without pagination. Even if the dataset seems small now, always paginate.
 
-Format: ISO 8601 (2024-03-18T10:22:00Z)
-Timezone: UTC everywhere. Convert to local in UI only.
+## When working with dates and times
 
-## IDs
+- Format: ISO 8601 (`2024-03-18T10:22:00Z`)
+- Timezone: Store and transmit as UTC everywhere
+- Convert to local timezone only in UI display code, never in backend or API responses
 
-Strategy: {{uuid|nanoid|cuid}}
-Format: {{format}}
+## When generating IDs
 
-## Environment variables
+- Strategy: {{uuid_or_nanoid_or_cuid}}
+- Format: {{id_format}}
 
-Naming: SCREAMING_SNAKE_CASE
-Secrets never in KB files. Reference by name only.
+Use the project's ID generation utility. Do not create new ID generation logic.
+
+## When using environment variables
+
+- Naming: `SCREAMING_SNAKE_CASE`
+- Secrets never appear in KB files — reference by name only (e.g. "uses `DATABASE_URL`")
+- When adding a new env var, document it in this file's changelog
 
 ## Changelog
 

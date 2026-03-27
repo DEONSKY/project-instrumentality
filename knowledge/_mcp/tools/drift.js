@@ -2,6 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const simpleGit = require('simple-git')
 const { loadRules } = require('../lib/rules')
+const { globMatch, matchAllPatterns, resolveKbTarget, extractName } = require('../lib/patterns')
 
 const KB_ROOT = 'knowledge'
 const CODE_DRIFT_PATH = path.join(KB_ROOT, 'sync/code-drift.md')
@@ -434,52 +435,7 @@ async function detectSubmodules() {
   return submodules
 }
 
-// ── code→kb pattern matching ──────────────────────────────────────────────────
-
-/** Returns ALL matching patterns for a file (many-to-many support) */
-function matchAllPatterns(codeFile, patterns) {
-  const matches = []
-  for (const pattern of patterns) {
-    for (const p of (pattern.paths || [])) {
-      if (globMatch(codeFile, p)) {
-        matches.push(pattern)
-        break // don't add same pattern twice if multiple paths within it match
-      }
-    }
-  }
-  return matches
-}
-
-function resolveKbTarget(pattern, codeFile) {
-  let target = pattern.kb_target
-  if (target.includes('{name}')) {
-    target = target.replace('{name}', extractName(codeFile, pattern.name_extraction || {}))
-  }
-  return target
-}
-
-function extractName(filePath, nameExtraction) {
-  let name = path.basename(filePath, path.extname(filePath))
-  for (const suffix of (nameExtraction.strip_suffix || [])) {
-    if (name.endsWith(suffix)) { name = name.slice(0, -suffix.length); break }
-  }
-  if (nameExtraction.case === 'kebab') {
-    name = name.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '').replace(/-+/g, '-')
-  }
-  return name
-}
-
-function globMatch(filePath, pattern) {
-  const regexStr = pattern
-    .replace(/\*\*/g, '__DS__')
-    .replace(/\*/g, '[^/]*')
-    .replace(/__DS__/g, '.*')
-    .replace(/\?/g, '[^/]')
-  try {
-    return new RegExp(`^${regexStr}$`).test(filePath)
-  } catch {
-    return filePath.includes(pattern.replace(/\*/g, ''))
-  }
-}
+// Pattern matching functions (globMatch, matchAllPatterns, resolveKbTarget, extractName)
+// are imported from ../lib/patterns.js
 
 module.exports = { runTool }

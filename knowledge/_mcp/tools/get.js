@@ -8,7 +8,7 @@ const { loadRules } = require('../lib/rules')
 const KB_ROOT = 'knowledge'
 const DEFAULT_MAX_TOKENS = 8000
 
-async function runTool({ task_type, keywords, app_scope, scope, max_tokens, type } = {}) {
+async function runTool({ task_type, keywords, app_scope, scope, max_tokens, type, task_context } = {}) {
   const graph = loadGraph(KB_ROOT)
   const rules = loadRules(KB_ROOT)
   const raw = rules.getRaw()
@@ -25,8 +25,20 @@ async function runTool({ task_type, keywords, app_scope, scope, max_tokens, type
     return handleExportScope(graph, scope, app_scope, alwaysLoadFiles, type)
   }
 
-  // Standard mode: keyword-based traversal
-  const candidates = findCandidates(graph, keywords, app_scope)
+  // Standard mode: keyword-based traversal with optional task context
+  const candidates = findCandidates(graph, keywords, app_scope, task_context)
+
+  // For reviewing context, also load drift targets as high-priority candidates
+  if (task_context === 'reviewing') {
+    const driftTargets = loadDriftTargets()
+    for (const target of driftTargets) {
+      if (!candidates.some(c => c.path && c.path.includes(target))) {
+        const file = loadFile(target)
+        if (file) candidates.unshift(file)
+      }
+    }
+  }
+
   const selectedFiles = selectWithinBudget(alwaysLoadFiles, candidates, tokenBudget)
 
   return { files: selectedFiles }
@@ -87,10 +99,11 @@ function handleExportScope(graph, scope, appScopeFilter, alwaysLoadFiles, typeFi
   return { files: all }
 }
 
-function findCandidates(graph, keywords, appScopeFilter) {
+function findCandidates(graph, keywords, appScopeFilter, taskContext) {
   if (!keywords) return []
 
   const keywordList = Array.isArray(keywords) ? keywords : [keywords]
+  const typeHints = taskContext ? inferTypeHints(keywordList) : []
   const scored = []
 
   Object.entries(graph.files || {}).forEach(([fp, entry]) => {
@@ -112,9 +125,19 @@ function findCandidates(graph, keywords, appScopeFilter) {
       (entry.depends_on || []).join(' ')
     ].join(' ').toLowerCase()
 
-    const score = keywordList.reduce((s, kw) => {
+    let score = keywordList.reduce((s, kw) => {
       return s + (searchText.includes(kw.toLowerCase()) ? 1 : 0)
     }, 0)
+
+    // Task context scoring boost
+    if (score > 0 && taskContext === 'creating') {
+      for (const hint of typeHints) {
+        if (fp.includes(`/${hint}/`)) { score += 0.5; break }
+      }
+    }
+    if (score > 0 && taskContext === 'reviewing') {
+      if (fp.includes('/validation/') || fp.includes('/flows/')) score += 0.3
+    }
 
     if (score > 0) {
       scored.push({ path: fp, entry, score })
@@ -170,8 +193,45 @@ function inferType(filePath) {
   if (filePath.includes('/integrations/')) return 'integration'
   if (filePath.includes('/decisions/')) return 'decision'
   if (filePath.includes('/foundation/')) return 'foundation'
+  if (filePath.includes('/capabilities/')) return 'capability'
   if (filePath.includes('/ui/')) return 'ui'
   return 'general'
+}
+
+// ── task context helpers ─────────────────────────────────────────────────────
+
+const TYPE_HINT_KEYWORDS = {
+  features: ['feature', 'screen', 'page', 'module'],
+  flows: ['flow', 'process', 'workflow', 'pipeline'],
+  'data/schema': ['schema', 'model', 'entity', 'table', 'database'],
+  validation: ['validation', 'validator', 'rule', 'constraint'],
+  ui: ['component', 'button', 'form', 'modal', 'layout'],
+  integrations: ['integration', 'api', 'webhook', 'external'],
+  capabilities: ['capability', 'prompt', 'guide']
+}
+
+function inferTypeHints(keywords) {
+  const hints = []
+  for (const [folder, triggers] of Object.entries(TYPE_HINT_KEYWORDS)) {
+    if (keywords.some(kw => triggers.includes(kw.toLowerCase()))) {
+      hints.push(folder)
+    }
+  }
+  return hints
+}
+
+function loadDriftTargets() {
+  const driftPath = path.join(KB_ROOT, 'sync/code-drift.md')
+  if (!fs.existsSync(driftPath)) return []
+  try {
+    const content = fs.readFileSync(driftPath, 'utf8')
+    const targets = []
+    for (const line of content.split('\n')) {
+      const match = line.match(/^## (.+)/)
+      if (match) targets.push(match[1].trim())
+    }
+    return targets
+  } catch { return [] }
 }
 
 module.exports = { runTool }

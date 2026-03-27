@@ -362,7 +362,14 @@ git add -A && git commit -m "add refund order service"
 
 **Expected:** Answer cites `features/order-create.md ## Business rules`: requires manager approval.
 
-### B.8 Impact analysis
+### B.8 Analyze Go codebase coverage
+
+> **Prompt to agent:**
+> Analyze the codebase and show me KB coverage for all source files.
+
+**Expected:** `kb_analyze({})` returns inventory. Go files in `internal/` grouped by KB target using Go presets. Shows which groups need KB files and which already have them.
+
+### B.9 Impact analysis
 
 > **Prompt to agent:**
 > We're switching from Stripe to Adyen for payment processing. What KB files need updating?
@@ -597,7 +604,14 @@ git add -A && git commit -m "add reschedule endpoint"
 
 **Expected:** Intent: `onboard`. Agent gives a structured tour citing flows and features.
 
-### C.10 Import a document
+### C.10 Analyze Spring Boot codebase
+
+> **Prompt to agent:**
+> Analyze the project source code and generate a KB coverage report.
+
+**Expected:** `kb_analyze({})` groups Spring Boot files (controllers, services, entities, repositories) by KB target. Controller files map to `features/*.api.md`, service files to `flows/*.md`, etc.
+
+### C.11 Import a document
 
 Create a sample requirements doc:
 
@@ -632,7 +646,7 @@ EOF
 
 **Expected:** Agent calls `kb_import`. Returns 3 chunks (Patient Registration, Doctor Availability, Billing). Agent classifies each, fills templates, writes files.
 
-### C.11 Full cycle — consistency check
+### C.12 Full cycle — consistency check
 
 1. Create `knowledge/features/appointment-booking.md` with Description saying "max 15 appointments per day" but Business rules saying "max 20 appointments per doctor per day".
 2. Trigger a KB drift entry for this file.
@@ -642,6 +656,50 @@ EOF
 > sync appointment-booking
 
 **Expected:** Step 4 of `ask-sync.md` catches the inconsistency: "Internal inconsistency found: ## Description says 15 but ## Business rules says 20."
+
+### A.12 Analyze codebase coverage
+
+> **Prompt to agent:**
+> Analyze the codebase and show me which source files have KB coverage and which don't.
+
+**Expected:** Agent calls `kb_analyze({})`. Returns inventory grouping `src/` files by KB target. Groups with existing KB files show `suggested_action: "review"`, uncovered groups show `"create"`.
+
+### A.13 Create draft KB files from analysis
+
+> **Prompt to agent:**
+> Create draft KB files for all uncovered code groups.
+
+**Expected:** Agent calls `kb_analyze({ write_drafts: true })`. Draft files created with `confidence: draft` tag. Each lists source files and has placeholder sections.
+
+### A.14 Scaffold a capability
+
+> **Prompt to agent:**
+> Create a capability that teaches agents how to perform task prioritization. When a user asks to prioritize tasks, the agent should consider due date, priority level, assignee workload, and dependencies between tasks.
+
+**Expected:** Agent calls `kb_scaffold({ type: "capability", id: "task-prioritization", description: "..." })`, fills the template, writes to `knowledge/capabilities/task-prioritization.md`.
+
+### A.15 Test overlap detection
+
+> **Prompt to agent:**
+> Create a KB entry for user authentication with email/password login and JWT tokens.
+
+(Run this AFTER A.3 has created `features/task-create.md` and assuming a `features/user-auth.md` or similar auth file exists.)
+
+**Expected:** If an overlapping auth file exists, the scaffold fill prompt warns: "We already have [file] that covers [topic]. Should I extend that instead of creating a new file?" Agent should surface this warning before proceeding.
+
+### A.16 Load context with task_context
+
+> **Prompt to agent:**
+> I'm about to create a new task search feature. Load the relevant KB context for creating this feature.
+
+**Expected:** Agent calls `kb_get({ keywords: ["task", "search"], task_context: "creating" })`. Feature-type files get a relevance boost. Foundation files with `always_load: true` are included.
+
+### A.17 Load context for reviewing
+
+> **Prompt to agent:**
+> I need to review recent code changes. Load KB context for reviewing.
+
+**Expected:** Agent calls `kb_get({ keywords: ["task"], task_context: "reviewing" })`. Validation and flow files get a relevance boost. If drift entries exist in `sync/code-drift.md`, those KB targets are also loaded.
 
 ---
 
@@ -689,7 +747,35 @@ git add -A && git commit -m "tighten depth policy"
 
 **Expected:** `_index.yaml` entry for `checkout.md` has `features/billing/invoice-create` in `depends_on`.
 
-### D.6 Multi-file impact cascade
+### D.6 Analyze and bootstrap KB on existing project
+
+> **Prompt to agent:**
+> This is a legacy project with no KB files. Analyze the codebase to see what needs documenting.
+
+**Expected:** `kb_analyze({})` returns inventory. Follow up with:
+
+> **Prompt to agent:**
+> Create draft KB files for all the uncovered groups, then list what was created.
+
+**Expected:** `kb_analyze({ write_drafts: true })` writes drafts. Agent lists all created files.
+
+### D.7 Scaffold all types including capability
+
+> **Prompt to agent:**
+> Create one KB file of each type: feature, flow, schema, validation, integration, decision, capability.
+
+**Expected:** 7 files created (including `capabilities/test.md`), all pass lint, all appear in `_index.yaml`.
+
+### D.8 Capability loaded via kb_get
+
+> Create `knowledge/capabilities/deploy-guide.md` with content.
+
+> **Prompt to agent:**
+> Load KB context related to deployment.
+
+**Expected:** Agent calls `kb_get({ keywords: ["deploy"] })`. `capabilities/deploy-guide.md` appears in results.
+
+### D.9 Multi-file impact cascade
 
 > Create `features/auth.md`. Create `features/checkout.md` with `depends_on: [auth]`. Create `flows/payment.md` with `depends_on: [checkout]`.
 

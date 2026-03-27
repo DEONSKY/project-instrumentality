@@ -14,6 +14,7 @@ const FOLDER_STRUCTURE = [
   'ui',
   'integrations',
   'decisions',
+  'capabilities',
   'foundation',
   '_templates/data',
   '_templates/ui',
@@ -680,7 +681,12 @@ ${stackLine}
    kb_scaffold type=tech-stack
    kb_scaffold type=conventions
 
-5. Open in Cursor/Claude Code — the MCP server auto-starts.
+5. Add capability prompts (optional):
+   kb_scaffold type=capability id=code-review
+   Capabilities are reusable agent instructions (e.g. how to review PRs,
+   how to plan features). They are indexed and loaded when relevant.
+
+6. Open in Cursor/Claude Code — the MCP server auto-starts.
    No API key needed — the agent IS the LLM.
 ${submoduleLine}
 KB root: knowledge/

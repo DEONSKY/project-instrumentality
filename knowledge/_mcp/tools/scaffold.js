@@ -64,9 +64,9 @@ async function runTool({ type, id, group, description, content } = {}) {
     const kbContext = (context.files || []).map(f => `<!-- ${f.path} -->\n${f.content}`).join('\n\n---\n\n')
 
     const prompt = resolvePrompt('scaffold-fill', {
-      template: templateContent,
+      template_content: templateContent,
       description,
-      kb_type: type,
+      template_type: type,
       kb_context: kbContext,
       id: id || 'new-item',
       date: today

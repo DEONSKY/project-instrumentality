@@ -60,7 +60,7 @@ kb_init({ interactive: false })
 ### TC-1.5 Folder structure created
 
 **Pass:** After `kb_init`, all these folders exist:
-`features/`, `flows/`, `data/schema/`, `validation/`, `ui/`, `integrations/`, `decisions/`, `foundation/`, `_templates/prompts/`, `_prompt-overrides/`, `assets/design/`, `assets/screenshots/`, `exports/`, `sync/`
+`features/`, `flows/`, `data/schema/`, `validation/`, `ui/`, `integrations/`, `decisions/`, `capabilities/`, `foundation/`, `_templates/prompts/`, `_prompt-overrides/`, `assets/design/`, `assets/screenshots/`, `exports/`, `sync/`
 
 ### TC-1.6 Git hooks installed
 
@@ -155,9 +155,44 @@ kb_scaffold({ type: "feature", id: "deep", group: "a/b/c/d" })
 
 ### TC-2.6 All template types
 
-For each type: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `global-rules`, `tech-stack`, `conventions`, `enums`, `relations`, `components`, `permissions`, `copy`.
+For each type: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `capability`, `global-rules`, `tech-stack`, `conventions`, `enums`, `relations`, `components`, `permissions`, `copy`.
 
 **Pass:** File created at expected path with correct template content. No error.
+
+### TC-2.7 Scaffold capability
+
+```
+kb_scaffold({ type: "capability", id: "code-review" })
+```
+
+**Pass:** `knowledge/capabilities/code-review.md` created with `id: code-review` in front-matter. Template includes sections: Purpose, When to use this capability, Instructions for the agent, Constraints.
+
+### TC-2.8 Scaffold capability with description (two-phase)
+
+```
+kb_scaffold({ type: "capability", id: "pr-review", description: "Guide agents through structured PR review: check security, performance, and KB consistency" })
+```
+
+**Pass:** Returns `{ prompt, file_path, template }`. Prompt contains filled `{{template_type}}` as `capability`. Agent fills and writes via Phase 2.
+
+### TC-2.9 Scaffold overlap detection — existing file warning
+
+1. Create `knowledge/features/user-auth.md` with content about user authentication.
+2. Run:
+
+```
+kb_scaffold({ type: "feature", id: "authentication", description: "User authentication with JWT tokens and session management" })
+```
+
+**Pass:** Returned prompt includes the overlap detection section. The `{{kb_context}}` contains `user-auth.md`. The prompt instructs the agent to warn about the existing overlapping file before proceeding.
+
+### TC-2.10 Scaffold fill prompt — placeholder correctness
+
+```
+kb_scaffold({ type: "feature", id: "test-fill", description: "Test feature" })
+```
+
+**Pass:** Returned prompt has `{{template_type}}` replaced with `feature` (not raw placeholder). `{{template_content}}` replaced with actual template content. `{{kb_context}}` replaced with KB file content. `{{description}}` replaced with `"Test feature"`.
 
 ---
 
@@ -255,7 +290,48 @@ kb_get({ keywords: ["user", "payment"], app_scope: "frontend" })
 
 **Pass:** Returns only `user-auth.md`.
 
-### TC-4.6 Short keyword preserved
+### TC-4.6 task_context — creating boosts same-type files
+
+Create `features/auth.md`, `flows/auth-flow.md`, `validation/auth-rules.md`.
+
+```
+kb_get({ keywords: ["auth"], task_context: "creating" })
+```
+
+**Pass:** Feature files are boosted in relevance when keywords suggest a feature (score boost for files in matching type folder). Compare result ordering with a plain `kb_get({ keywords: ["auth"] })` call.
+
+### TC-4.7 task_context — reviewing includes drift targets
+
+1. Create a drift entry in `sync/code-drift.md` with heading `## features/billing.md`.
+2. Run:
+
+```
+kb_get({ keywords: ["auth"], task_context: "reviewing" })
+```
+
+**Pass:** `features/billing.md` appears in results (loaded from drift target) even though "billing" doesn't match the keyword "auth". Validation and flow files get a relevance boost.
+
+### TC-4.8 task_context — no drift file, reviewing still works
+
+Delete `sync/code-drift.md` if it exists.
+
+```
+kb_get({ keywords: ["auth"], task_context: "reviewing" })
+```
+
+**Pass:** No error. Returns normal results with reviewing boosts for validation/flow files.
+
+### TC-4.9 Capability files loaded by keyword
+
+Create `knowledge/capabilities/code-review.md` with `id: code-review`.
+
+```
+kb_get({ keywords: ["code-review"] })
+```
+
+**Pass:** `capabilities/code-review.md` returned in results. `inferType` returns `"capability"` for this file path.
+
+### TC-4.10 Short keyword preserved
 
 ```
 kb_get({ keywords: ["api"] })
@@ -799,9 +875,86 @@ Create suppress override for `ask-brainstorm`.
 
 ---
 
-## 18. Cross-cutting concerns
+## 18. `kb_analyze` — Codebase analysis
 
-### TC-18.1 getDependents — exact match
+### TC-18.1 Inventory generation
+
+In a project with source files and `code_path_patterns` in `_rules.md`:
+
+```
+kb_analyze({})
+```
+
+**Pass:** Returns `{ inventory, total_source_files, total_groups, unmatched_count }`. Inventory items have `kb_target`, `intent`, `file_count`, `sample_files` (max 10), `existing_kb_file` (boolean), and `suggested_action` (`create`, `review`, or `skip`).
+
+### TC-18.2 Inventory sorting
+
+**Pass:** Inventory is sorted: `create` actions first, then `review`, then `skip`. Within each action group, higher `file_count` comes first.
+
+### TC-18.3 Existing KB file detection
+
+Create `knowledge/features/auth.md`. Ensure a code_path_pattern maps source files to `features/auth.md`.
+
+```
+kb_analyze({})
+```
+
+**Pass:** The `features/auth.md` group has `existing_kb_file: true` and `suggested_action: "review"`.
+
+### TC-18.4 Unmatched files
+
+Add source files that don't match any `code_path_pattern`.
+
+**Pass:** Inventory includes an entry with `kb_target: null`, `intent: "unmatched"`, `suggested_action: "skip"`, and a note about adding patterns.
+
+### TC-18.5 Write drafts
+
+```
+kb_analyze({ write_drafts: true })
+```
+
+**Pass:** Returns `{ inventory, drafts_written, total_source_files, total_groups, message }`. Draft files created for groups with `suggested_action: "create"`. Each draft has:
+- `confidence: draft` in front-matter
+- `tags: [auto-generated]`
+- Source file listing
+- Summary and Key behaviours placeholders
+- Open questions section
+
+### TC-18.6 Write drafts — skips existing
+
+Create `knowledge/features/auth.md`. Run `kb_analyze({ write_drafts: true })`.
+
+**Pass:** No draft written for the `features/auth.md` group. Only groups without existing KB files get drafts.
+
+### TC-18.7 No code_path_patterns — error
+
+Remove all `code_path_patterns` from `_rules.md`.
+
+```
+kb_analyze({})
+```
+
+**Pass:** Returns `{ error: "No code_path_patterns found in _rules.md..." }`.
+
+### TC-18.8 Depth limit
+
+```
+kb_analyze({ depth: 1 })
+```
+
+**Pass:** Only scans 1 level deep. Fewer files than default `depth: 4`.
+
+### TC-18.9 Skip directories respected
+
+Create directories named `node_modules/`, `.git/`, `dist/`, `build/` with source files inside.
+
+**Pass:** None of these files appear in the inventory.
+
+---
+
+## 19. Cross-cutting concerns
+
+### TC-19.1 getDependents — exact match
 
 Graph has files with ids `auth` and `authentication`.
 
@@ -811,7 +964,7 @@ getDependents(graph, "auth")
 
 **Pass:** Only returns files depending on `auth`, NOT `authentication`.
 
-### TC-18.2 Token estimation
+### TC-19.2 Token estimation
 
 ```
 estimateTokens("hello world") // 11 chars → ceil(11/4) = 3
@@ -819,7 +972,7 @@ estimateTokens("hello world") // 11 chars → ceil(11/4) = 3
 
 **Pass:** Returns `3`.
 
-### TC-18.3 Depth validation — boundary
+### TC-19.3 Depth validation — boundary
 
 `knowledge/features/a/file.md` → depth 2, max for features is 3.
 
@@ -831,9 +984,9 @@ estimateTokens("hello world") // 11 chars → ceil(11/4) = 3
 
 ---
 
-## 19. Git Submodule Support
+## 20. Git Submodule Support
 
-### TC-19.1 Pre-push guard — owned submodule, branch mismatch blocked
+### TC-20.1 Pre-push guard — owned submodule, branch mismatch blocked
 
 ```
 # Parent on feature/auth, owned submodule on main, pointer changed
@@ -845,7 +998,7 @@ git push
 
 **Pass:** Push blocked with `[kb] ERROR: Submodule branch mismatch`. Error message includes both fix options (accidental staging vs intentional).
 
-### TC-19.2 Pre-push guard — owned submodule, pointer unchanged (not involved)
+### TC-20.2 Pre-push guard — owned submodule, pointer unchanged (not involved)
 
 ```
 # Parent on feature/auth, owned submodule on main, but pointer NOT changed
@@ -856,7 +1009,7 @@ git push
 
 **Pass:** Push proceeds without error — submodule not involved.
 
-### TC-19.3 Pre-push guard — shared submodule, non-blocking warning
+### TC-20.3 Pre-push guard — shared submodule, non-blocking warning
 
 ```
 # .gitmodules has kb-shared = true for client-sdk
@@ -866,7 +1019,7 @@ git push
 
 **Pass:** Push proceeds with `[kb] WARNING: Shared submodule pointer(s) updated` — NOT blocked.
 
-### TC-19.4 Pre-push guard — no .gitmodules, backward compatibility
+### TC-20.4 Pre-push guard — no .gitmodules, backward compatibility
 
 ```
 # Project has no .gitmodules file
@@ -875,7 +1028,7 @@ git push
 
 **Pass:** Guard block is a no-op, push proceeds normally. No errors or warnings about submodules.
 
-### TC-19.5 Drift — per-submodule since-ref resolution
+### TC-20.5 Drift — per-submodule since-ref resolution
 
 ```
 # Submodule has 3 unpushed commits on feature/auth with upstream set (origin/feature/auth)
@@ -884,7 +1037,7 @@ git push
 
 **Pass:** Drift reports all 3 commits worth of changed files (not just the last one). Return includes `submodules_owned` and `submodules_shared` arrays.
 
-### TC-19.6 Drift — shared submodule tag in code-drift.md
+### TC-20.6 Drift — shared submodule tag in code-drift.md
 
 ```
 # Change a file in a shared submodule that matches a code_path_pattern
@@ -893,7 +1046,7 @@ git push
 
 **Pass:** `knowledge/sync/code-drift.md` entry includes `- **Shared module:** true` line.
 
-### TC-19.7 Drift — shared flag round-trip
+### TC-20.7 Drift — shared flag round-trip
 
 ```
 # After TC-19.6, trigger drift again (no new changes)
@@ -901,7 +1054,7 @@ git push
 
 **Pass:** The `Shared module: true` line survives the read→write cycle — it's still present in code-drift.md.
 
-### TC-19.8 Drift — mixed setup (direct code + submodules)
+### TC-20.8 Drift — mixed setup (direct code + submodules)
 
 ```
 # Parent has code in src/ AND a backend/ submodule
@@ -910,7 +1063,7 @@ git push
 
 **Pass:** Drift creates entries for both. Parent files matched by `src/**` patterns, submodule files by `backend/src/**` patterns.
 
-### TC-19.9 detectSubmodules — parses kb-shared attribute
+### TC-20.9 detectSubmodules — parses kb-shared attribute
 
 ```
 # .gitmodules:
@@ -925,7 +1078,7 @@ git push
 
 **Pass:** `detectSubmodules()` returns backend with `isShared: false`, client-sdk with `isShared: true`.
 
-### TC-19.10 kb-feature push — correct order
+### TC-20.10 kb-feature push — correct order
 
 ```
 # Owned submodule has commits on feature/auth, no upstream set yet
@@ -935,7 +1088,7 @@ git push
 
 **Pass:** Submodule pushed first with `-u origin feature/auth`, then parent. No branch mismatch error from hook.
 
-### TC-19.11 kb-feature status — shows all info
+### TC-20.11 kb-feature status — shows all info
 
 ```
 ./knowledge/_mcp/scripts/kb-feature.sh status
@@ -943,7 +1096,7 @@ git push
 
 **Pass:** Output shows parent branch, each submodule's branch, pointer-changed flag, owned/shared label.
 
-### TC-19.12 kb_init — submodule pattern suggestion
+### TC-20.12 kb_init — submodule pattern suggestion
 
 ```
 # Project has .gitmodules with backend/ submodule

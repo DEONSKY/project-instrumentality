@@ -28,6 +28,23 @@ description of what they are building.
 
 {{kb_context}}
 
+## Pre-check — overlap detection
+
+Before filling the template, scan the knowledge base context above.
+If an existing KB file already describes the same feature, component,
+flow, or concept:
+
+1. List the overlapping file(s) and what they cover
+2. Warn the developer: "We already have [file] that covers [topic].
+   Should I extend that instead of creating a new file?"
+3. If the overlap is partial, note which parts are new vs. existing
+4. Only proceed with filling the template if:
+   - No overlap was found, OR
+   - The developer confirms they want a separate file
+
+If you proceed, reference the existing file using @mentions in the
+new file's depends_on or content where appropriate.
+
 ## Template to fill
 
 ```
@@ -36,9 +53,9 @@ description of what they are building.
 
 ## Task
 
-Replace {{placeholders}} with real values derived from the
-description. Leave any placeholder you cannot confidently fill
-as-is with the original {{placeholder}} text.
+After completing the pre-check above, replace {{placeholders}} with
+real values derived from the description. Leave any placeholder you
+cannot confidently fill as-is with the original {{placeholder}} text.
 
 ## Rules
 

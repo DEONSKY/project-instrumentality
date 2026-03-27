@@ -25,6 +25,7 @@ your-project/
     validation/          ← validation rules
     integrations/        ← third-party integrations
     decisions/           ← architectural decisions
+    capabilities/        ← reusable agent instruction prompts
     foundation/          ← tech stack, conventions, global rules
     sync/
       code-drift.md      ← code changed, KB may be stale (PM reviews)
@@ -99,17 +100,18 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | Tool | What it does |
 |------|-------------|
 | `kb_init` | Bootstrap `knowledge/` folder, git hooks, merge drivers, and MCP config. Re-run to update `code_path_patterns` when stack changes |
-| `kb_get` | Load relevant KB files into agent context (keyword + scope filtering, token budget aware). `max_tokens` overrides the budget; default reads `token_budget` from `_rules.md` |
+| `kb_get` | Load relevant KB files into agent context (keyword + scope filtering, token budget aware). `max_tokens` overrides the budget; default reads `token_budget` from `_rules.md`. Optional `task_context` (`creating`, `fixing`, `reviewing`, `understanding`) adjusts relevance scoring — `creating` boosts same-type files, `reviewing` includes drift targets |
 | `kb_write` | Write a KB file and auto-reindex. Rejects paths outside `knowledge/` |
 | `kb_reindex` | Rebuild `_index.yaml` from all KB files, run lint. Returns up to 20 lint violations in the result |
 | `kb_lint` | Lint KB files for front-matter correctness and secret patterns |
-| `kb_scaffold` | Create a new KB file from template. Two-phase when `description` is given: loads related KB context, returns a fill prompt → agent fills → writes |
+| `kb_scaffold` | Create a new KB file from template (types: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `capability`, `group`, `enums`, `relations`, `components`, `permissions`, `copy`, `global-rules`, `tech-stack`, `conventions`). Two-phase when `description` is given: loads related KB context, checks for overlapping entries, returns a fill prompt → agent fills → writes |
 | `kb_ask` | Ask a question about the KB. Classifies intent (query / brainstorm / challenge / onboard / generate) and returns relevant context. Short tech terms (api, jwt, sql, etc.) are preserved in keyword extraction |
 | `kb_drift` | Bidirectional drift detection. Phase 1: code→kb (code changed, KB stale) and kb→code (KB changed, code may be stale). Writes to queue files in `sync/`. Phase 2: three resolution types — `summaries` (KB updated), `reverted` (code was wrong), `kb_confirmed` (kb→code reviewed) |
 | `kb_impact` | Analyze what KB files are affected by a proposed change, using the dependency graph |
 | `kb_import` | Import documents (PDF, DOCX, MD, TXT, HTML) into KB files. **Auto-classify mode** (recommended): paginated batches with multi-label classification, cross-reference generation, and an import plan for review before writing. **Classic mode**: Phase 1 returns chunks, Phase 2 writes agent-generated files. Supports DOCX images. Rejects paths outside `knowledge/` |
 | `kb_export` | Export KB as JSON (direct), or Markdown / HTML / Confluence / DOCX / PDF (two-phase via agent). Supports `purpose` to guide tone/structure, `type` filter (e.g. all flows), multi-scope (array of ids/domains), and automatic pagination for large KBs. PDF and DOCX output includes proper headings, lists, and inline formatting |
 | `kb_migrate` | Migrate KB files after `_rules.md` structure changes. `since` sets the comparison ref (auto-detected if omitted); `dry_run` previews prompts without writing |
+| `kb_analyze` | Scan project source files and generate a KB coverage inventory. Groups files by their KB target using `code_path_patterns` from `_rules.md`. Optional `write_drafts` creates draft KB files (`confidence: draft`) for uncovered groups. Useful for bootstrapping KB on legacy projects |
 
 ### Two-phase tools
 
@@ -125,7 +127,7 @@ Agent calls kb_scaffold({ type: "feature", id: "checkout", content: "<filled con
   → Server writes the file
 ```
 
-Same pattern applies to `kb_export`. `kb_scaffold` also loads related KB files before returning the fill prompt, so the agent can align new content with existing docs. `kb_import` supports a **3-phase auto-classify mode**: (1) extract and return chunks in paginated batches for agent classification, (2) return an import plan with proposed files and cross-references, (3) write files on approval. `kb_drift` works differently — Phase 1 writes entries to queue files (no prompts returned). Review happens when PM or developer asks Claude to read the queue files; Claude fetches the git diff live and explains in plain English.
+Same pattern applies to `kb_export`. `kb_scaffold` also loads related KB files before returning the fill prompt, so the agent can check for overlapping entries and align new content with existing docs. The fill prompt includes an **overlap detection** step — if an existing KB file already covers the same topic, the agent warns before creating a duplicate. `kb_import` supports a **3-phase auto-classify mode**: (1) extract and return chunks in paginated batches for agent classification, (2) return an import plan with proposed files and cross-references, (3) write files on approval. `kb_drift` works differently — Phase 1 writes entries to queue files (no prompts returned). Review happens when PM or developer asks Claude to read the queue files; Claude fetches the git diff live and explains in plain English.
 
 ---
 
@@ -309,7 +311,45 @@ Large KBs are paginated automatically — the agent renders each page and combin
 
 ---
 
-### 7. Catching cross-branch semantic conflicts after a merge
+### 7. Bootstrapping KB on a legacy codebase
+
+You have an existing project with 200+ source files and no KB. Use `kb_analyze` to scan the codebase and generate a coverage inventory.
+
+```
+"Analyze the codebase and show me what KB files we need"
+→ kb_analyze({ depth: 4 })
+→ Returns inventory: groups of source files mapped to KB targets,
+  which ones already have KB files, and suggested actions (create/review/skip)
+
+Review the inventory, then create drafts:
+
+"Create draft KB files for uncovered groups"
+→ kb_analyze({ write_drafts: true })
+→ Creates draft KB files with confidence: draft, listing source files
+  and open questions for the agent or developer to fill in
+```
+
+Each draft includes a file list, summary placeholder, and open questions. Review and flesh out each one — drafts are a starting point, not a finished product.
+
+---
+
+### 8. Creating reusable agent capabilities
+
+Capabilities are project-agnostic agent instruction prompts stored in `knowledge/capabilities/`. They teach agents how to perform specific tasks consistently.
+
+```
+"Create a capability for code review"
+→ kb_scaffold({ type: "capability", id: "code-review",
+    description: "Guide agents through structured code review: check for security, performance, and consistency with KB conventions" })
+→ Agent fills the template: purpose, when to use, instructions, constraints
+→ kb_scaffold({ type: "capability", id: "code-review", content: "<filled>" })
+```
+
+Capabilities are loaded via `kb_get` like any other KB file — use `keywords: ["code-review"]` or `task_context: "reviewing"` to surface them.
+
+---
+
+### 9. Catching cross-branch semantic conflicts after a merge
 
 Two developers work in parallel. Neither causes a git conflict, but together they create an inconsistency.
 

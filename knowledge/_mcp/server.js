@@ -14,7 +14,8 @@ const tools = {
   kb_migrate: require('./tools/migrate'),
   kb_import: require('./tools/import'),
   kb_export: require('./tools/export'),
-  kb_lint: require('./tools/lint')
+  kb_lint: require('./tools/lint'),
+  kb_analyze: require('./tools/analyze')
 }
 
 const TOOL_DEFINITIONS = [
@@ -28,7 +29,8 @@ const TOOL_DEFINITIONS = [
         keywords: { description: 'Keywords to match KB files', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
         app_scope: { type: 'string', description: 'Filter by app scope (e.g. frontend, backend)' },
         scope: { type: 'string', description: 'Export scope: domain name, feature id, or "all"' },
-        max_tokens: { type: 'number', description: 'Override token budget (default: 8000, or token_budget from _rules.md)' }
+        max_tokens: { type: 'number', description: 'Override token budget (default: 8000, or token_budget from _rules.md)' },
+        task_context: { type: 'string', enum: ['creating', 'fixing', 'reviewing', 'understanding'], description: 'Adjusts relevance scoring: creating boosts same-type files, reviewing includes drift targets' }
       }
     }
   },
@@ -74,7 +76,7 @@ const TOOL_DEFINITIONS = [
       type: 'object',
       required: ['type'],
       properties: {
-        type: { type: 'string', description: 'Template type: feature|flow|schema|validation|integration|decision|group|enums|relations|components|permissions|copy|global-rules|tech-stack|conventions' },
+        type: { type: 'string', description: 'Template type: feature|flow|schema|validation|integration|decision|capability|group|enums|relations|components|permissions|copy|global-rules|tech-stack|conventions' },
         id: { type: 'string', description: 'File identifier (kebab-case)' },
         group: { type: 'string', description: 'Group/subfolder name (optional)' },
         description: { type: 'string', description: 'Description — tool returns a fill prompt for the agent to process' },
@@ -156,6 +158,17 @@ const TOOL_DEFINITIONS = [
         page: { type: 'number', description: 'Page number for paginated exports of large KBs (returned by previous call)' },
         dry_run: { type: 'boolean', description: 'Preview without writing', default: false },
         rendered_content: { type: 'string', description: 'Phase 2: agent-rendered content to write to disk' }
+      }
+    }
+  },
+  {
+    name: 'kb_analyze',
+    description: 'Analyze project source files and generate a KB coverage inventory. Groups source files by their KB target (using code_path_patterns from _rules.md) and optionally writes draft KB files for uncovered groups. Useful for bootstrapping KB on legacy projects.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        depth: { type: 'number', description: 'Max directory depth to scan (default: 4)', default: 4 },
+        write_drafts: { type: 'boolean', description: 'Write draft KB files for uncovered groups', default: false }
       }
     }
   }
