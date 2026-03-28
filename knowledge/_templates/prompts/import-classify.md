@@ -37,7 +37,7 @@ schema        — data models, database fields, entity definitions
 validation    — input rules, error messages, field constraints, regex patterns
 integration   — external APIs, webhooks, third-party services
 decision      — architectural choices, tech selections, why X was chosen
-foundation    — auth rules, naming conventions, error formats, global rules
+standard      — auth rules, naming conventions, error formats, global rules, coding standards, process standards
 enums         — status values, type constants, lookup lists
 ui-permissions — role-based access, visibility rules, permission matrices
 ui-copy       — user-facing labels, button text, empty states, confirmations
@@ -54,7 +54,7 @@ Use these patterns as additional evidence when classifying:
 - Status lists, enum values, lookup tables, code lists → strong signal for `enums`
 - Role names with access rules or visibility conditions → strong signal for `ui-permissions`
 - Screen or form descriptions with field lists and UI behaviour → strong signal for `feature`
-- "Must", "shall", "always", "never" rules that span multiple features → strong signal for `foundation`
+- "Must", "shall", "always", "never" rules that span multiple features → strong signal for `standard`
 - Labels, button text, error message templates, empty state copy → strong signal for `ui-copy`
 
 A section that describes a screen (feature) AND lists numbered steps for a workflow (flow)

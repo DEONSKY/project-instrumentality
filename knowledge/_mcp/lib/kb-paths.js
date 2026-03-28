@@ -16,7 +16,7 @@ const TYPE_TO_PATH = {
   validation: 'validation/{id}.md',
   integration: 'integrations/{id}.md',
   decision: 'decisions/{id}.md',
-  standard: 'standards/{group}/{id}.md',
+  standard: 'standards/{id}.md',
   group: '{folder}/_group.md',
   enums: 'data/enums.md',
   relations: 'data/relations.md',
