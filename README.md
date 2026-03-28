@@ -116,6 +116,9 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | `kb_migrate` | Migrate KB files after `_rules.md` structure changes. `since` sets the comparison ref (auto-detected if omitted); `dry_run` previews prompts without writing |
 | `kb_analyze` | Scan project source files and generate a KB coverage inventory. Groups files by their KB target using `code_path_patterns` from `_rules.md`. Optional `write_drafts` creates draft KB files (`confidence: draft`) for uncovered groups. Useful for bootstrapping KB on legacy projects |
 | `kb_extract` | Derive a standards document from existing code or KB files. Phase 1: samples representative files and returns a prompt for the agent to observe patterns and fill the template. Phase 2: writes the filled standard. Supports `paths` to narrow sampling (glob patterns for code, subfolder name for KB), and `app_scope` for multi-stack projects |
+| `kb_issue_triage` | Triage an issue against the KB. Phase 1: searches KB for related docs, returns a prompt to draft a triage report with root-cause hypothesis and suggested KB updates. Phase 2: writes the report to `sync/inbound/`. Supports `issue_id`, `source` (jira/github/linear), `labels`, `priority`, and `app_scope` |
+| `kb_issue_plan` | Generate work items from KB docs for a PM tool. Phase 1: gathers source docs by `scope`/`type`/`keywords`, returns a prompt to break them into stories/tasks with acceptance criteria. Phase 2: writes task breakdown YAML to `sync/outbound/`. Supports `target` (jira/github/linear) and `project_key` |
+| `kb_issue_consult` | Consult the KB before filing an issue. Searches for related docs and returns a prompt for the agent to advise the reporter with enriched context, suggested labels, and relevant standards. Single-phase — no write step |
 
 ### Two-phase tools
 
@@ -131,7 +134,7 @@ Agent calls kb_scaffold({ type: "feature", id: "checkout", content: "<filled con
   → Server writes the file
 ```
 
-Same pattern applies to `kb_export` and `kb_extract`. `kb_scaffold` also loads related KB files before returning the fill prompt, so the agent can check for overlapping entries and align new content with existing docs. The fill prompt includes an **overlap detection** step — if an existing KB file already covers the same topic, the agent warns before creating a duplicate. `kb_import` supports a **3-phase auto-classify mode**: (1) extract and return chunks in paginated batches for agent classification, (2) return an import plan with proposed files and cross-references, (3) write files on approval. `kb_drift` works differently — Phase 1 writes entries to queue files (no prompts returned). Review happens when PM or developer asks Claude to read the queue files; Claude fetches the git diff live and explains in plain English.
+Same pattern applies to `kb_export`, `kb_extract`, `kb_issue_triage`, and `kb_issue_plan`. `kb_scaffold` also loads related KB files before returning the fill prompt, so the agent can check for overlapping entries and align new content with existing docs. The fill prompt includes an **overlap detection** step — if an existing KB file already covers the same topic, the agent warns before creating a duplicate. `kb_import` supports a **3-phase auto-classify mode**: (1) extract and return chunks in paginated batches for agent classification, (2) return an import plan with proposed files and cross-references, (3) write files on approval. `kb_drift` works differently — Phase 1 writes entries to queue files (no prompts returned). Review happens when PM or developer asks Claude to read the queue files; Claude fetches the git diff live and explains in plain English.
 
 ---
 
@@ -404,6 +407,58 @@ Developer opens Claude: "review kb-drift.md"
 PM opens Claude: "review code-drift.md"
 → Claude fetches git diff, explains what changed in tokenService.ts
 → PM approves: kb_drift({ summaries: [{ kb_target: "features/user-auth.md", summary: "..." }] })
+```
+
+---
+
+### 10. PM tool integration (Jira, GitHub Issues, Linear)
+
+The KB bridges the gap between knowledge and project management tools through a middleware layer. No direct PM tool API calls — staging files in `sync/inbound/` and `sync/outbound/` act as the interface. External adapter scripts handle actual API sync.
+
+**Consult KB before filing an issue:**
+```
+PM: "I want to file a bug about login failing with expired tokens"
+
+→ kb_issue_consult({ title: "Login fails with expired token",
+                     body: "Users get 500 error instead of redirect..." })
+  → Returns related KB docs (features/auth.md, flows/login.md)
+  → Agent advises: "This relates to the session handling flow, step 4.
+     The KB notes 24h token expiry. Suggest labels: auth, session.
+     Priority: high (affects all users with expired tokens)."
+```
+
+**Triage an existing Jira bug:**
+```
+→ kb_issue_triage({ title: "Cart total wrong", body: "...",
+                    issue_id: "PROJ-123", source: "jira",
+                    labels: ["bug", "cart"], priority: "high" })
+  → Phase 1: returns related KB docs + triage prompt
+  → Agent fills triage report (summary, root cause hypothesis, suggested KB updates)
+
+→ kb_issue_triage({ ..., content: "<filled triage report>" })
+  → Writes to knowledge/sync/inbound/PROJ-123.md
+  → Agent can then apply suggested updates to feature/flow docs via kb_write
+```
+
+**Generate work items from KB features:**
+```
+→ kb_issue_plan({ type: "feature", keywords: ["cart"],
+                  target: "jira", project_key: "CART" })
+  → Phase 1: gathers cart-related KB docs, returns planning prompt
+  → Agent breaks features into stories with acceptance criteria
+
+→ kb_issue_plan({ ..., content: "<YAML task breakdown>" })
+  → Writes to knowledge/sync/outbound/2026-03-28-feature.yaml
+  → Adapter script picks up YAML and creates Jira tickets
+```
+
+**Staging file flow:**
+```
+PM Tool (Jira, Linear, GitHub Issues)
+    ↕  adapter scripts (outside MCP)
+Staging files (knowledge/sync/inbound/, sync/outbound/)
+    ↕  kb_issue_triage, kb_issue_plan
+KB documents (knowledge/features/, flows/, standards/)
 ```
 
 ---

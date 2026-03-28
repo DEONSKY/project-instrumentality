@@ -27,7 +27,9 @@ const FOLDER_STRUCTURE = [
   'assets/design',
   'assets/screenshots',
   'exports',
-  'sync'
+  'sync',
+  'sync/inbound',
+  'sync/outbound'
 ]
 
 const GIT_ATTRIBUTES = `knowledge/_index.yaml           merge=kb-reindex
@@ -36,6 +38,8 @@ knowledge/sync/kb-drift.md      merge=union
 knowledge/sync/review-queue.md  merge=union
 knowledge/sync/drift-log/**     merge=union
 knowledge/sync/import-review.md merge=union
+knowledge/sync/inbound/**       merge=union
+knowledge/sync/outbound/**      merge=union
 knowledge/features/**           merge=kb-conflict
 knowledge/flows/**              merge=kb-conflict
 knowledge/_rules.md             merge=kb-conflict

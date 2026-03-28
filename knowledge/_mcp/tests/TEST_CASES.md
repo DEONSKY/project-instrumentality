@@ -1535,3 +1535,158 @@ kb_extract({ source: "code", target_id: "go-style", target_group: "code",
 ```
 
 **Pass:** File written to `knowledge/standards/code/go-style.md` with `app_scope: backend` in front-matter. `kb_get({ keywords: ["go"], app_scope: "frontend" })` does NOT return this file.
+
+---
+
+## 24. `kb_issue_consult` — Pre-filing consultation
+
+### TC-24.1 Basic consultation returns related docs and prompt
+
+```
+kb_issue_consult({ title: "Login fails with expired token", body: "When users have an expired JWT token, clicking any page results in a 500 error instead of redirecting to login." })
+```
+
+**Pass:** Returns `{ related_docs: [...], prompt: <string>, _instruction: <string> }`. Prompt contains the title, body, and any matching KB doc content. `_instruction` tells the agent to respond directly.
+
+### TC-24.2 Consultation with app_scope filter
+
+```
+kb_issue_consult({ title: "Button style broken", body: "Primary button has wrong color on mobile", app_scope: "frontend" })
+```
+
+**Pass:** Returns `related_docs` filtered to `app_scope: frontend` docs only.
+
+### TC-24.3 Error — missing title
+
+```
+kb_issue_consult({ body: "some description" })
+```
+
+**Pass:** Returns `{ error: "title is required" }`.
+
+### TC-24.4 Error — missing body
+
+```
+kb_issue_consult({ title: "some title" })
+```
+
+**Pass:** Returns `{ error: "body is required" }`.
+
+### TC-24.5 No matching KB docs
+
+```
+kb_issue_consult({ title: "xyzzy frobnicator malfunction", body: "The xyzzy frobnicator stopped frobnicating." })
+```
+
+**Pass:** Returns `{ related_docs: [], ... }` with prompt containing "(no related documents found in knowledge base)".
+
+---
+
+## 25. `kb_issue_triage` — Issue triage
+
+### TC-25.1 Phase 1 — returns prompt and related docs
+
+```
+kb_issue_triage({ title: "Cart total wrong", body: "Total doesn't update when coupon removed", issue_id: "PROJ-123", source: "jira", labels: ["bug", "cart"], priority: "high" })
+```
+
+**Pass:** Returns `{ related_docs: [...], prompt: <string>, _instruction: <string> }`. Prompt includes all issue fields (title, body, issue_id, source, labels, priority) and related KB doc content.
+
+### TC-25.2 Phase 2 — writes triage report to sync/inbound
+
+```
+kb_issue_triage({ title: "Cart total wrong", body: "Total doesn't update", issue_id: "PROJ-123", content: "---\nissue_id: PROJ-123\nsource: jira\ntitle: Cart total wrong\npriority: high\nlabels: [bug, cart]\nstatus: triaged\ntriaged_at: 2026-03-28\nrelated_kb:\n  - features/cart.md\n---\n\n## Summary\n\nTriage report content here.\n" })
+```
+
+**Pass:** File written to `knowledge/sync/inbound/PROJ-123.md`. Returns `{ file_path: "knowledge/sync/inbound/PROJ-123.md", written: true }`. File content matches the provided content.
+
+### TC-25.3 Phase 2 — slugified title when no issue_id
+
+```
+kb_issue_triage({ title: "Button Style is Broken!", body: "The button is ugly", content: "some triage content" })
+```
+
+**Pass:** File written to `knowledge/sync/inbound/button-style-is-broken.md`.
+
+### TC-25.4 Phase 1 — minimal params (no optional fields)
+
+```
+kb_issue_triage({ title: "Something broke", body: "It's broken" })
+```
+
+**Pass:** Returns prompt with issue_id as "(none)", source as "(unknown)", labels as empty, priority as "(unset)".
+
+### TC-25.5 Triage report not indexed by kb_reindex
+
+```
+kb_issue_triage({ title: "Test", body: "Test", issue_id: "TEST-1", content: "test content" })
+kb_reindex({})
+```
+
+**Pass:** `knowledge/sync/inbound/TEST-1.md` is NOT listed in `_index.yaml`. No lint errors from sync/ files.
+
+---
+
+## 26. `kb_issue_plan` — Work item planning
+
+### TC-26.1 Phase 1 — returns source docs and prompt
+
+```
+kb_issue_plan({ type: "feature", keywords: ["cart"] })
+```
+
+**Pass:** Returns `{ source_docs: [...], prompt: <string>, _instruction: <string> }`. Prompt contains source doc content.
+
+### TC-26.2 Phase 2 — writes task YAML to sync/outbound
+
+```
+kb_issue_plan({ type: "feature", content: "source_docs:\n  - features/cart.md\ngenerated: 2026-03-28\ntarget: jira\nproject: PROJ\nitems:\n  - title: Implement cart\n    type: story\n    description: Implement the cart feature\n    labels: [cart]\n    acceptance_criteria:\n      - Cart displays items\n    priority: medium\n" })
+```
+
+**Pass:** File written to `knowledge/sync/outbound/2026-03-28-feature.yaml`. Returns `{ file_path, written: true }`.
+
+### TC-26.3 Phase 1 with target and project_key
+
+```
+kb_issue_plan({ keywords: ["auth"], target: "jira", project_key: "AUTH" })
+```
+
+**Pass:** Prompt includes `target: jira` and `project_key: AUTH`.
+
+### TC-26.4 Phase 1 with scope (export mode)
+
+```
+kb_issue_plan({ scope: "all" })
+```
+
+**Pass:** Returns all KB docs as source_docs. Uses export mode internally.
+
+### TC-26.5 Error — no filters provided
+
+```
+kb_issue_plan({})
+```
+
+**Pass:** Returns `{ error: "At least one of scope, type, or keywords is required..." }`.
+
+### TC-26.6 Plan output not indexed
+
+```
+kb_issue_plan({ type: "feature", content: "test yaml content" })
+kb_reindex({})
+```
+
+**Pass:** `knowledge/sync/outbound/` files are NOT listed in `_index.yaml`. No lint errors.
+
+---
+
+## 27. Init — sync/inbound and sync/outbound folders
+
+### TC-27.1 kb_init creates sync subdirectories
+
+```
+cd test-react-vite
+kb_init({ interactive: false })
+```
+
+**Pass:** `knowledge/sync/inbound/` and `knowledge/sync/outbound/` directories exist. `.gitattributes` contains `knowledge/sync/inbound/**` and `knowledge/sync/outbound/**` merge entries.

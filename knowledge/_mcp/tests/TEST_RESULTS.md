@@ -577,6 +577,34 @@
 - TC-23.8: Error on missing required params.
 - TC-23.9: app_scope flows through to written file and kb_get filtering.
 
+### TC-24.1 through TC-24.5 ⚪ PENDING
+- kb_issue_consult: pre-filing consultation
+- TC-24.1: Basic consultation returns related docs + prompt.
+- TC-24.2: app_scope filter applied.
+- TC-24.3: Error on missing title.
+- TC-24.4: Error on missing body.
+- TC-24.5: No matching KB docs handled gracefully.
+
+### TC-25.1 through TC-25.5 ⚪ PENDING
+- kb_issue_triage: issue triage with two-phase pattern
+- TC-25.1: Phase 1 returns prompt + related docs.
+- TC-25.2: Phase 2 writes to sync/inbound/.
+- TC-25.3: Slugified title when no issue_id.
+- TC-25.4: Minimal params with defaults.
+- TC-25.5: Triage report not indexed.
+
+### TC-26.1 through TC-26.6 ⚪ PENDING
+- kb_issue_plan: work item planning
+- TC-26.1: Phase 1 returns source docs + prompt.
+- TC-26.2: Phase 2 writes YAML to sync/outbound/.
+- TC-26.3: target and project_key in prompt.
+- TC-26.4: scope export mode.
+- TC-26.5: Error on no filters.
+- TC-26.6: Plan output not indexed.
+
+### TC-27.1 ⚪ PENDING
+- Init creates sync/inbound/ and sync/outbound/ directories.
+
 ---
 
 ## Overall Verdict
@@ -594,6 +622,10 @@
 - **Section 21**: TC-21.1–21.5 (kb_note_resolve)
 - **Section 22**: TC-22.1–22.3 (error handling edge cases)
 - **Section 23**: TC-23.1–23.9 (kb_extract)
+- **Section 24**: TC-24.1–24.5 (kb_issue_consult)
+- **Section 25**: TC-25.1–25.5 (kb_issue_triage)
+- **Section 26**: TC-26.1–26.6 (kb_issue_plan)
+- **Section 27**: TC-27.1 (init sync/inbound, sync/outbound)
 
 ### Fixes applied in this batch:
 - **BUG-1b**: `lint-standalone.js` — ported `.md` extension fallback from `lint.js`

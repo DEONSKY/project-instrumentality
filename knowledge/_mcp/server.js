@@ -16,7 +16,10 @@ const tools = {
   kb_export: require('./tools/export'),
   kb_lint: require('./tools/lint'),
   kb_analyze: require('./tools/analyze'),
-  kb_extract: require('./tools/extract')
+  kb_extract: require('./tools/extract'),
+  kb_issue_triage: require('./tools/issue-triage'),
+  kb_issue_plan: require('./tools/issue-plan'),
+  kb_issue_consult: require('./tools/issue-consult')
 }
 
 const TOOL_DEFINITIONS = [
@@ -187,6 +190,53 @@ const TOOL_DEFINITIONS = [
         paths: { description: 'Glob patterns to filter source files (source=code), or KB subfolder name (source=knowledge, e.g. "features")', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
         app_scope: { type: 'string', description: 'App scope for the generated standard (default: all)' },
         content: { type: 'string', description: '(Phase 2) Filled content to write to disk' }
+      }
+    }
+  },
+  {
+    name: 'kb_issue_triage',
+    description: 'Triage an issue against the KB. Phase 1: searches KB for related docs and returns a prompt to draft a triage report with root-cause hypothesis and suggested KB updates. Phase 2 (content provided): writes the triage report to sync/inbound/.',
+    inputSchema: {
+      type: 'object',
+      required: ['title', 'body'],
+      properties: {
+        title: { type: 'string', description: 'Issue title' },
+        body: { type: 'string', description: 'Issue description/body' },
+        issue_id: { type: 'string', description: 'External issue ID (e.g. PROJ-123)' },
+        source: { type: 'string', description: 'PM tool name: jira, github, linear' },
+        labels: { type: 'array', items: { type: 'string' }, description: 'Issue labels/tags' },
+        priority: { type: 'string', description: 'Issue priority' },
+        app_scope: { type: 'string', description: 'Filter KB search to specific app scope' },
+        content: { type: 'string', description: '(Phase 2) Filled triage report to write to sync/inbound/' }
+      }
+    }
+  },
+  {
+    name: 'kb_issue_plan',
+    description: 'Generate actionable work items from KB documents for a PM tool. Phase 1: gathers source KB docs and returns a prompt to break them into stories/tasks with acceptance criteria. Phase 2 (content provided): writes the task breakdown YAML to sync/outbound/.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scope: { type: 'string', description: 'Scope filter (folder name or "all")' },
+        type: { type: 'string', description: 'KB doc type filter: feature, flow, decision' },
+        keywords: { description: 'Keyword filter', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+        app_scope: { type: 'string', description: 'Filter by app scope' },
+        target: { type: 'string', description: 'Target PM tool: jira, github, linear (affects output format)' },
+        project_key: { type: 'string', description: 'PM tool project key (e.g. PROJ)' },
+        content: { type: 'string', description: '(Phase 2) Generated task breakdown YAML to write to sync/outbound/' }
+      }
+    }
+  },
+  {
+    name: 'kb_issue_consult',
+    description: 'Consult the KB before filing an issue. Searches for related docs and returns a prompt for the agent to advise the reporter with enriched context, suggested labels, and relevant standards. Single-phase — no write step.',
+    inputSchema: {
+      type: 'object',
+      required: ['title', 'body'],
+      properties: {
+        title: { type: 'string', description: 'Proposed issue title' },
+        body: { type: 'string', description: 'Proposed issue description' },
+        app_scope: { type: 'string', description: 'Filter KB search to specific app scope' }
       }
     }
   }

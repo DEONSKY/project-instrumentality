@@ -1163,3 +1163,63 @@ EOF
 4. Re-running `kb_init` does NOT re-scaffold (files already exist).
 
 **TC:** TC-1.9, TC-1.10
+
+---
+
+### H.1 Pre-filing consultation (kb_issue_consult)
+
+> **Prompt to agent:**
+> I want to file a bug: "Login fails with expired token — users get a 500 error instead of a redirect to the login page when their JWT expires." Before filing, check the knowledge base for context.
+
+**Expected:**
+1. Agent calls `kb_issue_consult({ title: "Login fails with expired token", body: "users get a 500 error instead of a redirect to the login page when their JWT expires" })`.
+2. Agent receives related KB docs and prompt.
+3. Agent responds with: whether this is already known, affected components, suggested labels/priority, and an enriched issue description.
+
+**TC:** TC-24.1
+
+---
+
+### H.2 Issue triage — full flow (kb_issue_triage)
+
+> **Prompt to agent:**
+> Triage this Jira bug: PROJ-456 "Cart total doesn't update when coupon is removed". Priority: high. Labels: cart, promotions. The user reports that removing a coupon doesn't recalculate the total.
+
+**Expected:**
+1. Agent calls `kb_issue_triage({ title: "Cart total doesn't update when coupon is removed", body: "removing a coupon doesn't recalculate the total", issue_id: "PROJ-456", source: "jira", labels: ["cart", "promotions"], priority: "high" })`.
+2. Agent receives Phase 1 response with related docs and triage prompt.
+3. Agent fills the triage report with frontmatter (issue_id, source, related_kb) and sections (Summary, Classification, Affected Components, Root Cause Hypothesis, Suggested KB Updates).
+4. Agent calls `kb_issue_triage` again with `content` set to the filled report.
+5. File written to `knowledge/sync/inbound/PROJ-456.md`.
+
+**TC:** TC-25.1, TC-25.2
+
+---
+
+### H.3 Work item planning (kb_issue_plan)
+
+> **Prompt to agent:**
+> Break down all cart-related features into Jira stories for project CART.
+
+**Expected:**
+1. Agent calls `kb_issue_plan({ keywords: ["cart"], target: "jira", project_key: "CART" })`.
+2. Agent receives Phase 1 response with source KB docs and planning prompt.
+3. Agent generates YAML task breakdown with stories, acceptance criteria, labels, and dependencies.
+4. Agent calls `kb_issue_plan` again with `content` set to the generated YAML.
+5. File written to `knowledge/sync/outbound/YYYY-MM-DD-plan.yaml`.
+
+**TC:** TC-26.1, TC-26.2, TC-26.3
+
+---
+
+### H.4 Plan from scope (kb_issue_plan export mode)
+
+> **Prompt to agent:**
+> Generate work items for all features in the knowledge base. Target: GitHub Issues.
+
+**Expected:**
+1. Agent calls `kb_issue_plan({ scope: "all", type: "feature", target: "github" })`.
+2. Agent receives all feature docs as source_docs.
+3. Agent generates task breakdown and writes to sync/outbound/.
+
+**TC:** TC-26.4

@@ -10,7 +10,7 @@ const KB_ROOT = 'knowledge'
 const REQUIRED_FRONTMATTER = ['id', 'app_scope', 'created']
 
 // Folders whose files are not KB content — skip linting
-const SKIP_LINT_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules', '_templates', 'drift-log'])
+const SKIP_LINT_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules', '_templates', 'drift-log', 'sync'])
 
 // Called only by kb_reindex — never directly by tools
 async function runTool({ file_path = 'all' } = {}) {
@@ -202,9 +202,6 @@ function collectKBFiles() {
       if (entry.isDirectory()) {
         if (!SKIP_LINT_DIRS.has(entry.name)) walk(full)
       } else if (entry.name.endsWith('.md')) {
-        // Skip sync stub files that intentionally have no front-matter
-        if (entry.name === 'review-queue.md' || entry.name === 'import-review.md' ||
-            entry.name === 'code-drift.md' || entry.name === 'kb-drift.md') return
         files.push(full)
       }
     })
