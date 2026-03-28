@@ -1105,6 +1105,103 @@ estimateTokens("hello world") // 11 chars → ceil(11/4) = 3
 
 ## 20. Git Submodule Support
 
+> **Prerequisites:** Run the submodule setup script below before any TC-20.x test.
+> This creates bare remote repos, a parent project with two submodules (owned + shared),
+> KB initialized, and proper `origin` remotes so `git push` works.
+
+### TC-20.0 Submodule test infrastructure setup
+
+```bash
+#!/bin/bash
+# Run from any directory. Creates a self-contained test environment.
+set -e
+
+TEST_ROOT=$(mktemp -d)
+echo "=== Submodule test root: $TEST_ROOT ==="
+
+# ── 1. Create bare remote repos (simulate GitHub/GitLab) ─────────────────────
+git init --bare "$TEST_ROOT/remotes/backend.git"
+git init --bare "$TEST_ROOT/remotes/client-sdk.git"
+git init --bare "$TEST_ROOT/remotes/parent.git"
+
+# ── 2. Create backend source repo (owned submodule) ──────────────────────────
+git init "$TEST_ROOT/src/backend"
+mkdir -p "$TEST_ROOT/src/backend/src/controllers" "$TEST_ROOT/src/backend/src/services"
+cat > "$TEST_ROOT/src/backend/src/controllers/UserController.ts" << 'CTRLEOF'
+export class UserController {
+  async getUser(id: string) { return { id, name: 'test' } }
+  async listUsers() { return [] }
+}
+CTRLEOF
+cat > "$TEST_ROOT/src/backend/src/services/UserService.ts" << 'SVCEOF'
+export class UserService {
+  async findById(id: string) { return null }
+  async create(data: any) { return { id: '1', ...data } }
+}
+SVCEOF
+git -C "$TEST_ROOT/src/backend" add -A
+git -C "$TEST_ROOT/src/backend" commit -m "init backend"
+git -C "$TEST_ROOT/src/backend" remote add origin "$TEST_ROOT/remotes/backend.git"
+git -C "$TEST_ROOT/src/backend" push -u origin main 2>/dev/null || \
+git -C "$TEST_ROOT/src/backend" push -u origin master
+
+# ── 3. Create client-sdk source repo (shared submodule) ──────────────────────
+git init "$TEST_ROOT/src/client-sdk"
+mkdir -p "$TEST_ROOT/src/client-sdk/src"
+cat > "$TEST_ROOT/src/client-sdk/src/auth-client.ts" << 'AUTHEOF'
+export function authenticate(token: string) { return fetch('/auth/verify') }
+export function getSession() { return fetch('/auth/session') }
+AUTHEOF
+git -C "$TEST_ROOT/src/client-sdk" add -A
+git -C "$TEST_ROOT/src/client-sdk" commit -m "init client-sdk"
+git -C "$TEST_ROOT/src/client-sdk" remote add origin "$TEST_ROOT/remotes/client-sdk.git"
+git -C "$TEST_ROOT/src/client-sdk" push -u origin main 2>/dev/null || \
+git -C "$TEST_ROOT/src/client-sdk" push -u origin master
+
+# ── 4. Create parent project with submodules ──────────────────────────────────
+git init "$TEST_ROOT/project"
+cd "$TEST_ROOT/project"
+
+# Minimal project files for stack detection (React Vite)
+cat > package.json << 'PKGEOF'
+{ "name": "submodule-test", "dependencies": { "react": "^18.0.0" } }
+PKGEOF
+mkdir -p src/components
+cat > src/components/TaskForm.tsx << 'FORMEOF'
+export function TaskForm() { return <form>TODO</form> }
+FORMEOF
+
+git add -A && git commit -m "init parent project"
+git remote add origin "$TEST_ROOT/remotes/parent.git"
+
+# Add submodules (using bare remotes as URLs — portable)
+git submodule add "$TEST_ROOT/remotes/backend.git" backend
+git submodule add "$TEST_ROOT/remotes/client-sdk.git" client-sdk
+
+# Mark client-sdk as shared
+git config --file .gitmodules submodule.client-sdk.kb-shared true
+git add .gitmodules
+git commit -m "add submodules: backend (owned), client-sdk (shared)"
+
+# Push parent to its bare remote
+git push -u origin main 2>/dev/null || git push -u origin master
+
+# ── 5. Copy kb-mcp tools into project ────────────────────────────────────────
+# Replace <KB_MCP_SOURCE> with path to your kb-mcp installation
+# cp -r <KB_MCP_SOURCE>/knowledge/_mcp knowledge/_mcp
+
+echo ""
+echo "=== Setup complete ==="
+echo "Project: $TEST_ROOT/project"
+echo "Remotes: $TEST_ROOT/remotes/{parent,backend,client-sdk}.git"
+echo ""
+echo "Next steps:"
+echo "  cd $TEST_ROOT/project"
+echo "  # Copy kb-mcp tools, then run kb_init"
+```
+
+**Pass:** Script completes without error. Parent project has two submodules, all three repos have working bare remotes with `origin` configured. `git push` works from parent and both submodules.
+
 ### TC-20.1 Pre-push guard — owned submodule, branch mismatch blocked
 
 ```

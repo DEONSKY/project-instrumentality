@@ -502,9 +502,14 @@
 
 ## Section 20 — Git Submodule Support
 
-### TC-20.1 through TC-20.12 ⚪ N/A
-- All 12 submodule tests require a parent repo with owned and shared submodule configuration (`.gitmodules` with `kb-shared` flags, multi-branch setup, remote push targets).
-- Not testable in single flat repo session without submodule infrastructure.
+### TC-20.0 Submodule test infrastructure setup ⚪ PENDING
+- Setup script added to TEST_CASES.md (TC-20.0) and TEST_PROMPTS.md (E.0).
+- Creates bare remote repos for parent, backend, and client-sdk so `git push` works locally.
+- Infrastructure now available — TC-20.1 through TC-20.12 can be run.
+
+### TC-20.1 through TC-20.12 ⚪ PENDING
+- All 12 submodule tests now have infrastructure available (bare remotes in TC-20.0 / E.0 setup script).
+- Require a dedicated test session with the submodule project. Not yet executed.
 
 ---
 

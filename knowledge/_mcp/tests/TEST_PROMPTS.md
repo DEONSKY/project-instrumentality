@@ -788,47 +788,113 @@ git add -A && git commit -m "tighten depth policy"
 
 ## Part E — Git Submodule Support
 
-> **Important:** This test runs inside an **existing** test project that already has kb-mcp
-> initialized (e.g. the TaskFlow project from Part A). The submodule source repos are created
-> in a temporary directory — NOT inside or next to the test project.
+> **Important:** This test requires a **self-contained** environment with bare remotes
+> so `git push` works. You can run this on an existing test project (e.g. TaskFlow from
+> Part A) or create a fresh one. The setup script below creates everything from scratch.
 
-### E.0 Add submodules to existing project (run in terminal — not MCP)
+### E.0 Submodule test infrastructure (run in terminal — not MCP)
 
 ```bash
-# Save your test project path (run from inside your test project root)
-PROJECT_DIR=$(pwd)
+#!/bin/bash
+# Creates a complete submodule test environment with bare remotes.
+# Run from any directory — everything is created under a temp root.
+set -e
 
-# Create submodule source repos in a temp directory
-TMPDIR=$(mktemp -d)
+TEST_ROOT=$(mktemp -d)
+echo "=== Submodule test root: $TEST_ROOT ==="
 
-# Backend repo (owned submodule)
-git init "$TMPDIR/backend-repo"
-mkdir -p "$TMPDIR/backend-repo/src/controllers" "$TMPDIR/backend-repo/src/services"
-cat > "$TMPDIR/backend-repo/src/controllers/UserController.ts" << 'EOF'
-export class UserController { async getUser(id: string) {} }
-EOF
-cat > "$TMPDIR/backend-repo/src/services/UserService.ts" << 'EOF'
-export class UserService { async findById(id: string) {} }
-EOF
-git -C "$TMPDIR/backend-repo" add -A && git -C "$TMPDIR/backend-repo" commit -m "init backend"
+# ── 1. Create bare remote repos (simulate GitHub/GitLab) ─────────────────────
+git init --bare "$TEST_ROOT/remotes/backend.git"
+git init --bare "$TEST_ROOT/remotes/client-sdk.git"
+git init --bare "$TEST_ROOT/remotes/parent.git"
 
-# Client SDK repo (shared submodule)
-git init "$TMPDIR/client-sdk-repo"
-mkdir -p "$TMPDIR/client-sdk-repo/src"
-cat > "$TMPDIR/client-sdk-repo/src/auth-client.ts" << 'EOF'
+# ── 2. Create backend source repo (owned submodule) ──────────────────────────
+git init "$TEST_ROOT/src/backend"
+mkdir -p "$TEST_ROOT/src/backend/src/controllers" "$TEST_ROOT/src/backend/src/services"
+
+cat > "$TEST_ROOT/src/backend/src/controllers/UserController.ts" << 'CTRLEOF'
+export class UserController {
+  async getUser(id: string) { return { id, name: 'test' } }
+  async listUsers() { return [] }
+}
+CTRLEOF
+
+cat > "$TEST_ROOT/src/backend/src/services/UserService.ts" << 'SVCEOF'
+export class UserService {
+  async findById(id: string) { return null }
+  async create(data: any) { return { id: '1', ...data } }
+}
+SVCEOF
+
+git -C "$TEST_ROOT/src/backend" add -A
+git -C "$TEST_ROOT/src/backend" commit -m "init backend"
+git -C "$TEST_ROOT/src/backend" remote add origin "$TEST_ROOT/remotes/backend.git"
+git -C "$TEST_ROOT/src/backend" push -u origin main 2>/dev/null || \
+git -C "$TEST_ROOT/src/backend" push -u origin master
+
+# ── 3. Create client-sdk source repo (shared submodule) ──────────────────────
+git init "$TEST_ROOT/src/client-sdk"
+mkdir -p "$TEST_ROOT/src/client-sdk/src"
+
+cat > "$TEST_ROOT/src/client-sdk/src/auth-client.ts" << 'AUTHEOF'
 export function authenticate(token: string) { return fetch('/auth/verify') }
-EOF
-git -C "$TMPDIR/client-sdk-repo" add -A && git -C "$TMPDIR/client-sdk-repo" commit -m "init client-sdk"
+export function getSession() { return fetch('/auth/session') }
+AUTHEOF
 
-# Add submodules to test project (still in $PROJECT_DIR)
-cd "$PROJECT_DIR"
-git submodule add "$TMPDIR/backend-repo" backend
-git submodule add "$TMPDIR/client-sdk-repo" client-sdk
+git -C "$TEST_ROOT/src/client-sdk" add -A
+git -C "$TEST_ROOT/src/client-sdk" commit -m "init client-sdk"
+git -C "$TEST_ROOT/src/client-sdk" remote add origin "$TEST_ROOT/remotes/client-sdk.git"
+git -C "$TEST_ROOT/src/client-sdk" push -u origin main 2>/dev/null || \
+git -C "$TEST_ROOT/src/client-sdk" push -u origin master
 
-# Mark client-sdk as shared (use the submodule path name, not the repo name)
+# ── 4. Create parent project with submodules ──────────────────────────────────
+git init "$TEST_ROOT/project"
+cd "$TEST_ROOT/project"
+
+# Minimal project files for stack detection (React Vite)
+cat > package.json << 'PKGEOF'
+{ "name": "submodule-test", "dependencies": { "react": "^18.0.0" } }
+PKGEOF
+mkdir -p src/components
+cat > src/components/TaskForm.tsx << 'FORMEOF'
+export function TaskForm() { return <form>TODO</form> }
+FORMEOF
+
+git add -A && git commit -m "init parent project"
+git remote add origin "$TEST_ROOT/remotes/parent.git"
+
+# Add submodules using bare remotes as URL (portable, no SSH/HTTPS needed)
+git submodule add "$TEST_ROOT/remotes/backend.git" backend
+git submodule add "$TEST_ROOT/remotes/client-sdk.git" client-sdk
+
+# Mark client-sdk as shared
 git config --file .gitmodules submodule.client-sdk.kb-shared true
-git add .gitmodules && git commit -m "add submodules"
+git add .gitmodules
+git commit -m "add submodules: backend (owned), client-sdk (shared)"
+
+# Push parent to its bare remote so upstream tracking works
+git push -u origin main 2>/dev/null || git push -u origin master
+
+# ── 5. Copy kb-mcp into project ──────────────────────────────────────────────
+# Copy your kb-mcp installation into the project:
+# cp -r /path/to/project-instrumentality/knowledge/_mcp "$TEST_ROOT/project/knowledge/_mcp"
+# Then run kb_init via MCP to bootstrap hooks, rules, and folder structure.
+
+echo ""
+echo "=== Setup complete ==="
+echo "  Project dir:  $TEST_ROOT/project"
+echo "  Bare remotes: $TEST_ROOT/remotes/{parent,backend,client-sdk}.git"
+echo ""
+echo "Next steps:"
+echo "  1. cd $TEST_ROOT/project"
+echo "  2. Copy kb-mcp tools into knowledge/_mcp/"
+echo "  3. Run kb_init({ interactive: false }) via MCP"
+echo "  4. Add submodule code_path_patterns to _rules.md"
+echo "  5. Run tests E.1 through E.8"
 ```
+
+> **Verify setup:** From `$TEST_ROOT/project`, run `git push` — should succeed (bare remote).
+> Run `git -C backend push` — should also succeed. Both submodules should have `origin` configured.
 
 ### E.1 Re-initialize KB to pick up submodules
 
