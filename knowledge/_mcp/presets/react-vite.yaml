@@ -55,7 +55,7 @@ code_path_patterns:
       - "src/ui/**"
 
   - intent: dependency
-    kb_target: "foundation/tech-stack.md"
+    kb_target: "standards/code/tech-stack.md"
     paths:
       - "package.json"
       - "package-lock.json"
@@ -65,7 +65,7 @@ code_path_patterns:
       - ".node-version"
 
   - intent: config
-    kb_target: "foundation/conventions.md"
+    kb_target: "standards/code/conventions.md"
     paths:
       - "tsconfig.json"
       - "tsconfig.*.json"

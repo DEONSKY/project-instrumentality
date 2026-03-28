@@ -57,7 +57,7 @@ code_path_patterns:
       - "apps/web/src/components/**"
 
   - intent: dependency
-    kb_target: "foundation/tech-stack.md"
+    kb_target: "standards/code/tech-stack.md"
     paths:
       - "package.json"
       - "pnpm-lock.yaml"
@@ -67,7 +67,7 @@ code_path_patterns:
       - "apps/*/package.json"
 
   - intent: config
-    kb_target: "foundation/conventions.md"
+    kb_target: "standards/code/conventions.md"
     paths:
       - "tsconfig.json"
       - "tsconfig.base.json"

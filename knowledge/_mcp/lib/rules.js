@@ -29,10 +29,10 @@ function getDefaultRules() {
         data: 1,
         validation: 1,
         decisions: 1,
-        foundation: 1,
+        standards: 2,
         sync: 1
       },
-      never_group: ['data', 'validation', 'decisions', 'foundation', 'sync']
+      never_group: ['data', 'validation', 'decisions', 'sync']
     },
     secret_patterns: [
       'sk_live_',
@@ -44,7 +44,7 @@ function getDefaultRules() {
     ],
     cross_app_refs: {
       prefix: '@shared/',
-      always_shared: ['data', 'validation', 'integrations', 'decisions', 'foundation']
+      always_shared: ['data', 'validation', 'integrations', 'decisions', 'standards']
     },
     code_path_patterns: [
       {

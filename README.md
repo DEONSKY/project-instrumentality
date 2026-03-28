@@ -25,8 +25,11 @@ your-project/
     validation/          ← validation rules
     integrations/        ← third-party integrations
     decisions/           ← architectural decisions
-    capabilities/        ← reusable agent instruction prompts
-    foundation/          ← tech stack, conventions, global rules
+    standards/           ← how to work on this project (contextually loaded)
+      global.md          ← always_load: true — cross-cutting rules only
+      code/              ← loaded when writing/reviewing code
+      knowledge/         ← loaded when writing/reviewing KB files
+      process/           ← task workflows and checklists
     sync/
       code-drift.md      ← code changed, KB may be stale (PM reviews)
       kb-drift.md        ← KB changed, code may be stale (dev reviews)
@@ -104,7 +107,7 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | `kb_write` | Write a KB file and auto-reindex. Rejects paths outside `knowledge/` |
 | `kb_reindex` | Rebuild `_index.yaml` from all KB files, run lint. Returns up to 20 lint violations in the result |
 | `kb_lint` | Lint KB files for front-matter correctness and secret patterns |
-| `kb_scaffold` | Create a new KB file from template (types: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `capability`, `group`, `enums`, `relations`, `components`, `permissions`, `copy`, `global-rules`, `tech-stack`, `conventions`). Two-phase when `description` is given: loads related KB context, checks for overlapping entries, returns a fill prompt → agent fills → writes |
+| `kb_scaffold` | Create a new KB file from template (types: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `group`, `enums`, `relations`, `components`, `permissions`, `copy`, `global-rules`, `tech-stack`, `conventions`). Two-phase when `description` is given: loads related KB context, checks for overlapping entries, returns a fill prompt → agent fills → writes |
 | `kb_ask` | Ask a question about the KB. Classifies intent (query / sync / brainstorm / challenge / onboard / generate) and returns relevant context. Short tech terms (api, jwt, sql, etc.) are preserved in keyword extraction |
 | `kb_drift` | Bidirectional drift detection. Phase 1: code→kb (code changed, KB stale) and kb→code (KB changed, code may be stale). Writes to queue files in `sync/`. Phase 2: three resolution types — `summaries` (KB updated), `reverted` (code was wrong), `kb_confirmed` (kb→code reviewed) |
 | `kb_impact` | Analyze what KB files are affected by a proposed change, using the dependency graph |
@@ -333,19 +336,19 @@ Each draft includes a file list, summary placeholder, and open questions. Review
 
 ---
 
-### 8. Creating reusable agent capabilities
+### 8. Creating standards for code and knowledge
 
-Capabilities are project-agnostic agent instruction prompts stored in `knowledge/capabilities/`. They teach agents how to perform specific tasks consistently.
+Standards govern *how to work on this project* — for both code files and KB files. They live in `knowledge/standards/` and are loaded contextually when relevant.
 
 ```
-"Create a capability for code review"
-→ kb_scaffold({ type: "capability", id: "code-review",
-    description: "Guide agents through structured code review: check for security, performance, and consistency with KB conventions" })
-→ Agent fills the template: purpose, when to use, instructions, constraints
-→ kb_scaffold({ type: "capability", id: "code-review", content: "<filled>" })
+"Create a component standard"
+→ kb_scaffold({ type: "standard", id: "components", group: "code",
+    description: "Components must be under 200 lines, have a story, and reuse the design system" })
+→ Agent fills the template: purpose, rules, why, examples, exceptions
+→ kb_scaffold({ type: "standard", id: "components", group: "code", content: "<filled>" })
 ```
 
-Capabilities are loaded via `kb_get` like any other KB file — use `keywords: ["code-review"]` or `task_context: "reviewing"` to surface them.
+Standards are loaded via `kb_get` based on context — `task_context: "creating"` boosts `standards/knowledge/` files, `task_context: "fixing"` boosts `standards/code/` files. The special `global-rules` type (`standards/global.md`) is always loaded.
 
 ---
 

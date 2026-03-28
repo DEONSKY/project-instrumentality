@@ -54,7 +54,8 @@
 - Cannot test directly in this project (always has `package.json` with react).
 
 ### TC-1.5 Folder structure created ✅ PASS
-- All required folders exist: `features/`, `flows/`, `data/schema/`, `validation/`, `ui/`, `integrations/`, `decisions/`, `foundation/`, `_templates/prompts/`, `_prompt-overrides/`, `assets/`, `exports/`, `sync/`.
+- All required folders exist: `features/`, `flows/`, `data/schema/`, `validation/`, `ui/`, `integrations/`, `decisions/`, `standards/code/`, `standards/knowledge/`, `standards/process/`, `_templates/prompts/`, `_prompt-overrides/`, `assets/`, `exports/`, `sync/`.
+- `capabilities/` and `foundation/` are NOT created.
 
 ### TC-1.6 Git hooks installed ✅ PASS
 - All 4 hooks installed (`pre-commit`, `pre-push`, `post-merge`, `post-checkout`), executable `755`, contain `# kb-mcp managed`.
@@ -101,14 +102,14 @@
   `{ error: "Depth violation: 5 levels deep, max is 3", suggestion: "..." }`.
 
 ### TC-2.6 All template types ✅ PASS
-- `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `global-rules`, `tech-stack`, `conventions`, `enums`, `relations`, `components`, `capability` scaffolded without error. Correct path and template structure for each.
+- `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `global-rules`, `tech-stack`, `conventions`, `enums`, `relations`, `components`, `standard` scaffolded without error. Correct path and template structure for each.
 
-### TC-2.7 Scaffold capability ✅ PASS
-- `kb_scaffold({ type: "capability", id: "code-review" })` → file created at `knowledge/capabilities/code-review.md`.
-- Contains sections: `## Purpose`, `## When to use this capability`, `## Instructions for the agent`, `## Constraints`.
+### TC-2.7 Scaffold standard (no description) ⚪ PENDING
+- `kb_scaffold({ type: "standard", id: "code-review", group: "process" })` → file expected at `knowledge/standards/process/code-review.md`.
+- Template should contain sections: `## Purpose`, `## Rules`, `## Why`, `## Examples`, `## Exceptions`.
 
-### TC-2.8 Scaffold capability with description (two-phase) ✅ PASS
-- Phase 1 with description returns fill prompt for capability template.
+### TC-2.8 Scaffold standard with description (two-phase) ⚪ PENDING
+- Phase 1 with description should return fill prompt for standard template. File written to `knowledge/standards/code/components.md`.
 - Phase 2 with content writes filled file. Returns `{ written: true }`.
 
 ### TC-2.9 Scaffold overlap detection — existing file warning ✅ PASS
@@ -146,8 +147,9 @@
 ### TC-4.1 Keyword match ✅ PASS
 - `kb_get({ keywords: ["auth"] })` → `user-auth.md`, `auth.md`, `auth-strategy.md` included. `billing.md` NOT included.
 
-### TC-4.2 Always-load foundation files ✅ PASS
-- `global-rules.md`, `conventions.md`, `tech-stack.md` (all `always_load: true`) appear in every `kb_get` response.
+### TC-4.2 Always-load standards/global.md ⚪ PENDING
+- `standards/global.md` (with `always_load: true`) should appear in every `kb_get` response.
+- `conventions.md` and `tech-stack.md` are no longer always-loaded (moved to `standards/code/`).
 
 ### TC-4.3 Token budget respected ✅ PASS
 - Files selected within configured token budget (default 8000 from `_rules.md`). Total tokens within budget.
@@ -193,7 +195,7 @@
 - "walk me through the billing domain" → `intent: "onboard"`, `onboard-dev` prompt. Billing domain context loaded.
 
 ### TC-5.7 Hyphenated keywords preserved ✅ PASS
-- "what is user-authentication?" → only foundation files returned. `user-auth.md` NOT matched — `user-authentication` treated as single keyword, NOT split at hyphen.
+- "what is user-authentication?" → only always-load standards files returned (`standards/global.md`). `user-auth.md` NOT matched — `user-authentication` treated as single keyword, NOT split at hyphen.
 
 ---
 

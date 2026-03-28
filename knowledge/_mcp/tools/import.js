@@ -374,7 +374,7 @@ async function executeImportPlan(source, dry_run) {
 // ── Cross-reference generation ──────────────────────────────────────────────
 
 // Priority order for directional depends_on links
-const TYPE_PRIORITY = { feature: 1, flow: 2, validation: 3, schema: 4, integration: 5, decision: 6, enums: 7, 'ui-permissions': 8, 'ui-copy': 9, foundation: 10 }
+const TYPE_PRIORITY = { feature: 1, flow: 2, validation: 3, schema: 4, integration: 5, decision: 6, enums: 7, 'ui-permissions': 8, 'ui-copy': 9, standard: 10 }
 
 function generateCrossReferences(proposed, chunks) {
   const refs = []
@@ -528,9 +528,9 @@ function getTypeFromPath(filePath) {
     'ui/components.md': 'components',
     'ui/permissions.md': 'permissions',
     'ui/copy.md': 'copy',
-    'foundation/global-rules.md': 'global-rules',
-    'foundation/tech-stack.md': 'tech-stack',
-    'foundation/conventions.md': 'conventions'
+    'standards/global.md': 'global-rules',
+    'standards/code/tech-stack.md': 'tech-stack',
+    'standards/code/conventions.md': 'conventions'
   }
   return singletons[rel.replace(/\\/g, '/')] || null
 }

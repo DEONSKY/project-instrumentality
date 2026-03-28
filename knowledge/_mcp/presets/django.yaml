@@ -53,7 +53,7 @@ code_path_patterns:
       case: kebab
 
   - intent: dependency
-    kb_target: "foundation/tech-stack.md"
+    kb_target: "standards/code/tech-stack.md"
     paths:
       - "requirements.txt"
       - "requirements/*.txt"
@@ -62,7 +62,7 @@ code_path_patterns:
       - "poetry.lock"
 
   - intent: config
-    kb_target: "foundation/conventions.md"
+    kb_target: "standards/code/conventions.md"
     paths:
       - "setup.cfg"
       - ".flake8"

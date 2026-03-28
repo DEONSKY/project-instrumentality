@@ -89,15 +89,15 @@ git add -A && git commit -m "initial project setup"
 
 **Expected:** Agent calls `kb_init`. Output shows `detected_stack: react-vite`. Folders, hooks, `_rules.md`, `.gitattributes` created.
 
-### A.2 Scaffold foundation files
+### A.2 Scaffold standards files
 
 > **Prompt to agent:**
-> Create foundation files for this project. The project name is "TaskFlow". We use React 18 + Vite + TypeScript + TanStack Query + Zod for validation. Conventions: all components are functional, API calls go through TanStack Query hooks, validation uses Zod schemas.
+> Create the standards files for this project. The project name is "TaskFlow". We use React 18 + Vite + TypeScript + TanStack Query + Zod for validation. Conventions: all components are functional, API calls go through TanStack Query hooks, validation uses Zod schemas.
 
-**Expected:** Agent calls `kb_scaffold` three times:
-- `type: "global-rules"` → `foundation/global-rules.md`
-- `type: "tech-stack"` → `foundation/tech-stack.md`
-- `type: "conventions"` → `foundation/conventions.md`
+**Expected:** Agent calls `kb_scaffold` at minimum:
+- `type: "global-rules"` → `standards/global.md` (always_load: true)
+- `type: "tech-stack"` → `standards/code/tech-stack.md`
+- `type: "conventions"` → `standards/code/conventions.md`
 
 ### A.3 Scaffold a feature with description
 
@@ -307,10 +307,10 @@ git add -A && git commit -m "initial Go project setup"
 
 **Expected:** `detected_stack: go`. Patterns include `internal/**/handler/**`, `internal/**/service/**`, `go.mod`, etc.
 
-### B.2 Scaffold foundation
+### B.2 Scaffold standards files
 
 > **Prompt to agent:**
-> Create foundation files. Project name: "OrderAPI". Stack: Go 1.22, Gin framework, sqlx for DB, Kafka for events. Conventions: standard Go project layout, handler→service→repository layers, all errors wrapped with fmt.Errorf, context passed through all layers.
+> Create the standards files. Project name: "OrderAPI". Stack: Go 1.22, Gin framework, sqlx for DB, Kafka for events. Conventions: standard Go project layout, handler→service→repository layers, all errors wrapped with fmt.Errorf, context passed through all layers.
 
 ### B.3 Scaffold order feature
 
@@ -537,10 +537,10 @@ git add -A && git commit -m "initial Spring Boot project setup"
 
 **Expected:** `detected_stack: spring-boot`. Patterns include `src/main/java/**/*Controller.java`, `pom.xml`, etc.
 
-### C.2 Scaffold foundation
+### C.2 Scaffold standards files
 
 > **Prompt to agent:**
-> Create foundation files. Project: "ClinicAPI". Stack: Spring Boot 3.2, Java 21, PostgreSQL, Spring Security with JWT. Conventions: DTOs for API layer, entities for persistence, services contain business logic, controller never accesses repository directly.
+> Create the standards files. Project: "ClinicAPI". Stack: Spring Boot 3.2, Java 21, PostgreSQL, Spring Security with JWT. Conventions: DTOs for API layer, entities for persistence, services contain business logic, controller never accesses repository directly.
 
 ### C.3 Scaffold appointment feature
 
@@ -671,12 +671,12 @@ EOF
 
 **Expected:** Agent calls `kb_analyze({ write_drafts: true })`. Draft files created with `confidence: draft` tag. Each lists source files and has placeholder sections.
 
-### A.14 Scaffold a capability
+### A.14 Scaffold a process standard
 
 > **Prompt to agent:**
-> Create a capability that teaches agents how to perform task prioritization. When a user asks to prioritize tasks, the agent should consider due date, priority level, assignee workload, and dependencies between tasks.
+> Create a standard that teaches agents how to perform task prioritization. When a user asks to prioritize tasks, the agent should consider due date, priority level, assignee workload, and dependencies between tasks.
 
-**Expected:** Agent calls `kb_scaffold({ type: "capability", id: "task-prioritization", description: "..." })`, fills the template, writes to `knowledge/capabilities/task-prioritization.md`.
+**Expected:** Agent calls `kb_scaffold({ type: "standard", id: "task-prioritization", group: "process", description: "..." })`, fills the template, writes to `knowledge/standards/process/task-prioritization.md`.
 
 ### A.15 Test overlap detection
 
@@ -759,21 +759,21 @@ git add -A && git commit -m "tighten depth policy"
 
 **Expected:** `kb_analyze({ write_drafts: true })` writes drafts. Agent lists all created files.
 
-### D.7 Scaffold all types including capability
+### D.7 Scaffold all types including standard
 
 > **Prompt to agent:**
-> Create one KB file of each type: feature, flow, schema, validation, integration, decision, capability.
+> Create one KB file of each type: feature, flow, schema, validation, integration, decision, standard.
 
-**Expected:** 7 files created (including `capabilities/test.md`), all pass lint, all appear in `_index.yaml`.
+**Expected:** 7 files created (including `standards/process/test.md`), all pass lint, all appear in `_index.yaml`.
 
-### D.8 Capability loaded via kb_get
+### D.8 Standard loaded via kb_get
 
-> Create `knowledge/capabilities/deploy-guide.md` with content.
+> Create `knowledge/standards/process/deploy-guide.md` with content.
 
 > **Prompt to agent:**
 > Load KB context related to deployment.
 
-**Expected:** Agent calls `kb_get({ keywords: ["deploy"] })`. `capabilities/deploy-guide.md` appears in results.
+**Expected:** Agent calls `kb_get({ keywords: ["deploy"] })`. `standards/process/deploy-guide.md` appears in results.
 
 ### D.9 Multi-file impact cascade
 

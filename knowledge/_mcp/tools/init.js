@@ -14,11 +14,12 @@ const FOLDER_STRUCTURE = [
   'ui',
   'integrations',
   'decisions',
-  'capabilities',
-  'foundation',
+  'standards/code',
+  'standards/knowledge',
+  'standards/process',
   '_templates/data',
   '_templates/ui',
-  '_templates/foundation',
+  '_templates/standards',
   '_templates/prompts',
   '_prompt-overrides',
   'assets/design',
@@ -376,13 +377,12 @@ depth_policy:
     data: 2
     validation: 1
     decisions: 1
-    foundation: 1
+    standards: 2
     sync: 1
   never_group:
     - data
     - validation
     - decisions
-    - foundation
     - sync
 
 secret_patterns:
@@ -509,7 +509,7 @@ function generateCodePathPatterns(hints = {}) {
   # No stack auto-detected. Copy source patterns from knowledge/_mcp/presets/<stack>.yaml
   # and paste them here. The dependency and config intents below work for all stacks.
   - intent: dependency
-    kb_target: "foundation/tech-stack.md"
+    kb_target: "standards/code/tech-stack.md"
     paths:
       - "package.json"
       - "package-lock.json"
@@ -525,7 +525,7 @@ function generateCodePathPatterns(hints = {}) {
       - "Gemfile"
       - "Cargo.toml"
   - intent: config
-    kb_target: "foundation/conventions.md"
+    kb_target: "standards/code/conventions.md"
     paths:
       - "tsconfig.json"
       - "tsconfig.*.json"
@@ -676,17 +676,13 @@ ${stackLine}
 3. Scaffold your first KB file:
    kb_scaffold type=feature id=my-first-feature
 
-4. Add foundation files:
-   kb_scaffold type=global-rules
-   kb_scaffold type=tech-stack
-   kb_scaffold type=conventions
+4. Add standards files:
+   kb_scaffold type=global-rules                      ← always loaded, cross-cutting rules
+   kb_scaffold type=standard id=components group=code ← loaded when working on code
+   kb_scaffold type=standard id=feature group=knowledge ← loaded when working on KB files
+   kb_scaffold type=standard id=code-review group=process ← task workflow standards
 
-5. Add capability prompts (optional):
-   kb_scaffold type=capability id=code-review
-   Capabilities are reusable agent instructions (e.g. how to review PRs,
-   how to plan features). They are indexed and loaded when relevant.
-
-6. Open in Cursor/Claude Code — the MCP server auto-starts.
+5. Open in Cursor/Claude Code — the MCP server auto-starts.
    No API key needed — the agent IS the LLM.
 ${submoduleLine}
 KB root: knowledge/

@@ -112,13 +112,13 @@ code_path_patterns:
       case: kebab
 
   - intent: dependency
-    kb_target: "foundation/tech-stack.md"
+    kb_target: "standards/code/tech-stack.md"
     paths:
       - "go.mod"
       - "go.sum"
 
   - intent: config
-    kb_target: "foundation/conventions.md"
+    kb_target: "standards/code/conventions.md"
     paths:
       - ".golangci.yml"
       - ".golangci.yaml"

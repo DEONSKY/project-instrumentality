@@ -60,7 +60,9 @@ kb_init({ interactive: false })
 ### TC-1.5 Folder structure created
 
 **Pass:** After `kb_init`, all these folders exist:
-`features/`, `flows/`, `data/schema/`, `validation/`, `ui/`, `integrations/`, `decisions/`, `capabilities/`, `foundation/`, `_templates/prompts/`, `_prompt-overrides/`, `assets/design/`, `assets/screenshots/`, `exports/`, `sync/`
+`features/`, `flows/`, `data/schema/`, `validation/`, `ui/`, `integrations/`, `decisions/`, `standards/code/`, `standards/knowledge/`, `standards/process/`, `_templates/prompts/`, `_prompt-overrides/`, `assets/design/`, `assets/screenshots/`, `exports/`, `sync/`
+
+Neither `capabilities/` nor `foundation/` should exist.
 
 ### TC-1.6 Git hooks installed
 
@@ -155,25 +157,26 @@ kb_scaffold({ type: "feature", id: "deep", group: "a/b/c/d" })
 
 ### TC-2.6 All template types
 
-For each type: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `capability`, `global-rules`, `tech-stack`, `conventions`, `enums`, `relations`, `components`, `permissions`, `copy`.
+For each type: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `global-rules`, `tech-stack`, `conventions`, `enums`, `relations`, `components`, `permissions`, `copy`.
 
 **Pass:** File created at expected path with correct template content. No error.
 
-### TC-2.7 Scaffold capability
+### TC-2.7 Scaffold standard (no description)
 
 ```
-kb_scaffold({ type: "capability", id: "code-review" })
+kb_scaffold({ type: "standard", id: "code-review", group: "process" })
 ```
 
-**Pass:** `knowledge/capabilities/code-review.md` created with `id: code-review` in front-matter. Template includes sections: Purpose, When to use this capability, Instructions for the agent, Constraints.
+**Pass:** `knowledge/standards/process/code-review.md` created with `id: code-review` in front-matter. Template includes sections: Purpose, Rules, Why, Examples, Exceptions.
 
-### TC-2.8 Scaffold capability with description (two-phase)
+### TC-2.8 Scaffold standard with description (two-phase)
 
 ```
-kb_scaffold({ type: "capability", id: "pr-review", description: "Guide agents through structured PR review: check security, performance, and KB consistency" })
+kb_scaffold({ type: "standard", id: "components", group: "code",
+  description: "React components must be under 200 lines, have a story, and reuse the design system" })
 ```
 
-**Pass:** Returns `{ prompt, file_path, template }`. Prompt contains filled `{{template_type}}` as `capability`. Agent fills and writes via Phase 2.
+**Pass:** Returns `{ prompt, file_path, template }`. Prompt contains filled `{{template_type}}` as `standard`. Agent fills and writes via Phase 2. File written to `knowledge/standards/code/components.md`.
 
 ### TC-2.9 Scaffold overlap detection — existing file warning
 
@@ -252,15 +255,15 @@ kb_get({ keywords: ["auth"] })
 
 **Pass:** Returns `user-auth.md` in files. `billing.md` NOT included.
 
-### TC-4.2 Always-load foundation files
+### TC-4.2 Always-load standards/global.md
 
-Create `foundation/global-rules.md` with `always_load: true`.
+Create `standards/global.md` with `always_load: true`.
 
 ```
 kb_get({ keywords: ["billing"] })
 ```
 
-**Pass:** `global-rules.md` always in result, plus billing matches.
+**Pass:** `standards/global.md` always in result, plus billing matches.
 
 ### TC-4.3 Token budget respected
 
@@ -321,15 +324,15 @@ kb_get({ keywords: ["auth"], task_context: "reviewing" })
 
 **Pass:** No error. Returns normal results with reviewing boosts for validation/flow files.
 
-### TC-4.9 Capability files loaded by keyword
+### TC-4.9 Standard files loaded by keyword
 
-Create `knowledge/capabilities/code-review.md` with `id: code-review`.
+Create `knowledge/standards/process/code-review.md` with `id: code-review`.
 
 ```
 kb_get({ keywords: ["code-review"] })
 ```
 
-**Pass:** `capabilities/code-review.md` returned in results. `inferType` returns `"capability"` for this file path.
+**Pass:** `standards/process/code-review.md` returned in results. `inferType` returns `"standard"` for this file path.
 
 ### TC-4.10 Short keyword preserved
 
@@ -354,6 +357,26 @@ kb_get({ task_type: "export", scope: "all" })
 ```
 
 **Pass:** Returns all KB files (export scope mode). Result includes files from all folders.
+
+### TC-4.13 task_context creating boosts standards/knowledge/ files
+
+Create `standards/knowledge/feature.md` with `id: feature-standard`.
+
+```
+kb_get({ keywords: ["feature"], task_context: "creating" })
+```
+
+**Pass:** `standards/knowledge/feature.md` score is boosted (+0.5). Appears higher in results than an unrelated feature file with equal keyword match.
+
+### TC-4.14 task_context fixing boosts standards/code/ files
+
+Create `standards/code/components.md` with `id: component-standard`.
+
+```
+kb_get({ keywords: ["component"], task_context: "fixing" })
+```
+
+**Pass:** `standards/code/components.md` score is boosted (+0.3). Appears higher in results than non-standard files with equal keyword match.
 
 ---
 

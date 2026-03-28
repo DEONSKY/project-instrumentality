@@ -134,6 +134,10 @@ function findCandidates(graph, keywords, appScopeFilter, taskContext) {
       for (const hint of typeHints) {
         if (fp.includes(`/${hint}/`)) { score += 0.5; break }
       }
+      if (fp.includes('/standards/knowledge/')) score += 0.5
+    }
+    if (score > 0 && taskContext === 'fixing') {
+      if (fp.includes('/standards/code/')) score += 0.3
     }
     if (score > 0 && taskContext === 'reviewing') {
       if (fp.includes('/validation/') || fp.includes('/flows/')) score += 0.3
@@ -192,8 +196,7 @@ function inferType(filePath) {
   if (filePath.includes('/validation/')) return 'validation'
   if (filePath.includes('/integrations/')) return 'integration'
   if (filePath.includes('/decisions/')) return 'decision'
-  if (filePath.includes('/foundation/')) return 'foundation'
-  if (filePath.includes('/capabilities/')) return 'capability'
+  if (filePath.includes('/standards/')) return 'standard'
   if (filePath.includes('/ui/')) return 'ui'
   return 'general'
 }
@@ -207,7 +210,9 @@ const TYPE_HINT_KEYWORDS = {
   validation: ['validation', 'validator', 'rule', 'constraint'],
   ui: ['component', 'button', 'form', 'modal', 'layout'],
   integrations: ['integration', 'api', 'webhook', 'external'],
-  capabilities: ['capability', 'prompt', 'guide']
+  'standards/code': ['component', 'api', 'test', 'testing', 'code', 'style'],
+  'standards/knowledge': ['feature', 'flow', 'schema', 'document', 'kb'],
+  'standards/process': ['review', 'workflow', 'process', 'checklist']
 }
 
 function inferTypeHints(keywords) {

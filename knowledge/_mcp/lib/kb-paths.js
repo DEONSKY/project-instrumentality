@@ -16,16 +16,16 @@ const TYPE_TO_PATH = {
   validation: 'validation/{id}.md',
   integration: 'integrations/{id}.md',
   decision: 'decisions/{id}.md',
-  capability: 'capabilities/{id}.md',
+  standard: 'standards/{group}/{id}.md',
   group: '{folder}/_group.md',
   enums: 'data/enums.md',
   relations: 'data/relations.md',
   components: 'ui/components.md',
   permissions: 'ui/permissions.md',
   copy: 'ui/copy.md',
-  'global-rules': 'foundation/global-rules.md',
-  'tech-stack': 'foundation/tech-stack.md',
-  conventions: 'foundation/conventions.md'
+  'global-rules': 'standards/global.md',
+  'tech-stack': 'standards/code/tech-stack.md',
+  conventions: 'standards/code/conventions.md'
 }
 
 const TYPE_TO_TEMPLATE = {
@@ -35,16 +35,16 @@ const TYPE_TO_TEMPLATE = {
   validation: 'validation.md',
   integration: 'integration.md',
   decision: 'decision.md',
-  capability: 'capability.md',
+  standard: 'standards/standard.md',
   group: 'group.md',
   enums: 'data/enums.md',
   relations: 'data/relations.md',
   components: 'ui/components.md',
   permissions: 'ui/permissions.md',
   copy: 'ui/copy.md',
-  'global-rules': 'foundation/global-rules.md',
-  'tech-stack': 'foundation/tech-stack.md',
-  conventions: 'foundation/conventions.md'
+  'global-rules': 'standards/global-rules.md',
+  'tech-stack': 'standards/tech-stack.md',
+  conventions: 'standards/conventions.md'
 }
 
 // Maps import-classify types to scaffold types
@@ -55,8 +55,8 @@ const CLASSIFY_TYPE_TO_SCAFFOLD = {
   'validation': 'validation',
   'integration': 'integration',
   'decision': 'decision',
-  'foundation': 'global-rules',
-  'capability': 'capability',
+  'standard': 'standard',
+  'process': 'standard',
   'enums': 'enums',
   'ui-permissions': 'permissions',
   'ui-copy': 'copy'
@@ -70,7 +70,7 @@ function getGroupFolder(type) {
     validation: 'validation',
     integration: 'integrations',
     decision: 'decisions',
-    capability: 'capabilities'
+    standard: 'standards'
   }
   return map[type] || 'features'
 }

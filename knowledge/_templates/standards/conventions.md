@@ -1,9 +1,11 @@
 ---
 id: conventions
+type: standard
+scope: code
 app_scope: all
-always_load: true
 owner: {{owner}}
 created: {{date}}
+tags: [conventions]
 ---
 
 ## Naming — rules for code generation

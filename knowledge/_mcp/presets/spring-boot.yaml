@@ -95,7 +95,7 @@ code_path_patterns:
       case: kebab
 
   - intent: dependency
-    kb_target: "foundation/tech-stack.md"
+    kb_target: "standards/code/tech-stack.md"
     paths:
       - "pom.xml"
       - "build.gradle"
@@ -104,7 +104,7 @@ code_path_patterns:
       - "settings.gradle.kts"
 
   - intent: config
-    kb_target: "foundation/conventions.md"
+    kb_target: "standards/code/conventions.md"
     paths:
       - "src/main/resources/application.yml"
       - "src/main/resources/application.yaml"
