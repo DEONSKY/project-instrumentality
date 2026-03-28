@@ -1223,3 +1223,197 @@ EOF
 3. Agent generates task breakdown and writes to sync/outbound/.
 
 **TC:** TC-26.4
+
+---
+
+## Part I — Git Submodule Support (TC-20.1–20.12)
+
+> **Important:** These tests require a **multi-repo environment** with bare remotes.
+> They CANNOT be run from the standard MCP test project. Use the TC-20.0 setup script
+> or the E.0 script (identical) to create the environment first.
+>
+> **Relationship to Part E:** Part E (E.1–E.8) is the guided version of these tests,
+> written as agent prompts. Part I below maps TC-20 test cases to specific commands
+> so you can execute them directly and record pass/fail in TEST_RESULTS.md.
+
+### I.0 Setup (same as TC-20.0 / E.0)
+
+```bash
+# Set PI_ROOT to your project-instrumentality checkout
+export PI_ROOT=/path/to/project-instrumentality
+
+# Run the setup script from TEST_CASES.md TC-20.0
+# Or copy-paste from TEST_PROMPTS.md E.0
+# Both create: $TEST_ROOT/project with 2 submodules + bare remotes
+
+# After setup completes:
+cd $TEST_ROOT/project
+
+# Point your MCP client at this directory, then:
+kb_init({ interactive: false })
+```
+
+**TC:** TC-20.0
+
+### I.1 Pre-push guard tests (TC-20.1–20.4)
+
+After `kb_init` installs hooks, test the pre-push guard:
+
+```bash
+# TC-20.1: Branch mismatch — push should be BLOCKED
+git checkout -b feature/auth
+git -C backend checkout main        # owned submodule stays on main
+echo "// change" >> backend/src/services/UserService.ts
+git -C backend add -A && git -C backend commit -m "backend change"
+git add backend && git commit -m "update backend pointer"
+git push origin feature/auth
+# Expected: Push BLOCKED with "[kb] ERROR: Submodule branch mismatch"
+
+# TC-20.2: No pointer change — push should PASS
+git checkout -b feature/clean-test
+# Don't touch submodule pointer
+echo "// parent only" >> src/components/TaskForm.tsx
+git add src/ && git commit -m "parent-only change"
+git push origin feature/clean-test
+# Expected: Push succeeds — submodule not involved
+
+# TC-20.3: Shared submodule pointer change — WARNING only, not blocked
+git checkout main 2>/dev/null || git checkout master
+git -C client-sdk checkout main
+echo "// sdk change" >> client-sdk/src/auth-client.ts
+git -C client-sdk add -A && git -C client-sdk commit -m "sdk update"
+git add client-sdk && git commit -m "update client-sdk pointer"
+git push
+# Expected: Warning "[kb] WARNING: Shared submodule pointer(s) updated" — push proceeds
+
+# TC-20.4: No .gitmodules — backward compatibility
+# (test on a separate project without submodules)
+```
+
+### I.2 Drift with submodules (TC-20.5–20.8)
+
+> **Prompt to agent (TC-20.5):**
+> Add code path patterns for the backend submodule: backend/src/controllers/** maps to features, backend/src/services/** maps to flows. Then create a feature file "user-management" and run drift detection.
+
+```bash
+# Make 3 commits in backend submodule on feature/auth
+cd backend && git checkout -b feature/auth
+echo "export function a() {}" >> src/services/UserService.ts
+git add -A && git commit -m "change 1"
+echo "export function b() {}" >> src/services/UserService.ts
+git add -A && git commit -m "change 2"
+echo "export function c() {}" >> src/services/UserService.ts
+git add -A && git commit -m "change 3"
+git push -u origin feature/auth
+cd ..
+git add backend && git commit -m "update backend pointer"
+```
+
+> **Prompt to agent:**
+> Run drift detection.
+
+**Expected (TC-20.5):** Drift reports all 3 commits worth of files. Result includes `submodules_owned` and `submodules_shared` arrays.
+
+> **Prompt to agent (TC-20.6):**
+> Make a change in the shared client-sdk submodule and run drift detection.
+
+```bash
+cd client-sdk
+echo "export function newFunc() {}" >> src/auth-client.ts
+git add -A && git commit -m "add newFunc"
+cd ..
+git add client-sdk && git commit -m "update client-sdk"
+```
+
+**Expected (TC-20.6):** Drift entry includes `- **Shared module:** true`.
+
+**TC-20.7:** Run drift again (no new changes). The `Shared module: true` line should survive the round-trip.
+
+**TC-20.8:** Change files in BOTH `src/` (parent) and `backend/src/` (submodule), push, run drift. Both sources should produce entries.
+
+### I.3 detectSubmodules — verify via drift (TC-20.9)
+
+`detectSubmodules()` is an internal function inside `drift.js` — not directly callable. Test indirectly:
+
+> **Prompt to agent:**
+> Run drift detection on this project.
+
+```
+kb_drift({})
+```
+
+**Expected:** Result includes `submodules_owned: ["backend"]` and `submodules_shared: ["client-sdk"]`, confirming `kb-shared = true` attribute in `.gitmodules` is parsed correctly.
+
+### I.4 kb-feature script (TC-20.10–20.11)
+
+```bash
+# TC-20.11: Status
+./knowledge/_mcp/scripts/kb-feature.sh status
+# Expected: Shows parent branch, each submodule's branch, pointer-changed flag, owned/shared label
+
+# TC-20.10: Push (fix mismatch first)
+cd backend && git checkout -b feature/auth && cd ..
+git add backend && git commit -m "fix backend branch"
+./knowledge/_mcp/scripts/kb-feature.sh push
+# Expected: Submodule pushed first with -u origin feature/auth, then parent. No errors.
+```
+
+### I.5 Init submodule pattern suggestion (TC-20.12)
+
+```bash
+# Remove backend/ patterns from _rules.md, then re-init
+kb_init({ interactive: false })
+```
+
+**Expected:** Setup guide suggests adding `backend/` prefixed patterns. Does NOT auto-modify `_rules.md`.
+
+---
+
+## Part J — `kb_note_resolve` (TC-21.1–21.5)
+
+> Run on any project with KB initialized and at least one KB file in the index.
+
+### J.1 Setup — create a test file with sync notes
+
+> **Prompt to agent:**
+> Create a feature file called "auth" for user authentication.
+
+Then manually add notes to `_index.yaml`:
+
+```bash
+# After the feature file exists and index is built, edit _index.yaml to add notes.
+# Find the entry for features/auth.md and add:
+#   notes:
+#     - id: note-1
+#       text: "Review auth flow for edge cases"
+#     - id: note-2
+#       text: "Check token expiry handling"
+#   sync_state: pending
+```
+
+### J.2 Test note resolution (TC-21.1, TC-21.4, TC-21.5)
+
+> **Prompt to agent:**
+> Resolve sync note "note-1" for the auth feature file.
+
+**Expected (TC-21.1):** Agent calls `kb_note_resolve({ file_path: "knowledge/features/auth.md", note_id: "note-1" })`. Returns `{ resolved: true, remaining_notes: 1 }`. `sync_state` still `pending` (one note remains).
+
+**TC-21.5:** This is the same as above — partial resolution with 1 remaining note.
+
+> **Prompt to agent:**
+> Resolve sync note "note-2" for the auth feature file.
+
+**Expected:** Returns `{ resolved: true, remaining_notes: 0, sync_state: "synced" }`. All notes resolved.
+
+### J.3 Error cases (TC-21.2, TC-21.3, TC-21.4)
+
+```
+kb_note_resolve({})
+→ Error: "file_path is required" (TC-21.4)
+
+kb_note_resolve({ file_path: "knowledge/features/missing.md", note_id: "note-1" })
+→ Error: "File not found in index" (TC-21.3)
+
+kb_note_resolve({ file_path: "knowledge/features/auth.md", note_id: "nonexistent" })
+→ Error: "Note not found" (TC-21.2)
+```

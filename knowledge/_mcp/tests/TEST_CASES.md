@@ -1159,9 +1159,29 @@ estimateTokens("hello world") // 11 chars → ceil(11/4) = 3
 
 ## 20. Git Submodule Support
 
-> **Prerequisites:** Run the submodule setup script below before any TC-20.x test.
+> **Prerequisites:** Run the submodule setup script (TC-20.0) before any TC-20.x test.
 > This creates bare remote repos, a parent project with two submodules (owned + shared),
-> KB initialized, and proper `origin` remotes so `git push` works.
+> and proper `origin` remotes so `git push` works.
+>
+> **How to test:** These tests CANNOT be run from the standard MCP test project.
+> They require a separate multi-repo environment. Follow these steps:
+>
+> 1. Run the TC-20.0 bash script in your terminal — it creates everything under a temp dir
+> 2. Copy `knowledge/_mcp/` from project-instrumentality into `$TEST_ROOT/project/knowledge/_mcp/`
+> 3. Also copy `knowledge/_templates/` into `$TEST_ROOT/project/knowledge/_templates/`
+> 4. Point your MCP client at `$TEST_ROOT/project` (update `.cursor/mcp.json` or equivalent)
+> 5. Run `kb_init({ interactive: false })` to bootstrap hooks, rules, and folder structure
+> 6. Add submodule code_path_patterns to `_rules.md` (see E.2 in TEST_PROMPTS.md)
+> 7. Now run TC-20.1 through TC-20.12
+>
+> **See also:** TEST_PROMPTS.md Part E for step-by-step guided prompts (E.1–E.8).
+> Part E covers the same functionality as TC-20.1–20.12 in a more guided format.
+>
+> **TC-20.1–20.4** test pre-push hook guards (require `kb_init` to install hooks).
+> **TC-20.5–20.8** test drift detection with submodules (require MCP serving the test project).
+> **TC-20.9** tests an internal function (call via `node -e` in the test project).
+> **TC-20.10–20.11** test `kb-feature.sh` script (copied during `kb_init`).
+> **TC-20.12** tests init's submodule pattern suggestion.
 
 ### TC-20.0 Submodule test infrastructure setup
 
@@ -1240,9 +1260,12 @@ git commit -m "add submodules: backend (owned), client-sdk (shared)"
 # Push parent to its bare remote
 git push -u origin main 2>/dev/null || git push -u origin master
 
-# ── 5. Copy kb-mcp tools into project ────────────────────────────────────────
-# Replace <KB_MCP_SOURCE> with path to your kb-mcp installation
-# cp -r <KB_MCP_SOURCE>/knowledge/_mcp knowledge/_mcp
+# ── 5. Copy kb-mcp tools and templates into project ─────────────────────────
+# Replace <PI_ROOT> with path to your project-instrumentality checkout
+PI_ROOT="${PI_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+mkdir -p knowledge
+cp -r "$PI_ROOT/knowledge/_mcp" knowledge/_mcp
+cp -r "$PI_ROOT/knowledge/_templates" knowledge/_templates
 
 echo ""
 echo "=== Setup complete ==="
@@ -1250,8 +1273,11 @@ echo "Project: $TEST_ROOT/project"
 echo "Remotes: $TEST_ROOT/remotes/{parent,backend,client-sdk}.git"
 echo ""
 echo "Next steps:"
-echo "  cd $TEST_ROOT/project"
-echo "  # Copy kb-mcp tools, then run kb_init"
+echo "  1. cd $TEST_ROOT/project"
+echo "  2. Point your MCP client at this directory"
+echo "  3. Run kb_init({ interactive: false }) via MCP"
+echo "  4. Add submodule code_path_patterns to _rules.md (backend/src/**, client-sdk/src/**)"
+echo "  5. Run TC-20.1 through TC-20.12"
 ```
 
 **Pass:** Script completes without error. Parent project has two submodules, all three repos have working bare remotes with `origin` configured. `git push` works from parent and both submodules.
@@ -1335,18 +1361,25 @@ git push
 
 ### TC-20.9 detectSubmodules — parses kb-shared attribute
 
+`detectSubmodules()` is an internal function inside `drift.js` — not directly callable via MCP.
+Test indirectly by running `kb_drift` on the test project and inspecting the result.
+
+Expected `.gitmodules` in test project:
 ```
-# .gitmodules:
-# [submodule "backend"]
-#   path = backend
-#   url = ...
-# [submodule "client-sdk"]
-#   path = client-sdk
-#   url = ...
-#   kb-shared = true
+[submodule "backend"]
+  path = backend
+  url = ...
+[submodule "client-sdk"]
+  path = client-sdk
+  url = ...
+  kb-shared = true
 ```
 
-**Pass:** `detectSubmodules()` returns backend with `isShared: false`, client-sdk with `isShared: true`.
+```
+kb_drift({})
+```
+
+**Pass:** Result includes `submodules_owned: ["backend"]` and `submodules_shared: ["client-sdk"]`, confirming `kb-shared = true` is parsed correctly.
 
 ### TC-20.10 kb-feature push — correct order
 
