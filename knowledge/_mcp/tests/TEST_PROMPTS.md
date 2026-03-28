@@ -1069,3 +1069,97 @@ EOF
 > Check if there are any pending sync notes in the index, and resolve any that are outdated.
 
 **Expected:** Agent reads `_index.yaml` for files with sync notes. For each resolved note, calls `kb_note_resolve({ file_path, note_id })`. Index updated after each resolution.
+
+---
+
+## Part G — `kb_extract` — Standards from Code and KB (run on TaskFlow or any project with source files)
+
+### G.1 Extract code standards (Phase 1)
+
+> **Prompt to agent:**
+> Derive a components coding standard from this project's source files. Use `kb_extract` with `source: "code"`, `target_id: "components"`, `target_group: "code"`.
+
+**Expected:**
+1. Agent calls `kb_extract({ source: "code", target_id: "components", target_group: "code" })`.
+2. Tool returns `{ file_path, prompt, sample_files, sample_count, _instruction }`.
+3. `sample_files` is non-empty. Files are from the project's source directories (not `node_modules`, `dist`, etc.).
+4. `prompt` contains the sampled file contents and the `standard.md` template structure.
+5. No file written yet.
+
+**TC:** TC-23.1, TC-23.2
+
+---
+
+### G.2 Extract code standards (Phase 2 — write)
+
+> **Prompt to agent (after G.1):**
+> Fill the template from the prompt you received. Capture the actual patterns you see in the sampled files. Then write the standard using `kb_extract` Phase 2.
+
+**Expected:**
+1. Agent fills the template based on observed code patterns.
+2. Calls `kb_extract({ source: "code", target_id: "components", target_group: "code", content: "<filled>" })`.
+3. File written to `knowledge/standards/code/components.md`.
+4. Front-matter has `id: components`, `type: standard`, `scope: code`, `app_scope: all`.
+
+**TC:** TC-23.4
+
+---
+
+### G.3 Extract with paths filter
+
+> **Prompt to agent:**
+> Extract a forms standard but only sample files in `src/components/` — use the `paths` parameter to narrow the scope.
+
+**Expected:**
+1. Agent calls `kb_extract({ source: "code", target_id: "forms", target_group: "code", paths: ["src/components/**"] })`.
+2. `sample_files` only contains paths matching `src/components/**`.
+3. No files from `src/services/`, `src/hooks/`, etc.
+
+**TC:** TC-23.3
+
+---
+
+### G.4 Extract knowledge standards from KB docs
+
+> **Prompt to agent:**
+> Extract a feature-writing standard from the existing feature KB files. Use `kb_extract` with `source: "knowledge"`, `paths: "features"`, `target_id: "feature-writing"`, `target_group: "knowledge"`.
+
+**Expected:**
+1. Agent calls `kb_extract({ source: "knowledge", target_id: "feature-writing", target_group: "knowledge", paths: "features" })`.
+2. `sample_files` contains files from `features/` folder.
+3. `prompt` includes the KB document content for the agent to analyse.
+4. Agent fills the template and calls Phase 2.
+5. File written to `knowledge/standards/knowledge/feature-writing.md`.
+
+**TC:** TC-23.5
+
+---
+
+### G.5 Multi-stack standards with app_scope
+
+> **Prompt to agent (on a monorepo with Go backend + React frontend):**
+> Scaffold two coding standards — one for Go backend patterns (app_scope: backend) and one for TypeScript frontend patterns (app_scope: frontend). Then verify that kb_get with app_scope filtering works correctly.
+
+**Expected:**
+1. Agent calls `kb_scaffold({ type: "standard", id: "go-conventions", group: "code", app_scope: "backend" })`.
+2. Agent calls `kb_scaffold({ type: "standard", id: "ts-conventions", group: "code", app_scope: "frontend" })`.
+3. `go-conventions.md` has `app_scope: backend`; `ts-conventions.md` has `app_scope: frontend`.
+4. `kb_get({ keywords: ["conventions"], app_scope: "frontend" })` returns only `ts-conventions.md`.
+5. `kb_get({ keywords: ["conventions"], app_scope: "backend" })` returns only `go-conventions.md`.
+
+**TC:** TC-2.7b, TC-23.9
+
+---
+
+### G.6 Auto-scaffold on init
+
+> **Prompt to agent:**
+> Run `kb_init` on this React project with `interactive: false`. Verify that the standard stub files were auto-created.
+
+**Expected:**
+1. Agent calls `kb_init({ interactive: false })`.
+2. Result includes `scaffolded_standards: ["standards/global.md", "standards/code/tech-stack.md", "standards/code/conventions.md"]`.
+3. All three files exist with template placeholder content.
+4. Re-running `kb_init` does NOT re-scaffold (files already exist).
+
+**TC:** TC-1.9, TC-1.10

@@ -76,3 +76,8 @@ code_path_patterns:
       - ".prettierrc*"
       - "turbo.json"
       - "nx.json"
+
+standards_scaffold:
+  - type: global-rules
+  - type: tech-stack
+  - type: conventions

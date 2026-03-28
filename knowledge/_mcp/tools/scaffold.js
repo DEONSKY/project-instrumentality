@@ -17,7 +17,7 @@ const TEMPLATES_DIR = getTemplatesDir()
  *   the template and calls kb_write({ file_path, content }) to save it.
  * With content: writes the agent-filled content directly.
  */
-async function runTool({ type, id, group, description, content } = {}) {
+async function runTool({ type, id, group, description, content, app_scope = 'all' } = {}) {
   if (!type) return { error: 'type is required' }
   if (!TYPE_TO_TEMPLATE[type]) {
     return { error: `Unknown type: ${type}. Valid: ${Object.keys(TYPE_TO_TEMPLATE).join(', ')}` }
@@ -41,6 +41,7 @@ async function runTool({ type, id, group, description, content } = {}) {
   templateContent = templateContent
     .replace(/\{\{id\}\}/g, id || 'new-item')
     .replace(/\{\{date\}\}/g, today)
+    .replace(/\{\{app_scope\}\}/g, app_scope)
 
   // If group folder missing, create _group.md
   if (group) {

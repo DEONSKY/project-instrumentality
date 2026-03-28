@@ -2,7 +2,7 @@
 id: {{id}}
 type: standard
 scope: {{scope}}
-app_scope: all
+app_scope: {{app_scope}}
 created: {{date}}
 tags: []
 ---

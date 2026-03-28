@@ -67,3 +67,8 @@ code_path_patterns:
       - ".rubocop.yml"
       - "config/application.rb"
       - "config/environments/*.rb"
+
+standards_scaffold:
+  - type: global-rules
+  - type: tech-stack
+  - type: conventions

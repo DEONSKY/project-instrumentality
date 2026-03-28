@@ -77,3 +77,8 @@ code_path_patterns:
 
       - "vite.config.*"
       - "nuxt.config.*"
+
+standards_scaffold:
+  - type: global-rules
+  - type: tech-stack
+  - type: conventions

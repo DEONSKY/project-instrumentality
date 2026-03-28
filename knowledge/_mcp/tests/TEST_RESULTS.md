@@ -57,6 +57,12 @@
 - All required folders exist: `features/`, `flows/`, `data/schema/`, `validation/`, `ui/`, `integrations/`, `decisions/`, `standards/code/`, `standards/knowledge/`, `standards/process/`, `_templates/prompts/`, `_prompt-overrides/`, `assets/`, `exports/`, `sync/`.
 - `capabilities/` and `foundation/` are NOT created.
 
+### TC-1.9 Standards stubs auto-scaffolded on init ⚪ PENDING
+- New test — `kb_init` on a stack project should auto-scaffold `standards/global.md`, `standards/code/tech-stack.md`, `standards/code/conventions.md`.
+
+### TC-1.10 No stubs without stack ⚪ PENDING
+- New test — `kb_init` on an empty project (no stack detected) should NOT scaffold any standard stubs.
+
 ### TC-1.6 Git hooks installed ✅ PASS
 - All 4 hooks installed (`pre-commit`, `pre-push`, `post-merge`, `post-checkout`), executable `755`, contain `# kb-mcp managed`.
 
@@ -107,6 +113,11 @@
 ### TC-2.7 Scaffold standard (no description) ⚪ PENDING
 - `kb_scaffold({ type: "standard", id: "code-review", group: "process" })` → file expected at `knowledge/standards/process/code-review.md`.
 - Template should contain sections: `## Purpose`, `## Rules`, `## Why`, `## Examples`, `## Exceptions`.
+- `app_scope: all` (default).
+
+### TC-2.7b Scaffold standard with app_scope ⚪ PENDING
+- New test — `kb_scaffold({ type: "standard", id: "go-conventions", group: "code", app_scope: "backend" })` should produce `app_scope: backend` in front-matter.
+- `kb_get({ keywords: ["conventions"], app_scope: "frontend" })` should exclude it.
 
 ### TC-2.8 Scaffold standard with description (two-phase) ⚪ PENDING
 - Phase 1 with description should return fill prompt for standard template. File written to `knowledge/standards/code/components.md`.
@@ -552,18 +563,37 @@
 
 ---
 
+## Section 23 — `kb_extract`
+
+### TC-23.1 through TC-23.9 ⚪ PENDING
+- New section — all 9 tests require a project with source files.
+- TC-23.1: Phase 1 returns prompt + sample files.
+- TC-23.2: Spread-sample across directories.
+- TC-23.3: paths filter limits sampling.
+- TC-23.4: Phase 2 writes file.
+- TC-23.5: source=knowledge, paths folder filter.
+- TC-23.6: source=knowledge, no folder (all KB).
+- TC-23.7: Error when no source files found.
+- TC-23.8: Error on missing required params.
+- TC-23.9: app_scope flows through to written file and kb_get filtering.
+
+---
+
 ## Overall Verdict
 
 **96 PASS / 6 FAIL / 22 N/A or SKIP** out of 124 test cases.
 **All 6 FAIL bugs now have fixes applied — pending re-test.**
 
 ### New test cases added (not yet run):
+- **Section 1**: TC-1.9, TC-1.10 (auto-scaffold standards on init)
+- **Section 2**: TC-2.7b (app_scope param on kb_scaffold)
 - **Section 4**: TC-4.11, TC-4.12 (scope/task_type params)
 - **Section 11**: TC-11.5–11.9 (auto-classify import mode)
 - **Section 12**: TC-12.5–12.9 (export type filter, purpose, app_scope, pagination, error)
 - **Section 17**: TC-17.6 (section-replace override)
 - **Section 21**: TC-21.1–21.5 (kb_note_resolve)
 - **Section 22**: TC-22.1–22.3 (error handling edge cases)
+- **Section 23**: TC-23.1–23.9 (kb_extract)
 
 ### Fixes applied in this batch:
 - **BUG-1b**: `lint-standalone.js` — ported `.md` extension fallback from `lint.js`

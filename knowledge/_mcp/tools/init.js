@@ -3,6 +3,8 @@ const path = require('path')
 const readline = require('readline')
 const matter = require('gray-matter')
 const { runTool: reindex } = require('./reindex')
+const { runTool: scaffold } = require('./scaffold')
+const { resolveFilePath } = require('../lib/kb-paths')
 
 const KB_ROOT = 'knowledge'
 
@@ -286,6 +288,22 @@ async function runTool({ interactive = true, config = null } = {}) {
   // 4. Copy templates from _mcp internal templates
   copyTemplates(filesCreated)
 
+  // 4b. Scaffold standard stubs from preset (global-rules, tech-stack, conventions)
+  const scaffoldedStandards = []
+  if (hints.stack) {
+    const preset = loadPresetFull(hints.stack)
+    if (preset && Array.isArray(preset.standards_scaffold)) {
+      for (const entry of preset.standards_scaffold) {
+        const filePath = resolveFilePath(entry.type, entry.id, entry.group)
+        const fullPath = path.join(KB_ROOT, filePath)
+        if (!fs.existsSync(fullPath)) {
+          await scaffold({ type: entry.type, id: entry.id, group: entry.group })
+          scaffoldedStandards.push(filePath)
+        }
+      }
+    }
+  }
+
   // 5. Write .gitattributes
   const gitAttrPath = '.gitattributes'
   if (!fs.existsSync(gitAttrPath)) {
@@ -334,6 +352,7 @@ async function runTool({ interactive = true, config = null } = {}) {
     files_created: filesCreated,
     hooks_installed: hooksInstalled,
     ...(hints.stack && { detected_stack: hints.stack }),
+    ...(scaffoldedStandards.length > 0 && { scaffolded_standards: scaffoldedStandards }),
     ...(gitInitialized && { git_initialized: true, note: '`git init` was run automatically — remember to set your remote with `git remote add origin <url>`' })
   }
 }
@@ -490,6 +509,15 @@ function loadPresetPatternBlock(stackName) {
     // Extract everything from "code_path_patterns:" to end of file
     const idx = content.indexOf('code_path_patterns:')
     return idx !== -1 ? content.slice(idx).trimEnd() : null
+  } catch { return null }
+}
+
+function loadPresetFull(stackName) {
+  const presetPath = path.join(__dirname, '../presets', `${stackName}.yaml`)
+  if (!fs.existsSync(presetPath)) return null
+  try {
+    const yaml = require('js-yaml')
+    return yaml.load(fs.readFileSync(presetPath, 'utf8'))
   } catch { return null }
 }
 

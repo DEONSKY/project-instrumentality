@@ -115,6 +115,7 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | `kb_export` | Export KB as JSON (direct), or Markdown / HTML / Confluence / DOCX / PDF (two-phase via agent). Supports `purpose` to guide tone/structure, `type` filter (e.g. all flows), multi-scope (array of ids/domains), and automatic pagination for large KBs. PDF and DOCX output includes proper headings, lists, and inline formatting |
 | `kb_migrate` | Migrate KB files after `_rules.md` structure changes. `since` sets the comparison ref (auto-detected if omitted); `dry_run` previews prompts without writing |
 | `kb_analyze` | Scan project source files and generate a KB coverage inventory. Groups files by their KB target using `code_path_patterns` from `_rules.md`. Optional `write_drafts` creates draft KB files (`confidence: draft`) for uncovered groups. Useful for bootstrapping KB on legacy projects |
+| `kb_extract` | Derive a standards document from existing code or KB files. Phase 1: samples representative files and returns a prompt for the agent to observe patterns and fill the template. Phase 2: writes the filled standard. Supports `paths` to narrow sampling (glob patterns for code, subfolder name for KB), and `app_scope` for multi-stack projects |
 
 ### Two-phase tools
 
@@ -130,7 +131,7 @@ Agent calls kb_scaffold({ type: "feature", id: "checkout", content: "<filled con
   → Server writes the file
 ```
 
-Same pattern applies to `kb_export`. `kb_scaffold` also loads related KB files before returning the fill prompt, so the agent can check for overlapping entries and align new content with existing docs. The fill prompt includes an **overlap detection** step — if an existing KB file already covers the same topic, the agent warns before creating a duplicate. `kb_import` supports a **3-phase auto-classify mode**: (1) extract and return chunks in paginated batches for agent classification, (2) return an import plan with proposed files and cross-references, (3) write files on approval. `kb_drift` works differently — Phase 1 writes entries to queue files (no prompts returned). Review happens when PM or developer asks Claude to read the queue files; Claude fetches the git diff live and explains in plain English.
+Same pattern applies to `kb_export` and `kb_extract`. `kb_scaffold` also loads related KB files before returning the fill prompt, so the agent can check for overlapping entries and align new content with existing docs. The fill prompt includes an **overlap detection** step — if an existing KB file already covers the same topic, the agent warns before creating a duplicate. `kb_import` supports a **3-phase auto-classify mode**: (1) extract and return chunks in paginated batches for agent classification, (2) return an import plan with proposed files and cross-references, (3) write files on approval. `kb_drift` works differently — Phase 1 writes entries to queue files (no prompts returned). Review happens when PM or developer asks Claude to read the queue files; Claude fetches the git diff live and explains in plain English.
 
 ---
 
@@ -340,6 +341,9 @@ Each draft includes a file list, summary placeholder, and open questions. Review
 
 Standards govern *how to work on this project* — for both code files and KB files. They live in `knowledge/standards/` and are loaded contextually when relevant.
 
+**Auto-scaffold on init**: when `kb_init` detects a stack (React, Go, etc.), it creates `standards/global.md`, `standards/code/tech-stack.md`, and `standards/code/conventions.md` as template stubs for you to fill.
+
+**Scaffold manually:**
 ```
 "Create a component standard"
 → kb_scaffold({ type: "standard", id: "components", group: "code",
@@ -347,6 +351,28 @@ Standards govern *how to work on this project* — for both code files and KB fi
 → Agent fills the template: purpose, rules, why, examples, exceptions
 → kb_scaffold({ type: "standard", id: "components", group: "code", content: "<filled>" })
 ```
+
+**Derive from existing code** (best for existing projects):
+```
+"Derive a components standard from our source code"
+→ kb_extract({ source: "code", target_id: "components", target_group: "code" })
+→ Returns prompt with sampled code files — agent observes actual patterns and fills the template
+→ kb_extract({ source: "code", target_id: "components", target_group: "code", content: "<filled>" })
+```
+
+**Derive from existing KB files:**
+```
+"Derive a feature-writing standard from our existing feature docs"
+→ kb_extract({ source: "knowledge", target_id: "feature-writing",
+    target_group: "knowledge", paths: "features" })
+```
+
+**Multi-stack** (monorepos with different backend/frontend stacks):
+```
+kb_scaffold({ type: "standard", id: "go-conventions", group: "code", app_scope: "backend" })
+kb_scaffold({ type: "standard", id: "ts-conventions", group: "code", app_scope: "frontend" })
+```
+`kb_get({ app_scope: "frontend" })` loads only the frontend standard; `app_scope: "backend"` loads only the Go one.
 
 Standards are loaded via `kb_get` based on context — `task_context: "creating"` boosts `standards/knowledge/` files, `task_context: "fixing"` boosts `standards/code/` files. The special `global-rules` type (`standards/global.md`) is always loaded.
 

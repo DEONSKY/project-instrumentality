@@ -73,3 +73,8 @@ code_path_patterns:
       - "eslint.config.*"
       - ".prettierrc*"
 
+
+standards_scaffold:
+  - type: global-rules
+  - type: tech-stack
+  - type: conventions

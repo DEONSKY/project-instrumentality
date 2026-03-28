@@ -123,3 +123,8 @@ code_path_patterns:
       - ".golangci.yml"
       - ".golangci.yaml"
       - "Makefile"
+
+standards_scaffold:
+  - type: global-rules
+  - type: tech-stack
+  - type: conventions

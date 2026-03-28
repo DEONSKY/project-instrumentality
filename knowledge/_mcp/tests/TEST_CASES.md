@@ -64,6 +64,26 @@ kb_init({ interactive: false })
 
 Neither `capabilities/` nor `foundation/` should exist.
 
+### TC-1.9 Standards stubs auto-scaffolded on init (stack detected)
+
+```
+cd test-react-vite
+kb_init({ interactive: false })
+```
+
+**Pass:** Result contains `scaffolded_standards: ["standards/global.md", "standards/code/tech-stack.md", "standards/code/conventions.md"]`. All three files exist at their paths with template placeholder content (e.g. `{{owner}}`).
+
+Re-run `kb_init`: `scaffolded_standards` is absent (files already exist, skip silently).
+
+### TC-1.10 No standards stubs when no stack detected
+
+```
+mkdir test-empty && cd test-empty && git init
+kb_init({ interactive: false })
+```
+
+**Pass:** `scaffolded_standards` is absent from result (no stack detected = no preset = no scaffold loop).
+
 ### TC-1.6 Git hooks installed
 
 **Pass:** `.git/hooks/pre-commit`, `pre-push`, `post-merge`, `post-checkout` all exist, are executable (`755`), and contain `# kb-mcp managed`.
@@ -167,7 +187,18 @@ For each type: `feature`, `flow`, `schema`, `validation`, `integration`, `decisi
 kb_scaffold({ type: "standard", id: "code-review", group: "process" })
 ```
 
-**Pass:** `knowledge/standards/process/code-review.md` created with `id: code-review` in front-matter. Template includes sections: Purpose, Rules, Why, Examples, Exceptions.
+**Pass:** `knowledge/standards/process/code-review.md` created with `id: code-review` in front-matter. `app_scope: all` (default). Template includes sections: Purpose, Rules, Why, Examples, Exceptions.
+
+### TC-2.7b Scaffold standard with app_scope (multi-stack)
+
+```
+kb_scaffold({ type: "standard", id: "go-conventions", group: "code", app_scope: "backend" })
+kb_scaffold({ type: "standard", id: "ts-conventions", group: "code", app_scope: "frontend" })
+```
+
+**Pass:** `go-conventions.md` has `app_scope: backend` in front-matter. `ts-conventions.md` has `app_scope: frontend`. Both have the standard template sections.
+
+Follow-up: `kb_get({ keywords: ["conventions"], app_scope: "frontend" })` returns `ts-conventions.md` but not `go-conventions.md`.
 
 ### TC-2.8 Scaffold standard with description (two-phase)
 
@@ -1415,3 +1446,92 @@ Create `knowledge/features/empty.md` with zero bytes.
 Place a `.png` file at `knowledge/features/diagram.png`.
 
 **Pass:** `kb_lint` and `kb_reindex` skip non-`.md` files. No crash or error.
+
+---
+
+## 23. `kb_extract` — Derive standards from code or KB docs
+
+### TC-23.1 Phase 1 from code — returns prompt and sample files
+
+```
+cd test-react-vite   # project with src/ source files
+kb_extract({ source: "code", target_id: "components", target_group: "code" })
+```
+
+**Pass:** Returns `{ file_path, prompt, sample_files, sample_count, _instruction }`. `file_path` is `knowledge/standards/code/components.md`. `sample_files` is a non-empty array of relative source file paths (`.ts`, `.tsx`, `.js`, etc.). `prompt` contains the sampled file contents and the template structure. `sample_count` matches length of `sample_files`.
+
+No file written at this phase.
+
+### TC-23.2 Phase 1 spread-sample — files from multiple directories
+
+```
+cd test-react-vite
+kb_extract({ source: "code", target_id: "api", target_group: "code" })
+```
+
+**Pass:** `sample_files` contains paths from at least 2 different top-level directories (e.g. both `src/` and a config file). No single directory contributes more than 3 files (unless only 1 directory exists).
+
+### TC-23.3 Phase 1 with paths filter
+
+```
+kb_extract({ source: "code", target_id: "forms", target_group: "code",
+             paths: ["src/components/**"] })
+```
+
+**Pass:** All paths in `sample_files` match `src/components/**`. Files from other directories (e.g. `src/services/`) are excluded.
+
+### TC-23.4 Phase 2 — writes the filled content
+
+```
+kb_extract({ source: "code", target_id: "components", target_group: "code",
+             content: "---\nid: components\ntype: standard\nscope: code\napp_scope: all\ncreated: 2026-03-28\ntags: []\n---\n\n## Purpose\n\nTest standard.\n\n## Rules\n\n- Rule 1\n\n## Why\n\nBecause.\n\n## Examples\n\nSee code.\n\n## Exceptions\n\nNone.\n" })
+```
+
+**Pass:** `{ file_path: "knowledge/standards/code/components.md", written: true }`. File exists with the provided content. No lint errors (valid front-matter).
+
+### TC-23.5 Phase 1 from knowledge — returns prompt and sample KB files
+
+```
+kb_scaffold({ type: "feature", id: "user-auth", description: "user authentication" })
+# (fill and write to create a KB file first)
+kb_extract({ source: "knowledge", target_id: "feature-writing", target_group: "knowledge",
+             paths: "features" })
+```
+
+**Pass:** `sample_files` contains paths from `features/` folder. `prompt` includes the KB file content. `file_path` is `knowledge/standards/knowledge/feature-writing.md`.
+
+### TC-23.6 Phase 1 from knowledge — no folder filter (all KB)
+
+```
+kb_extract({ source: "knowledge", target_id: "kb-style", target_group: "knowledge" })
+```
+
+**Pass:** `sample_files` contains files from multiple KB subfolders (features, flows, etc.). Files from `_templates/`, `_prompt-overrides/`, `sync/`, `assets/`, `exports/` are excluded.
+
+### TC-23.7 Error — no source files found
+
+```
+mkdir test-empty-code && cd test-empty-code && git init
+kb_init({ interactive: false })
+kb_extract({ source: "code", target_id: "conventions", target_group: "code" })
+```
+
+**Pass:** Returns `{ error: "No source files found..." }` (helpful message, no crash).
+
+### TC-23.8 Error — missing required params
+
+```
+kb_extract({ source: "code" })
+```
+
+**Pass:** Returns `{ error: "target_id is required" }`.
+
+### TC-23.9 app_scope flows through to generated file
+
+```
+kb_extract({ source: "code", target_id: "go-style", target_group: "code",
+             app_scope: "backend",
+             content: "---\nid: go-style\ntype: standard\nscope: code\napp_scope: backend\ncreated: 2026-03-28\ntags: []\n---\n\n## Purpose\n\nGo style guide.\n\n## Rules\n\n- Rule 1\n\n## Why\n\nBecause.\n\n## Examples\n\nExample.\n\n## Exceptions\n\nNone.\n" })
+```
+
+**Pass:** File written to `knowledge/standards/code/go-style.md` with `app_scope: backend` in front-matter. `kb_get({ keywords: ["go"], app_scope: "frontend" })` does NOT return this file.

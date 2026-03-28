@@ -74,3 +74,8 @@ code_path_patterns:
       - "metro.config.*"
       - "app.json"
       - "app.config.*"
+
+standards_scaffold:
+  - type: global-rules
+  - type: tech-stack
+  - type: conventions

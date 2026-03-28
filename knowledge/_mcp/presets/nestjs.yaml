@@ -80,3 +80,8 @@ code_path_patterns:
       - ".prettierrc*"
 
       - "nest-cli.json"
+
+standards_scaffold:
+  - type: global-rules
+  - type: tech-stack
+  - type: conventions

@@ -111,3 +111,8 @@ code_path_patterns:
       - "src/main/resources/application.properties"
       - "checkstyle.xml"
       - ".editorconfig"
+
+standards_scaffold:
+  - type: global-rules
+  - type: tech-stack
+  - type: conventions
