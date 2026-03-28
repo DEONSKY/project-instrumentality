@@ -71,11 +71,14 @@ async function runTool({ since, dry_run = false } = {}) {
 
 async function findLastRulesChange(git, rulesPath) {
   try {
-    // Find the commit before the most recent change to _rules.md
-    const log = await git.log({ file: rulesPath, maxCount: 2 })
-    if (log.all && log.all.length >= 2) return log.all[1].hash
-    if (log.all && log.all.length === 1) return log.all[0].hash + '~1'
-  } catch { /* fall through */ }
+    // Check if _rules.md changed in the most recent commit
+    const headDiff = await git.diff(['HEAD~1', 'HEAD', '--', rulesPath])
+    if (!headDiff || !headDiff.trim()) {
+      // _rules.md didn't change in the last commit — return HEAD so diff is empty
+      return 'HEAD'
+    }
+    return 'HEAD~1'
+  } catch { /* fall through — e.g. only one commit in repo */ }
   return 'HEAD~1'
 }
 

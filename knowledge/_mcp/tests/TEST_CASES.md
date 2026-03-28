@@ -339,6 +339,22 @@ kb_get({ keywords: ["api"] })
 
 **Pass:** Matches files with "api" in path/id/tags (not discarded as too short).
 
+### TC-4.11 scope parameter filtering
+
+```
+kb_get({ scope: "features" })
+```
+
+**Pass:** Returns only files under `knowledge/features/` (plus `always_load` foundation files). No flow, validation, or integration files.
+
+### TC-4.12 task_type export mode
+
+```
+kb_get({ task_type: "export", scope: "all" })
+```
+
+**Pass:** Returns all KB files (export scope mode). Result includes files from all folders.
+
 ---
 
 ## 5. `kb_ask` — Question routing
@@ -704,6 +720,53 @@ kb_import({ files_to_write: [{ path: "knowledge/features/existing.md", content: 
 
 **Pass:** Skipped with reason `"already exists"`. Existing file untouched.
 
+### TC-11.5 Auto-classify Phase 1 — batch extraction
+
+Create `test-doc.md` with 3 heading sections (each > 50 chars of content).
+
+```
+kb_import({ source: "test-doc.md", auto_classify: true })
+```
+
+**Pass:** Returns `{ batch, cursor, total_chunks, has_more }`. Batch contains up to 5 chunks with `classify_prompts`. `cursor` indicates position for next call.
+
+### TC-11.6 Auto-classify Phase 2 — classification submission
+
+```
+kb_import({
+  source: "test-doc.md",
+  auto_classify: true,
+  cursor: 5,
+  classifications: [
+    { chunk_id: "chunk-1", types: [{ type: "feature", confidence: 0.9, suggested_id: "patient-registration" }] }
+  ]
+})
+```
+
+**Pass:** Returns next batch (or import plan if all chunks classified). Classifications stored in session.
+
+### TC-11.7 Auto-classify Phase 3 — approval
+
+```
+kb_import({ source: "test-doc.md", auto_classify: true, approve: true })
+```
+
+**Pass:** Writes all classified chunks as KB files. Returns `{ files_written, reindex_result }`.
+
+### TC-11.8 Auto-classify — dry run
+
+```
+kb_import({ source: "test-doc.md", auto_classify: true, approve: true, dry_run: true })
+```
+
+**Pass:** Returns plan without writing files. `dry_run: true` in response.
+
+### TC-11.9 Auto-classify — session timeout
+
+Create a session via `kb_import({ source: "test-doc.md", auto_classify: true })`, then submit a cursor after the session TTL (10 minutes) expires.
+
+**Pass:** Returns `{ error: "... session expired ..." }`. No crash.
+
 ---
 
 ## 12. `kb_export` — Export
@@ -735,6 +798,48 @@ kb_export({ scope: "all", format: "json", dry_run: true })
 ```
 
 **Pass:** Returns `{ output_path: null, dry_run: true }`. No file written.
+
+### TC-12.5 Export with type filter
+
+```
+kb_export({ scope: "all", format: "json", type: "flow" })
+```
+
+**Pass:** Only flow-type files included in export. `files_included` count matches number of flow files in KB.
+
+### TC-12.6 Export with purpose
+
+```
+kb_export({ scope: "all", format: "markdown", purpose: "Onboarding guide for new developers" })
+```
+
+**Pass:** Returns prompt containing the purpose text. Prompt instructs agent to tailor output as onboarding guide.
+
+### TC-12.7 Export with app_scope filter
+
+```
+kb_export({ scope: "all", format: "json", app_scope: "frontend" })
+```
+
+**Pass:** Only files with `app_scope: frontend` or `app_scope: all` included.
+
+### TC-12.8 Paginated export — large KB
+
+Create KB with total content exceeding 80,000 chars.
+
+```
+kb_export({ scope: "all", format: "markdown" })
+```
+
+**Pass:** Returns `{ page: 1, total_pages: N, has_more: true }`. Calling with `page: 2` returns next batch.
+
+### TC-12.9 Unsupported format error
+
+```
+kb_export({ scope: "all", format: "xml" })
+```
+
+**Pass:** Returns error about unsupported format. Lists valid formats.
 
 ---
 
@@ -872,6 +977,20 @@ Create suppress override for `ask-sync`.
 Create suppress override for `ask-brainstorm`.
 
 **Pass:** `resolvePrompt` returns `null`. When called via `kb_ask`, returns `{ suppressed: true, prompt_name: "ask-brainstorm", intent: "brainstorm", message: "Prompt \"ask-brainstorm\" is suppressed via override." }` — NOT an error.
+
+### TC-17.6 Section-replace override
+
+Create `knowledge/_prompt-overrides/ask-query.md`:
+```yaml
+---
+base: ask-query
+override: section-replace
+section: "## Instructions"
+---
+Custom instructions: always respond in bullet points.
+```
+
+**Pass:** `kb_ask` query returns prompt where the `## Instructions` section is replaced with custom content. Other sections from the base prompt are preserved.
 
 ---
 
@@ -1105,3 +1224,74 @@ kb_init({ interactive: false })
 ```
 
 **Pass:** Setup guide prints suggestion to add `backend/` prefixed patterns to code_path_patterns. Does NOT auto-modify `_rules.md`.
+
+---
+
+## 21. `kb_note_resolve` — Sync note resolution
+
+### TC-21.1 Resolve existing note
+
+1. Add a sync note to a file's `_index.yaml` entry (via `kb_drift` summary or manual edit).
+2. Call `kb_note_resolve({ file_path: "knowledge/features/auth.md", note_id: "note-1" })`.
+
+**Pass:** Returns `{ resolved: true }`. Note removed from `_index.yaml` entry. `sync_state` updated to `synced` if no remaining notes.
+
+### TC-21.2 Resolve non-existent note
+
+```
+kb_note_resolve({ file_path: "knowledge/features/auth.md", note_id: "nonexistent" })
+```
+
+**Pass:** Returns error indicating note not found.
+
+### TC-21.3 File not in index
+
+```
+kb_note_resolve({ file_path: "knowledge/features/missing.md", note_id: "note-1" })
+```
+
+**Pass:** Returns error indicating file not found in index.
+
+### TC-21.4 Missing parameters
+
+```
+kb_note_resolve({})
+```
+
+**Pass:** Returns error indicating `file_path` is required.
+
+### TC-21.5 Partial note resolution — remaining notes
+
+1. Add 2 sync notes to a file's index entry.
+2. Resolve one note.
+
+**Pass:** Returns `{ resolved: true, remaining_notes: 1 }`. `sync_state` NOT set to `synced` (still has pending notes).
+
+---
+
+## 22. Error handling edge cases
+
+### TC-22.1 Malformed YAML front-matter
+
+Create `knowledge/features/bad-yaml.md`:
+```
+---
+id: bad-yaml
+tags: [unclosed
+---
+Body content.
+```
+
+**Pass:** `kb_lint` reports a front-matter parse error. `kb_reindex` does not crash — file is skipped or error is logged gracefully.
+
+### TC-22.2 Empty KB file
+
+Create `knowledge/features/empty.md` with zero bytes.
+
+**Pass:** `kb_lint` reports missing front-matter fields. `kb_reindex` does not crash.
+
+### TC-22.3 Binary file in knowledge directory
+
+Place a `.png` file at `knowledge/features/diagram.png`.
+
+**Pass:** `kb_lint` and `kb_reindex` skip non-`.md` files. No crash or error.

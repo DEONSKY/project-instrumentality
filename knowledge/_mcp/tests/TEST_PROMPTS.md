@@ -935,3 +935,71 @@ git add client-sdk && git commit -m "update client-sdk"
 ```
 
 **Expected:** Warning printed about shared submodule pointer update, but push proceeds. client-sdk pushed to its own branch (main), not feature/auth.
+
+---
+
+## Part F — Coverage Gap Scenarios (run on any project with KB initialized)
+
+### F.0 Setup — multi-section test document
+
+```bash
+cat > /tmp/multi-section-doc.md << 'EOF'
+# User Management
+
+Users can register with email and password. Registration requires email verification.
+Password policy: minimum 8 characters, one uppercase letter, one number.
+Users can update their profile including display name, avatar, and notification preferences.
+
+# API Rate Limiting
+
+All API endpoints are rate-limited to 100 requests per minute per authenticated user.
+Unauthenticated endpoints are limited to 20 requests per minute per IP.
+Exceeding the limit returns HTTP 429 with a Retry-After header.
+Batch endpoints have a separate limit of 20 requests per minute.
+
+# Data Retention
+
+User data is retained for 7 years after account deletion per regulatory requirements.
+Anonymization of PII occurs 90 days after deletion request. Audit logs are immutable
+and retained indefinitely. Backup snapshots are purged on the same 90-day schedule.
+EOF
+```
+
+### F.1 Import auto-classify flow
+
+> **Prompt to agent:**
+> Import the document at /tmp/multi-section-doc.md using auto-classify mode.
+
+**Expected:** Agent calls `kb_import({ source: "/tmp/multi-section-doc.md", auto_classify: true })`. Returns 3 chunks in first batch. Agent classifies each (feature, integration/validation, validation/decision). Agent approves and files are written.
+
+### F.2 Export with type filter
+
+> **Prompt to agent:**
+> Export only the flow-type KB files as JSON.
+
+**Expected:** Agent calls `kb_export({ scope: "all", format: "json", type: "flow" })`. Only flow files appear in the export. File written to `knowledge/exports/`.
+
+### F.3 Section-replace prompt override
+
+```bash
+cat > knowledge/_prompt-overrides/ask-query.md << 'EOF'
+---
+base: ask-query
+override: section-replace
+section: "## Instructions"
+---
+Always respond in bullet points. Never use paragraphs. Keep each bullet under 20 words.
+EOF
+```
+
+> **Prompt to agent:**
+> What validation rules apply to the task title field?
+
+**Expected:** `kb_ask` uses section-replace override. The `## Instructions` section in the prompt is replaced with the custom bullet-point instructions. Other prompt sections are preserved.
+
+### F.4 Note resolution flow
+
+> **Prompt to agent:**
+> Check if there are any pending sync notes in the index, and resolve any that are outdated.
+
+**Expected:** Agent reads `_index.yaml` for files with sync notes. For each resolved note, calls `kb_note_resolve({ file_path, note_id })`. Index updated after each resolution.

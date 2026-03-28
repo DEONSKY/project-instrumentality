@@ -158,7 +158,10 @@ function lintFile(filePath, rules) {
   extractMentions(content).forEach(mention => {
     const mentionPath = mention.replace(/^@/, '').split('#')[0]
     const fullPath = path.join(KB_ROOT, mentionPath)
-    if (!fs.existsSync(fullPath)) {
+    const exists = fs.existsSync(fullPath) ||
+      fs.existsSync(fullPath + '.md') ||
+      (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory())
+    if (!exists) {
       violations.push({ file: filePath, severity: 'warn', message: `@mention not found: ${mentionPath}` })
     }
   })

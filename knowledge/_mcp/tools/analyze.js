@@ -18,13 +18,14 @@ const SKIP_SCAN = new Set([
  */
 async function runTool({ depth = 4, write_drafts = false } = {}) {
   const rules = loadRules(KB_ROOT)
-  const patterns = rules.getCodePathPatterns()
+  const raw = rules.getRaw()
 
-  if (!patterns || patterns.length === 0) {
+  if (!raw.code_path_patterns || raw.code_path_patterns.length === 0) {
     return {
       error: 'No code_path_patterns found in _rules.md. Run kb_init or copy patterns from knowledge/_mcp/presets/<stack>.yaml first.'
     }
   }
+  const patterns = raw.code_path_patterns
 
   // 1. Collect source files
   const sourceFiles = collectSourceFiles(process.cwd(), depth)
@@ -169,7 +170,7 @@ function buildInventory(grouped) {
   // Sort: create first, then review, then skip
   const actionOrder = { create: 0, review: 1, skip: 2 }
   inventory.sort((a, b) =>
-    (actionOrder[a.suggested_action] || 9) - (actionOrder[b.suggested_action] || 9) ||
+    (actionOrder[a.suggested_action] ?? 9) - (actionOrder[b.suggested_action] ?? 9) ||
     b.file_count - a.file_count
   )
 

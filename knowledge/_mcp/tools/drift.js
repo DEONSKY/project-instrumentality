@@ -139,9 +139,10 @@ async function detectDrift(since) {
         if (wasNew) kbEntriesWritten++
       }
     } else {
-      // code→kb: find ALL matching KB targets (many-to-many)
+      // code→kb: first-match-wins (patterns ordered by specificity in presets)
       const matches = matchAllPatterns(file, patterns)
-      for (const match of matches) {
+      if (matches.length > 0) {
+        const match = matches[0]
         const kbTarget = resolveKbTarget(match, file)
         const wasNew = upsertCodeDriftEntry(kbTarget, file, commit, date, isShared)
         if (wasNew) codeEntriesWritten++

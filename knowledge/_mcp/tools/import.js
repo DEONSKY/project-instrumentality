@@ -641,7 +641,7 @@ function chunkDocument(text) {
 
     const level = hashes.length
     const restored = restoreCodeBlocks(body)
-    if (restored.trim().length < 50) continue
+    if (restored.trim().length < 10) continue
 
     const lines = restored.trim().split('\n')
     const heading = lines[0].replace(/^#+\s*/, '').trim()
