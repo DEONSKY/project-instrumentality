@@ -299,8 +299,9 @@ async function runTool({ interactive = true, config = null } = {}) {
     if (preset && Array.isArray(preset.standards_scaffold)) {
       for (const entry of preset.standards_scaffold) {
         const filePath = resolveFilePath(entry.type, entry.id, entry.group)
-        const fullPath = path.join(KB_ROOT, filePath)
-        if (!fs.existsSync(fullPath)) {
+        if (!filePath) continue
+        // resolveFilePath already includes KB_ROOT prefix
+        if (!fs.existsSync(filePath)) {
           await scaffold({ type: entry.type, id: entry.id, group: entry.group })
           scaffoldedStandards.push(filePath)
         }
@@ -510,9 +511,13 @@ function loadPresetPatternBlock(stackName) {
   if (!fs.existsSync(presetPath)) return null
   try {
     const content = fs.readFileSync(presetPath, 'utf8')
-    // Extract everything from "code_path_patterns:" to end of file
+    // Extract only the code_path_patterns block, stop at next top-level key
     const idx = content.indexOf('code_path_patterns:')
-    return idx !== -1 ? content.slice(idx).trimEnd() : null
+    if (idx === -1) return null
+    const block = content.slice(idx)
+    // Stop at next top-level YAML key (non-indented word followed by colon)
+    const nextKey = block.match(/\n[a-z_]+:/)?. index
+    return nextKey ? block.slice(0, nextKey).trimEnd() : block.trimEnd()
   } catch { return null }
 }
 

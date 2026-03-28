@@ -92,8 +92,16 @@ function handleExportScope(graph, scope, appScopeFilter, alwaysLoadFiles, typeFi
     .map(fp => loadFile(fp))
     .filter(Boolean)
 
-  const all = [...alwaysLoadFiles, ...files.filter(f =>
-    !alwaysLoadFiles.some(a => a.path === f.path)
+  // When type filter is active, also filter always_load files by type
+  const filteredAlwaysLoad = typeFilter
+    ? alwaysLoadFiles.filter(f => {
+        const fileType = f.type || inferType(f.path)
+        return fileType === typeFilter
+      })
+    : alwaysLoadFiles
+
+  const all = [...filteredAlwaysLoad, ...files.filter(f =>
+    !filteredAlwaysLoad.some(a => a.path === f.path)
   )]
 
   return { files: all }

@@ -1572,13 +1572,13 @@ kb_issue_consult({ title: "some title" })
 
 **Pass:** Returns `{ error: "body is required" }`.
 
-### TC-24.5 No matching KB docs
+### TC-24.5 No matching KB docs (keyword search)
 
 ```
 kb_issue_consult({ title: "xyzzy frobnicator malfunction", body: "The xyzzy frobnicator stopped frobnicating." })
 ```
 
-**Pass:** Returns `{ related_docs: [], ... }` with prompt containing "(no related documents found in knowledge base)".
+**Pass:** Returns result with no keyword-matched docs. `related_docs` may include `always_load: true` files (e.g. `global-rules`) — this is by design. The prompt is generated and `_instruction` field is present.
 
 ---
 

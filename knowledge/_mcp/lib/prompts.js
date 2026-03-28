@@ -75,7 +75,9 @@ function resolvePrompt(promptName, context = {}) {
 
   if (type === 'section-replace') {
     if (!section) throw new Error(`section-replace requires a section: field`)
-    const merged = mergeSection(base.content, override.content, section)
+    // Strip leading "## " if user included it in section name
+    const sectionName = section.replace(/^##\s*/, '')
+    const merged = mergeSection(base.content, override.content, sectionName)
     return fillPlaceholders(merged, context)
   }
 
