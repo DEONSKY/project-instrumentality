@@ -119,6 +119,7 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | `kb_issue_triage` | Triage an issue against the KB. Phase 1: searches KB for related docs, returns a prompt to draft a triage report with root-cause hypothesis and suggested KB updates. Phase 2: writes the report to `sync/inbound/`. Supports `issue_id`, `source` (jira/github/linear), `labels`, `priority`, and `app_scope` |
 | `kb_issue_plan` | Generate work items from KB docs for a PM tool. Phase 1: gathers source docs by `scope`/`type`/`keywords`, returns a prompt to break them into stories/tasks with acceptance criteria. Phase 2: writes task breakdown YAML to `sync/outbound/`. Supports `target` (jira/github/linear) and `project_key` |
 | `kb_issue_consult` | Consult the KB before filing an issue. Searches for related docs and returns a prompt for the agent to advise the reporter with enriched context, suggested labels, and relevant standards. Single-phase — no write step |
+| `kb_sub` | Submodule coordination. `status`: shows parent + submodule branches, pointer changes, owned/shared types. `push`: pushes submodules first (correct order), then parent — supports `dry_run` to preview the plan. `merge_plan`: returns correct merge sequence for feature-to-main |
 
 ### Two-phase tools
 
@@ -569,16 +570,26 @@ The pre-push hook checks owned submodules whose pointer changed in the push. If 
 
 Shared submodules are not blocked — only a warning is printed when their pointer changes.
 
-### kb-feature.sh — push helper
+### kb_sub — submodule coordination
 
-`kb-feature.sh` ensures submodules are pushed before the parent in the correct order:
+`kb_sub` ensures submodules are pushed before the parent in the correct order:
 
-```bash
+```
 # Show status of all submodules
-./knowledge/_mcp/scripts/kb-feature.sh status
+kb_sub({ command: "status" })
+→ { parent: { branch: "feature/auth" }, submodules: [
+    { name: "backend", type: "owned", branch: "feature/auth", pointer_changed: true },
+    { name: "client-sdk", type: "shared", branch: "main", pointer_changed: false }
+  ] }
+
+# Preview what would be pushed (no side effects)
+kb_sub({ command: "push", dry_run: true })
 
 # Push submodules first, then parent
-./knowledge/_mcp/scripts/kb-feature.sh push
+kb_sub({ command: "push" })
+
+# Get correct merge sequence for merging feature branch to main
+kb_sub({ command: "merge_plan", target_branch: "main" })
 ```
 
 Push behavior:
@@ -586,6 +597,8 @@ Push behavior:
 - **Shared submodules** are pushed to their own current branch (`-u origin main`)
 - If any submodule push fails, the parent push is skipped
 - The parent is pushed last
+
+A standalone shell script (`knowledge/_mcp/scripts/kb-feature.sh`) is also available for CI pipelines and terminal use outside MCP.
 
 ### Merge order (feature branch back to main)
 

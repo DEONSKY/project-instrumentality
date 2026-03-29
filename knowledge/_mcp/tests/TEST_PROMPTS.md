@@ -875,10 +875,10 @@ git commit -m "add submodules: backend (owned), client-sdk (shared)"
 # Push parent to its bare remote so upstream tracking works
 git push -u origin main 2>/dev/null || git push -u origin master
 
-# ── 5. Copy kb-mcp into project ──────────────────────────────────────────────
-# Copy your kb-mcp installation into the project:
-# cp -r /path/to/project-instrumentality/knowledge/_mcp "$TEST_ROOT/project/knowledge/_mcp"
-# Then run kb_init via MCP to bootstrap hooks, rules, and folder structure.
+# ── 5. Configure MCP client ──────────────────────────────────────────────────
+# Point your MCP client at the project-instrumentality server.
+# Server cwd must be $TEST_ROOT/project (the test project).
+# Example: { "mcpServers": { "kb": { "command": "node", "args": ["/path/to/project-instrumentality/knowledge/_mcp/server.js"] } } }
 
 echo ""
 echo "=== Setup complete ==="
@@ -887,7 +887,7 @@ echo "  Bare remotes: $TEST_ROOT/remotes/{parent,backend,client-sdk}.git"
 echo ""
 echo "Next steps:"
 echo "  1. cd $TEST_ROOT/project"
-echo "  2. Copy kb-mcp tools into knowledge/_mcp/"
+echo "  2. Configure MCP client to point at project-instrumentality server"
 echo "  3. Run kb_init({ interactive: false }) via MCP"
 echo "  4. Add submodule code_path_patterns to _rules.md"
 echo "  5. Run tests E.1 through E.8"
@@ -905,7 +905,7 @@ echo "  5. Run tests E.1 through E.8"
 - `kb_init` detects submodules (backend, client-sdk)
 - Setup guide mentions that `backend/` and `client-sdk/` need prefixed code_path_patterns in `_rules.md`
 - Pre-push hook updated with submodule branch guard
-- kb-feature.sh script marked executable
+- `kb_sub` tool available for submodule push coordination
 
 ### E.2 Add submodule-prefixed patterns
 

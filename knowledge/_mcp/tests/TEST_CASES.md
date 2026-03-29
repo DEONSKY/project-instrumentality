@@ -107,13 +107,11 @@ kb_init({ interactive: false })
 ### TC-1.9 MCP context — no hang
 
 ```
-echo '{}' | node -e "
-  process.stdin.isTTY = false;
-  require('./knowledge/_mcp/tools/init').runTool({ interactive: true }).then(r => console.log(JSON.stringify(r)))
-"
+# Call via MCP from the test project:
+kb_init({ interactive: true })
 ```
 
-**Pass:** Completes within 5 seconds, uses default config, does not prompt for input.
+**Pass:** Completes within 5 seconds, uses default config, does not prompt for input. (MCP server runs non-interactively when stdin is not a TTY.)
 
 ### TC-1.10 Re-init updates code_path_patterns on stack change
 
@@ -933,10 +931,13 @@ Run `kb_migrate({})` without any `_rules.md` change.
 ### TC-14.1 Clean exit on no violations
 
 ```
-node knowledge/_mcp/scripts/lint-standalone.js
+# Triggered by the pre-commit hook (installed by kb_init).
+# The hook uses BUNDLED fallback path to lint-standalone.js in the MCP server.
+# To test manually: make a commit in the test project — hook runs automatically.
+git commit --allow-empty -m "test lint hook"
 ```
 
-**Pass:** Exit code 0, no output.
+**Pass:** Exit code 0, no lint warnings printed.
 
 ### TC-14.2 Warnings printed but no block
 
@@ -1260,12 +1261,11 @@ git commit -m "add submodules: backend (owned), client-sdk (shared)"
 # Push parent to its bare remote
 git push -u origin main 2>/dev/null || git push -u origin master
 
-# ── 5. Copy kb-mcp tools and templates into project ─────────────────────────
-# Replace <PI_ROOT> with path to your project-instrumentality checkout
-PI_ROOT="${PI_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
-mkdir -p knowledge
-cp -r "$PI_ROOT/knowledge/_mcp" knowledge/_mcp
-cp -r "$PI_ROOT/knowledge/_templates" knowledge/_templates
+# ── 5. Configure MCP client ──────────────────────────────────────────────────
+# Point your MCP client (Claude Code, Cursor, etc.) at the project-instrumentality server.
+# The server's cwd must be set to $TEST_ROOT/project (the test project).
+# Example for .cursor/mcp.json or .claude/mcp.json:
+#   { "mcpServers": { "kb": { "command": "node", "args": ["/absolute/path/to/project-instrumentality/knowledge/_mcp/server.js"] } } }
 
 echo ""
 echo "=== Setup complete ==="
@@ -1274,10 +1274,10 @@ echo "Remotes: $TEST_ROOT/remotes/{parent,backend,client-sdk}.git"
 echo ""
 echo "Next steps:"
 echo "  1. cd $TEST_ROOT/project"
-echo "  2. Point your MCP client at this directory"
+echo "  2. Configure MCP client to point at project-instrumentality server"
 echo "  3. Run kb_init({ interactive: false }) via MCP"
 echo "  4. Add submodule code_path_patterns to _rules.md (backend/src/**, client-sdk/src/**)"
-echo "  5. Run TC-20.1 through TC-20.12"
+echo "  5. Run TC-20.1 through TC-20.14"
 ```
 
 **Pass:** Script completes without error. Parent project has two submodules, all three repos have working bare remotes with `origin` configured. `git push` works from parent and both submodules.
