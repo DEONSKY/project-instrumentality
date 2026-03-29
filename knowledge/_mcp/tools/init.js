@@ -105,7 +105,8 @@ if [ -f .gitmodules ]; then
       if [ -n "$REMOTE_REF" ]; then
         REMOTE_SUB=$(git ls-tree "$REMOTE_REF" "$subpath" 2>/dev/null | awk '{print $3}')
       else
-        REMOTE_SUB=""
+        _BASE=$(git rev-parse "origin/main" 2>/dev/null || git rev-parse "origin/master" 2>/dev/null || echo "")
+        REMOTE_SUB=$(git ls-tree "$_BASE" "$subpath" 2>/dev/null | awk '{print $3}')
       fi
       if [ "$LOCAL_SUB" != "$REMOTE_SUB" ]; then
         SHARED_WARN="$SHARED_WARN\\n  $subpath"
@@ -118,7 +119,8 @@ if [ -f .gitmodules ]; then
     if [ -n "$REMOTE_REF" ]; then
       REMOTE_SUB=$(git ls-tree "$REMOTE_REF" "$subpath" 2>/dev/null | awk '{print $3}')
     else
-      REMOTE_SUB=""
+      _BASE=$(git rev-parse "origin/main" 2>/dev/null || git rev-parse "origin/master" 2>/dev/null || echo "")
+      REMOTE_SUB=$(git ls-tree "$_BASE" "$subpath" 2>/dev/null | awk '{print $3}')
     fi
     [ "$LOCAL_SUB" = "$REMOTE_SUB" ] && continue
 

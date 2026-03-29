@@ -1063,13 +1063,6 @@ EOF
 
 **Expected:** `kb_ask` uses section-replace override. The `## Instructions` section in the prompt is replaced with the custom bullet-point instructions. Other prompt sections are preserved.
 
-### F.4 Note resolution flow
-
-> **Prompt to agent:**
-> Check if there are any pending sync notes in the index, and resolve any that are outdated.
-
-**Expected:** Agent reads `_index.yaml` for files with sync notes. For each resolved note, calls `kb_note_resolve({ file_path, note_id })`. Index updated after each resolution.
-
 ---
 
 ## Part G — `kb_extract` — Standards from Code and KB (run on TaskFlow or any project with source files)
@@ -1367,53 +1360,3 @@ kb_init({ interactive: false })
 
 **Expected:** Setup guide suggests adding `backend/` prefixed patterns. Does NOT auto-modify `_rules.md`.
 
----
-
-## Part J — `kb_note_resolve` (TC-21.1–21.5)
-
-> Run on any project with KB initialized and at least one KB file in the index.
-
-### J.1 Setup — create a test file with sync notes
-
-> **Prompt to agent:**
-> Create a feature file called "auth" for user authentication.
-
-Then manually add notes to `_index.yaml`:
-
-```bash
-# After the feature file exists and index is built, edit _index.yaml to add notes.
-# Find the entry for features/auth.md and add:
-#   notes:
-#     - id: note-1
-#       text: "Review auth flow for edge cases"
-#     - id: note-2
-#       text: "Check token expiry handling"
-#   sync_state: pending
-```
-
-### J.2 Test note resolution (TC-21.1, TC-21.4, TC-21.5)
-
-> **Prompt to agent:**
-> Resolve sync note "note-1" for the auth feature file.
-
-**Expected (TC-21.1):** Agent calls `kb_note_resolve({ file_path: "knowledge/features/auth.md", note_id: "note-1" })`. Returns `{ resolved: true, remaining_notes: 1 }`. `sync_state` still `pending` (one note remains).
-
-**TC-21.5:** This is the same as above — partial resolution with 1 remaining note.
-
-> **Prompt to agent:**
-> Resolve sync note "note-2" for the auth feature file.
-
-**Expected:** Returns `{ resolved: true, remaining_notes: 0, sync_state: "synced" }`. All notes resolved.
-
-### J.3 Error cases (TC-21.2, TC-21.3, TC-21.4)
-
-```
-kb_note_resolve({})
-→ Error: "file_path is required" (TC-21.4)
-
-kb_note_resolve({ file_path: "knowledge/features/missing.md", note_id: "note-1" })
-→ Error: "File not found in index" (TC-21.3)
-
-kb_note_resolve({ file_path: "knowledge/features/auth.md", note_id: "nonexistent" })
-→ Error: "Note not found" (TC-21.2)
-```

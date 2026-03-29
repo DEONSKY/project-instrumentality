@@ -81,7 +81,7 @@ function handleExportScope(graph, scope, appScopeFilter, alwaysLoadFiles, typeFi
   // Apply type filter
   if (typeFilter) {
     for (const [fp, entry] of allEntries) {
-      const fileType = entry.type || inferType(fp)
+      const fileType = entry.type || inferType(path.join(KB_ROOT, fp))
       if (fileType !== typeFilter) {
         allEntries.delete(fp)
       }
@@ -95,7 +95,7 @@ function handleExportScope(graph, scope, appScopeFilter, alwaysLoadFiles, typeFi
   // When type filter is active, also filter always_load files by type
   const filteredAlwaysLoad = typeFilter
     ? alwaysLoadFiles.filter(f => {
-        const fileType = f.type || inferType(f.path)
+        const fileType = f.type || inferType(path.join(KB_ROOT, f.path))
         return fileType === typeFilter
       })
     : alwaysLoadFiles

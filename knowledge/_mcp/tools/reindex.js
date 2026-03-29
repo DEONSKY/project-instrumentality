@@ -56,10 +56,6 @@ async function runTool({ silent = false } = {}) {
         groups[groupKey] = { ...entry, file_count: 0, group_path: relative }
       }
 
-      // Preserve existing sync_state
-      const existing = (existingGraph.files || {})[relative]
-      if (existing && existing.sync_state) entry.sync_state = existing.sync_state
-
       // Determine group membership
       const parts = relative.split('/')
       if (parts.length >= 2) {

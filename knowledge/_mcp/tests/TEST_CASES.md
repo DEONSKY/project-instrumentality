@@ -1411,48 +1411,6 @@ kb_init({ interactive: false })
 
 ---
 
-## 21. `kb_note_resolve` — Sync note resolution
-
-### TC-21.1 Resolve existing note
-
-1. Add a sync note to a file's `_index.yaml` entry (via `kb_drift` summary or manual edit).
-2. Call `kb_note_resolve({ file_path: "knowledge/features/auth.md", note_id: "note-1" })`.
-
-**Pass:** Returns `{ resolved: true }`. Note removed from `_index.yaml` entry. `sync_state` updated to `synced` if no remaining notes.
-
-### TC-21.2 Resolve non-existent note
-
-```
-kb_note_resolve({ file_path: "knowledge/features/auth.md", note_id: "nonexistent" })
-```
-
-**Pass:** Returns error indicating note not found.
-
-### TC-21.3 File not in index
-
-```
-kb_note_resolve({ file_path: "knowledge/features/missing.md", note_id: "note-1" })
-```
-
-**Pass:** Returns error indicating file not found in index.
-
-### TC-21.4 Missing parameters
-
-```
-kb_note_resolve({})
-```
-
-**Pass:** Returns error indicating `file_path` is required.
-
-### TC-21.5 Partial note resolution — remaining notes
-
-1. Add 2 sync notes to a file's index entry.
-2. Resolve one note.
-
-**Pass:** Returns `{ resolved: true, remaining_notes: 1 }`. `sync_state` NOT set to `synced` (still has pending notes).
-
----
-
 ## 22. Error handling edge cases
 
 ### TC-22.1 Malformed YAML front-matter

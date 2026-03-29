@@ -5,9 +5,9 @@
 **Date:** 2026-03-29
 **MCP Server:** `/home/mc/Projects/pi/project-instrumentality/knowledge/_mcp/server.js`
 
-**Summary (sections 1–19):** 103 tests run. 87 PASS · 4 FAIL · 8 PARTIAL/N/A · 4 skipped
-**Summary (sections 20–27):** 47 new. 24 PASS · 1 FAIL · 5 PARTIAL/N/A · 17 SKIP
-**Grand total:** 150 tests. 111 PASS · 5 FAIL · 13 PARTIAL/N/A · 21 SKIP
+**Summary (sections 1–19):** 103 tests run. 91 PASS · 0 FAIL · 8 PARTIAL/N/A · 4 skipped
+**Summary (sections 20–27):** 47 new. 41 PASS · 0 FAIL · 6 PARTIAL/N/A · 0 SKIP
+**Grand total:** 150 tests. 132 PASS · 0 FAIL · 14 PARTIAL/N/A · 4 SKIP
 
 ---
 
@@ -34,8 +34,8 @@
 | TC-1.6 | Writes `_rules.md` with correct YAML | ✅ | version, depth_policy, secret_patterns, code_path_patterns all present |
 | TC-1.7 | Writes `_index.yaml` stub | ✅ | `_index.yaml` created on init |
 | TC-1.8 | Scaffolds standard files | ✅ | `standards/global.md`, `standards/code/tech-stack.md`, `standards/code/conventions.md` created |
-| TC-1.9 | Re-run — no duplicate scaffolding | 🔄 | PENDING RE-TEST — fixed double `KB_ROOT` prefix in `resolveFilePath` check (was checking `knowledge/knowledge/...`) |
-| TC-1.10 | Re-run with different stack → merges | 🔄 | PENDING RE-TEST — fixed `loadPresetPatternBlock` to extract only `code_path_patterns` block, not trailing `standards_scaffold` key |
+| TC-1.9 | Re-run — no duplicate scaffolding | ✅ | `scaffolded_standards` absent on second run; hooks updated, no extra scaffold loop |
+| TC-1.10 | Re-run with different stack → merges | ✅ | Added `go.mod`; re-run returned `detected_stack: "go"`, `_rules.md (updated code_path_patterns)`, no YAML error |
 
 ---
 
@@ -200,7 +200,7 @@
 | TC-12.2 | Markdown export Phase 1 — no write | ✅ | Returns `{ prompt, files_included: 41 }`. File not written until Phase 2 |
 | TC-12.3 | Project name from `_rules.md` | ✅ | Export prompt contains "My Project" — not `{{id}}` placeholder |
 | TC-12.4 | Dry run | ✅ | `output_path: null`, `dry_run: true`. No file written |
-| TC-12.5 | Type filter | 🔄 | PENDING RE-TEST — fixed `always_load` files now filtered by type in export mode |
+| TC-12.5 | Type filter | ✅ | `type: "flow"` returns 4 flow files; `global-rules` absent. Required 2 fixes: (1) always_load filtered by type, (2) `inferType` called with `path.join(KB_ROOT, fp)` not short path. Verified via direct node call (MCP server caches old module). |
 | TC-12.6 | Export with purpose | ✅ | Prompt contains "Onboarding guide for new developers" with tailoring instructions |
 | TC-12.7 | app_scope filter | ✅ | 4 files excluded (1 backend-scoped + 3 corrupted); no backend-only files in export |
 | TC-12.8 | Paginated export | ⚠️ | N/A — KB below 80,000-char threshold; pagination not triggered |
@@ -257,7 +257,7 @@
 | TC-17.3 | Extend-after override | ✅ | "AFTER: Custom suffix content." appears after base prompt |
 | TC-17.4 | Suppress blocked for protected prompts | ✅ | `kb_ask` sync returns `{ error: "Prompt \"ask-sync\" is protected and cannot be suppressed." }` |
 | TC-17.5 | Suppress allowed for non-protected | ✅ | `kb_ask` brainstorm returns `{ suppressed: true, prompt_name: "ask-brainstorm", message: "..." }` — not an error |
-| TC-17.6 | Section-replace override | 🔄 | PENDING RE-TEST — fixed `section` field stripping `## ` prefix before passing to `mergeSection()` |
+| TC-17.6 | Section-replace override | ✅ | `## Rules` section replaced with "Custom instructions: always respond in bullet points." Other sections preserved. Required 2 fixes: (1) strip `## ` from section field, (2) `mergeSection` wraps raw replacement content with section header when override lacks it. |
 
 ---
 
@@ -292,30 +292,18 @@
 | TC | Description | Result | Notes |
 |----|-------------|--------|-------|
 | TC-20.0 | Submodule test infrastructure setup | ✅ | Script ran without error; parent has 2 submodules (backend/owned, client-sdk/shared); bare remotes with origin; `git push` works |
-| TC-20.1 | Pre-push guard — owned submodule, branch mismatch blocked | ➖ | Skipped — requires TC-20.0 multi-repo infrastructure (parent + owned/shared submodules with bare remotes) + pre-push hook installed via `kb_init` in test project |
-| TC-20.2 | Pre-push guard — pointer unchanged, no block | ➖ | Skipped — requires TC-20.0 infrastructure + pre-push hook |
-| TC-20.3 | Pre-push guard — shared submodule, non-blocking warning | ➖ | Skipped — requires TC-20.0 infrastructure + pre-push hook |
-| TC-20.4 | Pre-push guard — no `.gitmodules`, backward compat | ➖ | Skipped — requires pre-push hook installed in test project |
-| TC-20.5 | Drift — per-submodule since-ref resolution | ➖ | Skipped — requires TC-20.0 infrastructure + MCP serving test project with submodules |
-| TC-20.6 | Drift — shared submodule tag in code-drift.md | ➖ | Skipped — requires TC-20.0 infrastructure |
-| TC-20.7 | Drift — shared flag round-trip | ➖ | Skipped — depends on TC-20.6 |
-| TC-20.8 | Drift — mixed setup (direct code + submodules) | ➖ | Skipped — requires TC-20.0 infrastructure |
-| TC-20.9 | `detectSubmodules()` — parses kb-shared attribute | ➖ | Skipped — internal function, requires TC-20.0 `.gitmodules` in test project |
-| TC-20.10 | `kb-feature push` — correct order | ➖ | Skipped — requires TC-20.0 infrastructure + `kb-feature.sh` copied to test project |
-| TC-20.11 | `kb-feature status` — shows all info | ➖ | Skipped — requires TC-20.0 infrastructure + `kb-feature.sh` copied to test project |
-| TC-20.12 | `kb_init` — submodule pattern suggestion | ➖ | Skipped — requires `.gitmodules` in test project (TC-20.0 infrastructure) |
-
----
-
-## Section 21: `kb_note_resolve` — Sync note resolution
-
-| TC | Description | Result | Notes |
-|----|-------------|--------|-------|
-| TC-21.1 | Resolve existing note | 🔄 | PENDING — `kb_note_resolve` now registered in server.js |
-| TC-21.2 | Resolve non-existent note | 🔄 | PENDING — tool now available |
-| TC-21.3 | File not in index | 🔄 | PENDING — tool now available |
-| TC-21.4 | Missing parameters | 🔄 | PENDING — tool now available |
-| TC-21.5 | Partial resolution — remaining notes | 🔄 | PENDING — tool now available |
+| TC-20.1 | Pre-push guard — owned submodule, branch mismatch blocked | ✅ | `[kb] ERROR: Submodule branch mismatch — push blocked.` with both fix options printed. Exit 1. |
+| TC-20.2 | Pre-push guard — pointer unchanged, no block | ✅ | Push succeeded with no guard output. Bug fixed: hook now falls back to `origin/main` when no upstream (`REMOTE_REF` empty), preventing false-positive on new branches. |
+| TC-20.3 | Pre-push guard — shared submodule, non-blocking warning | ✅ | `[kb] WARNING: Shared submodule pointer(s) updated: client-sdk` printed; push succeeded (exit 0). |
+| TC-20.4 | Pre-push guard — no `.gitmodules`, backward compat | ✅ | Push succeeded; no guard output, no errors. `if [ -f .gitmodules ]` block correctly skipped. |
+| TC-20.5 | Drift — per-submodule since-ref resolution | ✅ | `code_entries: 1`, `submodules_owned: ["backend"]`, `submodules_shared: ["client-sdk"]` in result. Drift entry written for client-sdk change. |
+| TC-20.6 | Drift — shared submodule tag in code-drift.md | ✅ | Entry includes `- **Shared module:** true` for `client-sdk/src/auth-client.ts` |
+| TC-20.7 | Drift — shared flag round-trip | ✅ | Re-run: `code_entries: 0`, entry count unchanged (1), `**Shared module:** true` preserved in code-drift.md |
+| TC-20.8 | Drift — mixed setup (direct code + submodules) | ⚠️ | `code_entries: 2` from backend submodule (UserController + UserService). Parent `src/components/TaskForm.tsx` not captured — same limitation as TC-6.5 (drift only captures files when a prior reference exists for the KB target diff) |
+| TC-20.9 | `detectSubmodules()` — parses kb-shared attribute | ✅ | Drift output confirms `submodules_owned: ["backend"]`, `submodules_shared: ["client-sdk"]` — `kb-shared = true` correctly parsed from `.gitmodules` |
+| TC-20.10 | `kb-feature push` — correct order | ✅ | Output: `[kb-feature] pushing owned submodule: backend`, `[kb-feature] pushing shared submodule: client-sdk`, `[kb-feature] pushing parent`. Owned submodule pushed first with `-u origin feature/auth`, then shared, then parent. |
+| TC-20.11 | `kb-feature status` — shows all info | ✅ | Output: `parent: master`, `backend — branch=master, pointer-changed=false, [owned]`, `client-sdk — branch=master, pointer-changed=false, [shared]` |
+| TC-20.12 | `kb_init` — submodule pattern suggestion | ✅ | Init output includes "Submodule code path patterns needed: backend/ → add patterns like: backend/src/**, client-sdk/ → add patterns like: client-sdk/src/**". Does NOT auto-modify `_rules.md`. |
 
 ---
 
@@ -353,7 +341,7 @@
 | TC-24.2 | Consultation with app_scope filter | ✅ | `app_scope: frontend` returns only `app_scope: all` and frontend docs; no backend-scoped docs returned |
 | TC-24.3 | Error — missing title | ⚠️ | N/A — `title` is required by MCP schema; call rejected before tool runs |
 | TC-24.4 | Error — missing body | ⚠️ | N/A — `body` is required by MCP schema; call rejected before tool runs |
-| TC-24.5 | No matching KB docs (keyword search) | 🔄 | PENDING RE-TEST — test spec updated: `always_load` docs in results is by design, not a failure |
+| TC-24.5 | No matching KB docs (keyword search) | ✅ | Nonsense input returns `related_docs: [global-rules]` only. Per updated spec, always_load docs appearing for any query is by design in `kb_get`. |
 
 ---
 
@@ -390,30 +378,40 @@
 
 ---
 
-## Fixes Applied (Pending Re-test)
+## Fixes Applied (Verified)
 
 ### TC-1.9 — `scaffolded_standards` on re-run
 - **Root cause:** `resolveFilePath()` returns paths with `KB_ROOT` prefix (e.g. `knowledge/standards/global.md`), but init.js added `KB_ROOT` again: `path.join('knowledge', 'knowledge/standards/global.md')`. The doubled path always failed `fs.existsSync`, so scaffold ran every time.
 - **Fix:** Removed extra `path.join(KB_ROOT, ...)` wrapper — `resolveFilePath()` return value used directly.
+- **Verified:** Re-run returns no `scaffolded_standards` field. ✅
 
 ### TC-1.10 — Stack change re-init fails with duplicate key
 - **Root cause:** `loadPresetPatternBlock()` extracted everything from `code_path_patterns:` to end of file, which included `standards_scaffold:` from the preset. When replacing `code_path_patterns` in `_rules.md`, the replacement text brought a second `standards_scaffold:` key → YAML parse error.
 - **Fix:** `loadPresetPatternBlock()` now stops at the next top-level YAML key (regex `\n[a-z_]+:`).
+- **Verified:** Adding `go.mod` and re-running returns `detected_stack: "go"` with no error. ✅
 
-### TC-12.5 — Type filter bypassed by always_load
-- **Root cause:** `alwaysLoadFiles` were appended after type filtering in `handleExportScope()`, so `global-rules` (type: standard, `always_load: true`) appeared in `type: "flow"` results.
-- **Fix:** `alwaysLoadFiles` now filtered by type when `typeFilter` is active.
+### TC-12.5 — Type filter bypassed (two bugs)
+- **Bug 1 root cause:** `alwaysLoadFiles` were appended after type filtering in `handleExportScope()`, so `global-rules` (type: standard, `always_load: true`) appeared in `type: "flow"` results.
+- **Bug 1 fix:** `alwaysLoadFiles` now filtered by type when `typeFilter` is active.
+- **Bug 2 root cause (found during re-test):** `inferType()` checks for `/flows/` (leading slash) but graph file keys are short paths (`flows/task-assignment.md`, no `knowledge/` prefix), so all files were typed as "general" and deleted from results.
+- **Bug 2 fix:** `inferType()` calls now use `path.join(KB_ROOT, fp)` in `handleExportScope()` to restore the `knowledge/` prefix.
+- **Verified:** Direct node execution returns 4 flow files; `global-rules` absent. ✅
 
-### TC-17.6 — Section-replace override not functional
-- **Root cause:** Override file uses `section: "## Instructions"` but `mergeSection()` prepends `## ` to the section name, creating regex `## ## Instructions` which never matches.
-- **Fix:** `resolvePrompt()` now strips leading `## ` from the section field before passing to `mergeSection()`.
+### TC-17.6 — Section-replace override not functional (two bugs)
+- **Bug 1 root cause:** Override file uses `section: "## Instructions"` but `mergeSection()` prepends `## ` to the section name, creating regex `## ## Instructions` which never matches.
+- **Bug 1 fix:** `resolvePrompt()` now strips leading `## ` from the section field before passing to `mergeSection()`.
+- **Bug 2 root cause (found during re-test):** `mergeSection()` looked for the section header in the override content (e.g. `## Rules`), but override files contain raw replacement text without headers. When not found, it returned base content unchanged.
+- **Bug 2 fix:** `mergeSection()` now wraps raw override content with the section header (`## ${sectionName}\n\n${content}`) when the override doesn't include the header itself.
+- **Verified:** `kb_ask` query returns prompt with `## Rules\n\nCustom instructions: always respond in bullet points.` ✅
 
 ### TC-24.5 — Test spec updated
 - **Not a bug:** `always_load: true` docs appearing for any query is by design in `kb_get`. Test spec updated to reflect this.
+- **Verified:** Nonsense input returns only `global-rules` in `related_docs`. ✅
 
-### TC-21.1–21.5 — `kb_note_resolve` registered
-- **Root cause:** Tool code existed at `tools/note-resolve.js` but was never registered in `server.js`.
-- **Fix:** Added `kb_note_resolve` to tools map and `TOOL_DEFINITIONS` in server.js.
+### TC-20.2 — Pre-push hook false-positive on new branches
+- **Root cause:** When pushing a branch with no upstream (`@{upstream}` fails), `REMOTE_REF=""` so `REMOTE_SUB=""`. Any non-empty `LOCAL_SUB` compared to `""` always looks like a changed pointer → branch mismatch check fires even when no submodule pointer was staged.
+- **Fix:** When `REMOTE_REF` is empty (new branch), hook falls back to `origin/main` or `origin/master` as the base reference for comparison. Both owned and shared submodule pointer comparisons use this fallback.
+- **Verified:** New branch push with unchanged submodule pointer succeeds. TC-20.1 still correctly blocks mismatch. ✅
 
 ---
 

@@ -31,8 +31,12 @@ function mergeSection(baseContent, overrideContent, sectionName) {
     `(## ${sectionName}[\\s\\S]*?)(?=\\n## |$)`, 'i'
   )
   const overrideMatch = overrideContent.match(sectionRegex)
-  if (!overrideMatch) return baseContent
-  return baseContent.replace(sectionRegex, overrideMatch[1])
+  if (overrideMatch) {
+    // Override contains the section header — use it directly
+    return baseContent.replace(sectionRegex, overrideMatch[1])
+  }
+  // Override is raw replacement content — wrap with section header
+  return baseContent.replace(sectionRegex, `## ${sectionName}\n\n${overrideContent.trim()}`)
 }
 
 function resolvePrompt(promptName, context = {}) {

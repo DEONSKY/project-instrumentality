@@ -88,7 +88,7 @@ function lintFile(filePath, rules, graph) {
 
   // No status fields allowed
   if (data.status !== undefined) {
-    violations.push({ file: filePath, line: 1, severity: 'warn', message: 'status field found in KB file — sync_state belongs in _index.yaml only' })
+    violations.push({ file: filePath, line: 1, severity: 'warn', message: 'status field found in KB file — use frontmatter fields id, type, app_scope, created; workflow state does not belong in KB files' })
   }
 
   // Depth check

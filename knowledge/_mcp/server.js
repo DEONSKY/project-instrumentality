@@ -19,8 +19,7 @@ const tools = {
   kb_extract: require('./tools/extract'),
   kb_issue_triage: require('./tools/issue-triage'),
   kb_issue_plan: require('./tools/issue-plan'),
-  kb_issue_consult: require('./tools/issue-consult'),
-  kb_note_resolve: require('./tools/note-resolve')
+  kb_issue_consult: require('./tools/issue-consult')
 }
 
 const TOOL_DEFINITIONS = [
@@ -238,18 +237,6 @@ const TOOL_DEFINITIONS = [
         title: { type: 'string', description: 'Proposed issue title' },
         body: { type: 'string', description: 'Proposed issue description' },
         app_scope: { type: 'string', description: 'Filter KB search to specific app scope' }
-      }
-    }
-  },
-  {
-    name: 'kb_note_resolve',
-    description: 'Resolve (remove) a sync note from a KB file index entry. When all notes are resolved, sync_state is set to "synced".',
-    inputSchema: {
-      type: 'object',
-      required: ['file_path', 'note_id'],
-      properties: {
-        file_path: { type: 'string', description: 'KB file path (e.g. knowledge/features/auth.md)' },
-        note_id: { type: 'string', description: 'ID of the note to resolve' }
       }
     }
   }
