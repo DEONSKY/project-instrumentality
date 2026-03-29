@@ -301,9 +301,11 @@
 | TC-20.7 | Drift — shared flag round-trip | ✅ | Re-run: `code_entries: 0`, entry count unchanged (1), `**Shared module:** true` preserved in code-drift.md |
 | TC-20.8 | Drift — mixed setup (direct code + submodules) | ⚠️ | `code_entries: 2` from backend submodule (UserController + UserService). Parent `src/components/TaskForm.tsx` not captured — same limitation as TC-6.5 (drift only captures files when a prior reference exists for the KB target diff) |
 | TC-20.9 | `detectSubmodules()` — parses kb-shared attribute | ✅ | Drift output confirms `submodules_owned: ["backend"]`, `submodules_shared: ["client-sdk"]` — `kb-shared = true` correctly parsed from `.gitmodules` |
-| TC-20.10 | `kb-feature push` — correct order | ✅ | Output: `[kb-feature] pushing owned submodule: backend`, `[kb-feature] pushing shared submodule: client-sdk`, `[kb-feature] pushing parent`. Owned submodule pushed first with `-u origin feature/auth`, then shared, then parent. |
-| TC-20.11 | `kb-feature status` — shows all info | ✅ | Output: `parent: master`, `backend — branch=master, pointer-changed=false, [owned]`, `client-sdk — branch=master, pointer-changed=false, [shared]` |
+| TC-20.10 | `kb_sub push` — correct order | 🔄 | Previously tested as `kb-feature.sh` script. Now `kb_sub` MCP tool — needs re-test. Expected: `all_success: true`, submodule pushed first, then parent. |
+| TC-20.11 | `kb_sub status` — shows all info | 🔄 | Previously tested as `kb-feature.sh` script. Now `kb_sub` MCP tool — needs re-test. Expected: JSON with parent.branch, submodules[] with type/pointer_changed. |
 | TC-20.12 | `kb_init` — submodule pattern suggestion | ✅ | Init output includes "Submodule code path patterns needed: backend/ → add patterns like: backend/src/**, client-sdk/ → add patterns like: client-sdk/src/**". Does NOT auto-modify `_rules.md`. |
+| TC-20.13 | `kb_sub push` dry_run — plan without executing | 🔄 | New test case. Expected: `dry_run: true`, `push_plan` array, no actual push. |
+| TC-20.14 | `kb_sub merge_plan` — correct merge sequence | 🔄 | New test case. Expected: ordered steps — owned submodules first, then parent. |
 
 ---
 

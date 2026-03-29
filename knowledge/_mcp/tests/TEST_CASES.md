@@ -1180,7 +1180,7 @@ estimateTokens("hello world") // 11 chars → ceil(11/4) = 3
 > **TC-20.1–20.4** test pre-push hook guards (require `kb_init` to install hooks).
 > **TC-20.5–20.8** test drift detection with submodules (require MCP serving the test project).
 > **TC-20.9** tests an internal function (call via `node -e` in the test project).
-> **TC-20.10–20.11** test `kb-feature.sh` script (copied during `kb_init`).
+> **TC-20.10–20.11, TC-20.13–20.14** test `kb_sub` MCP tool (submodule coordination).
 > **TC-20.12** tests init's submodule pattern suggestion.
 
 ### TC-20.0 Submodule test infrastructure setup
@@ -1381,23 +1381,23 @@ kb_drift({})
 
 **Pass:** Result includes `submodules_owned: ["backend"]` and `submodules_shared: ["client-sdk"]`, confirming `kb-shared = true` is parsed correctly.
 
-### TC-20.10 kb-feature push — correct order
+### TC-20.10 kb_sub push — correct order
 
 ```
 # Owned submodule has commits on feature/auth, no upstream set yet
 # git add backend/ && git commit in parent
-./knowledge/_mcp/scripts/kb-feature.sh push
+kb_sub({ command: "push" })
 ```
 
-**Pass:** Submodule pushed first with `-u origin feature/auth`, then parent. No branch mismatch error from hook.
+**Pass:** Result `all_success: true`. Results array shows submodule pushed first (order 1, type "owned", branch "feature/auth"), then parent (order 2, type "parent"). No branch mismatch error from hook.
 
-### TC-20.11 kb-feature status — shows all info
+### TC-20.11 kb_sub status — shows all info
 
 ```
-./knowledge/_mcp/scripts/kb-feature.sh status
+kb_sub({ command: "status" })
 ```
 
-**Pass:** Output shows parent branch, each submodule's branch, pointer-changed flag, owned/shared label.
+**Pass:** Returns JSON with `parent.branch`, `submodules[]` array. Each submodule entry has `name`, `path`, `branch`, `type` ("owned"/"shared"), `pointer_changed` (boolean).
 
 ### TC-20.12 kb_init — submodule pattern suggestion
 
@@ -1408,6 +1408,23 @@ kb_init({ interactive: false })
 ```
 
 **Pass:** Setup guide prints suggestion to add `backend/` prefixed patterns to code_path_patterns. Does NOT auto-modify `_rules.md`.
+
+### TC-20.13 kb_sub push dry_run — plan without executing
+
+```
+kb_sub({ command: "push", dry_run: true })
+```
+
+**Pass:** Returns `dry_run: true`, `push_plan` array with ordered entries (submodules first, parent last), and `skipped` array for unchanged submodules. No actual git push occurs — verify with `git reflog`.
+
+### TC-20.14 kb_sub merge_plan — correct merge sequence
+
+```
+# On feature/auth branch with owned submodule pointer changed
+kb_sub({ command: "merge_plan", target_branch: "main" })
+```
+
+**Pass:** Returns `steps` array with correct merge order: (1) merge owned submodule feature/auth → main, (2) push submodule, (3) submodule_update in parent, (4) merge parent feature/auth → main, (5) push parent. Shared submodules noted separately in `shared_note`.
 
 ---
 

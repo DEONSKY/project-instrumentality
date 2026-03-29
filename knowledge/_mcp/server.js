@@ -19,7 +19,8 @@ const tools = {
   kb_extract: require('./tools/extract'),
   kb_issue_triage: require('./tools/issue-triage'),
   kb_issue_plan: require('./tools/issue-plan'),
-  kb_issue_consult: require('./tools/issue-consult')
+  kb_issue_consult: require('./tools/issue-consult'),
+  kb_sub: require('./tools/sub')
 }
 
 const TOOL_DEFINITIONS = [
@@ -237,6 +238,19 @@ const TOOL_DEFINITIONS = [
         title: { type: 'string', description: 'Proposed issue title' },
         body: { type: 'string', description: 'Proposed issue description' },
         app_scope: { type: 'string', description: 'Filter KB search to specific app scope' }
+      }
+    }
+  },
+  {
+    name: 'kb_sub',
+    description: 'Submodule coordination. status: shows parent + submodule branches, pointer changes, owned/shared types. push: pushes submodules first (correct order), then parent. merge_plan: returns correct merge sequence for feature-to-main.',
+    inputSchema: {
+      type: 'object',
+      required: ['command'],
+      properties: {
+        command: { type: 'string', enum: ['status', 'push', 'merge_plan'], description: 'Command to run' },
+        dry_run: { type: 'boolean', description: 'For push: show plan without executing', default: false },
+        target_branch: { type: 'string', description: 'For merge_plan: target branch name', default: 'main' }
       }
     }
   }

@@ -692,7 +692,8 @@ ${submoduleGaps.map(s => `     - ${s}/  →  add patterns like: ${s}/src/**`).jo
    Without prefixed patterns, drift detection won't match files inside these submodules.
    Edit knowledge/_rules.md → code_path_patterns to add them.
 
-   Push helper: ./knowledge/_mcp/scripts/kb-feature.sh push
+   Push helper: use kb_sub tool (command: "push")
+   Standalone: ./knowledge/_mcp/scripts/kb-feature.sh push
    (Pushes submodules first with -u, then parent — correct order for drift)
 `
   }

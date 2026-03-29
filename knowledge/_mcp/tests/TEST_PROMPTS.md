@@ -953,17 +953,16 @@ git add client-sdk && git commit -m "update client-sdk pointer"
 
 **Expected:** Drift entry includes `- **Shared module:** true` line, signaling PM that this change may affect other projects.
 
-### E.5 Test kb-feature status
+### E.5 Test kb_sub status
 
-```bash
-./knowledge/_mcp/scripts/kb-feature.sh status
+```
+kb_sub({ command: "status" })
 ```
 
-**Expected:** Output shows:
-- Parent branch
-- `backend` with `[owned]` label
-- `client-sdk` with `[shared]` label
-- Pointer-changed status for each
+**Expected:** Returns JSON with:
+- `parent.branch` — current branch name
+- `submodules[]` array with `backend` (type: "owned") and `client-sdk` (type: "shared")
+- Each entry has `branch`, `pointer_changed`, `type`
 
 ### E.6 Test branch guard (owned submodule mismatch)
 
@@ -978,15 +977,18 @@ git push origin feature/auth
 
 **Expected:** Push blocked with `[kb] ERROR: Submodule branch mismatch`. Error shows backend is on 'main', expected 'feature/auth'. Provides two fix options.
 
-### E.7 Fix mismatch and push with kb-feature
+### E.7 Fix mismatch and push with kb_sub
 
 ```bash
 cd backend && git checkout -b feature/auth && cd ..
 git add backend && git commit -m "fix backend branch"
-./knowledge/_mcp/scripts/kb-feature.sh push
 ```
 
-**Expected:** kb-feature pushes backend first with `-u origin feature/auth`, then pushes parent. No errors.
+```
+kb_sub({ command: "push" })
+```
+
+**Expected:** `all_success: true`. Results show backend pushed first (order 1, type "owned"), then parent (order 2). No errors.
 
 ### E.8 Test shared submodule warning (non-blocking)
 
@@ -997,10 +999,13 @@ echo 'export function logout() {}' >> src/auth-client.ts
 git add -A && git commit -m "add logout"
 cd ..
 git add client-sdk && git commit -m "update client-sdk"
-./knowledge/_mcp/scripts/kb-feature.sh push
 ```
 
-**Expected:** Warning printed about shared submodule pointer update, but push proceeds. client-sdk pushed to its own branch (main), not feature/auth.
+```
+kb_sub({ command: "push" })
+```
+
+**Expected:** `all_success: true`. Results show client-sdk pushed to its own branch (main), not feature/auth. Type is "shared".
 
 ---
 
@@ -1337,21 +1342,39 @@ kb_drift({})
 
 **Expected:** Result includes `submodules_owned: ["backend"]` and `submodules_shared: ["client-sdk"]`, confirming `kb-shared = true` attribute in `.gitmodules` is parsed correctly.
 
-### I.4 kb-feature script (TC-20.10–20.11)
+### I.4 kb_sub tool (TC-20.10–20.11)
 
-```bash
+```
 # TC-20.11: Status
-./knowledge/_mcp/scripts/kb-feature.sh status
-# Expected: Shows parent branch, each submodule's branch, pointer-changed flag, owned/shared label
+kb_sub({ command: "status" })
+# Expected: JSON with parent.branch, submodules[] with name/path/branch/type/pointer_changed
 
 # TC-20.10: Push (fix mismatch first)
-cd backend && git checkout -b feature/auth && cd ..
-git add backend && git commit -m "fix backend branch"
-./knowledge/_mcp/scripts/kb-feature.sh push
-# Expected: Submodule pushed first with -u origin feature/auth, then parent. No errors.
 ```
 
-### I.5 Init submodule pattern suggestion (TC-20.12)
+```bash
+cd backend && git checkout -b feature/auth && cd ..
+git add backend && git commit -m "fix backend branch"
+```
+
+```
+kb_sub({ command: "push" })
+# Expected: all_success: true, submodule pushed first, then parent
+```
+
+### I.5 kb_sub dry_run and merge_plan (TC-20.13–20.14)
+
+```
+# TC-20.13: Dry run push
+kb_sub({ command: "push", dry_run: true })
+# Expected: dry_run: true, push_plan array (submodules first, parent last), no actual push
+
+# TC-20.14: Merge plan
+kb_sub({ command: "merge_plan", target_branch: "main" })
+# Expected: Ordered steps — merge owned submodules first, push, submodule_update, merge parent, push parent
+```
+
+### I.6 Init submodule pattern suggestion (TC-20.12)
 
 ```bash
 # Remove backend/ patterns from _rules.md, then re-init
