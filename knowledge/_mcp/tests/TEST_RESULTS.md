@@ -1,13 +1,16 @@
 # KB-MCP Test Results
 
-**Project:** kb-test-project-7
+**Project:** kb-test-project9
 **Stack:** react-vite
-**Date:** 2026-03-29
+**Date:** 2026-03-30
 **MCP Server:** `/home/mc/Projects/pi/project-instrumentality/knowledge/_mcp/server.js`
 
-**Summary (sections 1–19):** 103 tests run. 91 PASS · 0 FAIL · 8 PARTIAL/N/A · 4 skipped
-**Summary (sections 20–27):** 47 new. 41 PASS · 0 FAIL · 6 PARTIAL/N/A · 0 SKIP
-**Grand total:** 150 tests. 132 PASS · 0 FAIL · 14 PARTIAL/N/A · 4 SKIP
+**Note:** TC numbers now match TEST_CASES.md throughout. Rows marked `—` are supplemental tests with no assigned TC number in TEST_CASES.md. Rows marked ➖ are skipped (require infrastructure not available).
+
+**Summary (sections 1–19):** 103 TC rows. 87 PASS · 0 FAIL · 8 PARTIAL/N/A · 8 skipped (TC-1.2–1.4, TC-6.2–6.3, TC-15.1–15.2)
+**Summary (sections 20–27):** 47 rows. 46 PASS · 0 FAIL · 1 PARTIAL/N/A · 0 SKIP
+**Supplemental (—) rows:** 20 extra tests, all PASS, no TC number assigned
+**Grand total rows:** ~170. ~155 PASS (TC rows) · 0 FAIL · 9 PARTIAL/N/A · 8 SKIP
 
 ---
 
@@ -36,6 +39,10 @@
 | TC-1.8 | Scaffolds standard files | ✅ | `standards/global.md`, `standards/code/tech-stack.md`, `standards/code/conventions.md` created |
 | TC-1.9 | Re-run — no duplicate scaffolding | ✅ | `scaffolded_standards` absent on second run; hooks updated, no extra scaffold loop |
 | TC-1.10 | Re-run with different stack → merges | ✅ | Added `go.mod`; re-run returned `detected_stack: "go"`, `_rules.md (updated code_path_patterns)`, no YAML error |
+| TC-1.11 | Git hooks installed | ✅ | `.git/hooks/pre-commit`, `pre-push`, `post-merge`, `post-checkout` exist, executable (`755`), contain `# kb-mcp managed` |
+| TC-1.12 | Re-run updates managed hooks, preserves user hooks | ✅ | `pre-push` with `# custom line` → overwritten on re-init (`pre-push (updated)` in response). `pre-commit` without `# kb-mcp managed` → untouched |
+| TC-1.13 | Merge drivers installed | ✅ | `.git/config` contains `[merge "kb-reindex"]` and `[merge "kb-conflict"]` |
+| TC-1.14 | `.gitattributes` written | ✅ | `knowledge/_index.yaml merge=kb-reindex` and `knowledge/features/** merge=kb-conflict` present |
 
 ---
 
@@ -43,15 +50,18 @@
 
 | TC | Description | Result | Notes |
 |----|-------------|--------|-------|
-| TC-2.1 | Empty KB → graceful empty result | ✅ | Returns `{ files: [], tokens_used: 0 }` |
-| TC-2.2 | Keyword match — returns relevant files | ✅ | `features/login.md` returned for "login" keyword |
-| TC-2.3 | Token budget respected | ✅ | `max_tokens: 500` returns fewer files than full KB |
-| TC-2.4 | `always_load: true` files always included | ✅ | `standards/global.md` always present regardless of keywords |
-| TC-2.5 | task_context=creating boosts same-type files | ✅ | Creating + feature keywords → feature files boosted |
-| TC-2.6 | task_context=reviewing loads drift targets | ✅ | Reviewing includes files from `sync/code-drift.md` targets |
-| TC-2.7a | task_context=fixing boosts standards/code/ files | ✅ | `standards/code/components.md` (id: component-standard) returned for fixing context |
-| TC-2.7b | app_scope filtering — backend excluded from frontend | ✅ | `go-conventions.md` (app_scope: backend) excluded when `app_scope: frontend` |
-| TC-2.8 | Respects `token_budget` from `_rules.md` | ✅ | Default 8000 token budget applied |
+| TC-4.1 | Keyword match — returns relevant files | ✅ | `features/login.md` returned for "login" keyword |
+| TC-4.2 | `always_load: true` files always included | ✅ | `standards/global.md` always present regardless of keywords |
+| TC-4.3 | Token budget respected | ✅ | `max_tokens: 500` returns fewer files than full KB; default 8000 token budget from `_rules.md` applied |
+| TC-4.4 | `max_tokens` param overrides `_rules.md` | ✅ | `max_tokens: 500` → only `global-rules` returned (largest file exceeds budget) |
+| TC-4.5 | app_scope filtering — backend excluded from frontend | ✅ | `go-conventions.md` (app_scope: backend) excluded when `app_scope: frontend` |
+| TC-4.6 | task_context=creating boosts same-type files | ✅ | Creating + feature keywords → feature files boosted |
+| TC-4.7 | task_context=reviewing includes drift targets | ✅ | `validation/common.md` (drift target from push) appears even without keyword match |
+| TC-4.9 | Standard files loaded by keyword | ✅ | `standards/process/code-review.md` returned for keyword "code-review" |
+| TC-4.11 | scope parameter filtering | ✅ | `scope: "features"` → only features/* plus always_load; no flows, validation, or integrations |
+| TC-4.12 | task_type export mode | ✅ | `task_type: "export", scope: "all"` returns all 55+ KB files including all types |
+| TC-4.13 | task_context=creating boosts standards/knowledge/ | ✅ | `standards/knowledge/feature.md` (feature-standard) boosted and appears in results for "feature" keyword |
+| TC-4.14 | task_context=fixing boosts standards/code/ files | ✅ | `standards/code/components.md` (id: component-standard) returned for fixing context |
 
 ---
 
@@ -60,9 +70,13 @@
 | TC | Description | Result | Notes |
 |----|-------------|--------|-------|
 | TC-3.1 | Writes file and triggers reindex | ✅ | `written: true`, `reindex_result` with `files_indexed` present |
-| TC-3.2 | Front-matter required fields validated | ✅ | Missing `id` → lint error in reindex_result |
-| TC-3.3 | Secret patterns blocked | ✅ | `sk_live_` triggers lint error: "Secret pattern detected" |
-| TC-3.4 | Depth limit enforced | ✅ | `features/a/b/c/d/deep.md` (depth 5) → "Depth 5 exceeds max 3" lint error |
+| TC-3.2 | Path traversal blocked | ✅ | `../../etc/passwd` → "file_path must be inside the knowledge/ directory". Verified via same underlying check as TC-3.3 |
+| TC-3.3 | Path traversal — sneaky relative blocked | ✅ | `knowledge/../../../tmp/evil.txt` → "file_path must be inside the knowledge/ directory" |
+| TC-3.4 | Tier 1 blocked — `_index.yaml` | ✅ | Returns "_index.yaml is auto-generated by kb_reindex. Let reindex run automatically." |
+| TC-3.5 | Tier 1 blocked — drift queue | ✅ | `knowledge/sync/code-drift.md` → "Drift queue files are managed by kb_drift." |
+| — | Front-matter required fields validated | ✅ | Missing `id` → lint error in reindex_result |
+| — | Secret patterns blocked | ✅ | `sk_live_` triggers lint error: "Secret pattern detected" (see also TC-7.2 in Section 7) |
+| — | Depth limit enforced | ✅ | `features/a/b/c/d/deep.md` (depth 5) → "Depth 5 exceeds max 3" lint error (see also TC-7.6 in Section 7) |
 
 ---
 
@@ -70,20 +84,20 @@
 
 | TC | Description | Result | Notes |
 |----|-------------|--------|-------|
-| TC-4.1 | Query intent detected | ✅ | `intent: "query"` for factual questions |
-| TC-4.2 | Sync intent detected | ✅ | `intent: "sync"` for "sync [feature]" questions |
-| TC-4.3 | Brainstorm intent detected | ✅ | `intent: "brainstorm"` for "brainstorm" questions |
-| TC-4.4 | Onboard intent detected | ✅ | `intent: "onboard"` for onboarding-style questions |
-| TC-4.5 | Challenge intent detected | ✅ | `intent: "challenge"` for challenge questions |
-| TC-4.6 | Generate intent detected | ✅ | `intent: "generate"` for generate questions |
-| TC-4.7 | Prompt returned with KB context embedded | ✅ | Prompt includes `<!-- knowledge/... -->` context blocks |
-| TC-4.8 | Sync note resolution | ✅ | `kb_ask("sync login note-1")` returns resolution prompt |
-| TC-4.9 | context_files returned | ✅ | `context_files` array present in all responses |
-| TC-4.10 | Always-load files in context | ✅ | `standards/global.md` present in every context_files |
-| TC-4.11 | Query prompt references question text | ✅ | Question text embedded in prompt placeholders |
-| TC-4.12 | Sync prompt includes drift queue | ✅ | Sync prompt includes entries from `sync/code-drift.md` |
-| TC-4.13 | Token budget respected | ✅ | Context files fit within token budget |
-| TC-4.14 | task_context=fixing boosts standards/code/ | ✅ | `standards/code/components.md` (id: component-standard) loaded for fixing context |
+| TC-5.1 | Query intent detected | ✅ | `intent: "query"` for factual questions |
+| TC-5.2 | Sync intent detected | ✅ | `intent: "sync"` for "sync [feature]" questions |
+| TC-5.3 | Generate intent detected | ✅ | `intent: "generate"` for generate questions |
+| TC-5.4 | Brainstorm intent detected | ✅ | `intent: "brainstorm"` for "brainstorm" questions |
+| TC-5.5 | Challenge intent detected | ✅ | `intent: "challenge"` for challenge questions |
+| TC-5.6 | Onboard intent detected | ✅ | `intent: "onboard"` for onboarding-style questions |
+| TC-5.7 | Hyphenated keywords preserved | ✅ | `kb_ask({ question: "what is user-authentication?" })` → context includes files matching `user-authentication`; hyphen not stripped from keyword |
+| — | Prompt returned with KB context embedded | ✅ | Prompt includes `<!-- knowledge/... -->` context blocks |
+| — | Sync note resolution | ✅ | `kb_ask("sync login note-1")` returns resolution prompt |
+| — | context_files returned | ✅ | `context_files` array present in all responses |
+| — | Always-load files in context | ✅ | `standards/global.md` present in every context_files |
+| — | Query prompt references question text | ✅ | Question text embedded in prompt placeholders |
+| — | Sync prompt includes drift queue | ✅ | Sync prompt includes entries from `sync/code-drift.md` |
+| — | Token budget respected | ✅ | Context files fit within token budget |
 
 ---
 
@@ -91,14 +105,16 @@
 
 | TC | Description | Result | Notes |
 |----|-------------|--------|-------|
-| TC-5.1 | Feature template returned | ✅ | Returns `template` with `{{placeholders}}` |
-| TC-5.2 | Flow template returned | ✅ | Returns flow-specific template |
-| TC-5.3 | Schema template returned | ✅ | Returns schema template |
-| TC-5.4 | Decision template returned | ✅ | Returns decision template |
-| TC-5.5 | Standard template returned | ✅ | Returns standard template |
-| TC-5.6 | With description → returns fill prompt | ✅ | `description` param triggers fill prompt with `_instruction` to call `kb_scaffold(content)` |
-| TC-5.7 | With content → writes file | ✅ | `content` param writes file immediately; `written: true` |
-| TC-5.8 | `file_path` in response | ✅ | `file_path` always present in response |
+| TC-2.1 | Feature template returned (no description) | ✅ | Returns `template` with `{{placeholders}}` |
+| TC-2.2 | With description → returns fill prompt | ✅ | `description` param triggers fill prompt with `_instruction` to call `kb_scaffold(content)` |
+| TC-2.3 | With content → writes file | ✅ | `content` param writes file immediately; `written: true` |
+| TC-2.4 | Scaffold with group — auto-creates `_group.md` | ✅ | `kb_scaffold({ type: "feature", id: "order-fulfillment", group: "fulfillment" })` → `knowledge/features/fulfillment/order-fulfillment.md` written; `knowledge/features/fulfillment/_group.md` auto-created |
+| TC-2.5 | Scaffold depth violation | ✅ | `group: "a/b/c/d"` → `{ error: "Depth violation..." }` with suggestion to flatten group path |
+| TC-2.6 | All template types | ✅ | Flow, schema, decision template types all return correct type-specific templates |
+| TC-2.7 | Standard template returned | ✅ | Returns standard template; app_scope flows through to generated file |
+| TC-2.9 | Scaffold overlap detection — existing file warning | ✅ | `id: "authentication"` with existing `user-auth.md` → returned fill prompt includes overlap detection section referencing `user-auth.md` |
+| TC-2.10 | Scaffold fill prompt — placeholder correctness | ✅ | All placeholders filled: `{{template_type}}` → `feature`, `{{template_content}}` → actual template, `{{kb_context}}` → KB content, `{{description}}` → "Test feature" |
+| — | `file_path` in response | ✅ | `file_path` always present in response |
 
 **Note (TC-2.8):** `kb_scaffold` with `description` returns a fill prompt but does NOT write the file to disk. File must be written by calling `kb_scaffold` again with `content`.
 
@@ -108,16 +124,16 @@
 
 | TC | Description | Result | Notes |
 |----|-------------|--------|-------|
-| TC-6.1 | Code→KB drift detected after code change | ✅ | `LoginForm.tsx` modification after commit detected as drift against `features/login.md` |
-| TC-6.2 | KB→code drift detected | ✅ | `features/login.md` spec change detected as KB→code drift |
-| TC-6.3 | No drift on clean repo | ✅ | Clean state returns empty drift entries |
-| TC-6.4 | Drift entry written to `sync/code-drift.md` | ✅ | `## features/login.md` entry with file, since, commit written |
+| TC-6.1 | Code→KB drift detected | ✅ | `LoginForm.tsx` modification after commit detected as drift against `features/login.md`. Entry written to `sync/code-drift.md` with file, since, commit |
+| TC-6.2 | Code→KB drift (Go) | ➖ | Requires separate Go project |
+| TC-6.3 | Code→KB drift (Spring Boot) | ➖ | Requires separate Spring Boot project |
+| TC-6.4 | KB→code drift detected | ✅ | `features/login.md` spec change detected as KB→code drift |
 | TC-6.5 | Multi-commit drift | ⚠️ | Partial: only `validation/common.md` detected. `features/task.md` and `flows/task-service.md` not detected — drift only reports code files with existing KB targets |
-| TC-6.6 | Drift deduplicated | ✅ | Re-running drift does not add duplicate entries |
-| TC-6.7 | `sync/drift-log/` monthly file | ✅ | `sync/drift-log/2026-03.md` written with resolved entries |
-| TC-6.8 | Code-reverted resolution | ✅ | `kb_ask("sync validation code-reverted")` → resolved entry in drift-log |
-| TC-6.9 | KB-updated resolution | ✅ | `kb_ask("sync login kb-updated")` → resolved entry in drift-log |
-| TC-6.10 | Confirmed resolution | ✅ | `kb_ask("sync login confirmed")` → resolved entry in drift-log |
+| TC-6.6 | No drift on clean repo (no crash) | ✅ | Clean state returns empty drift entries without error |
+| TC-6.7 | Resolve — KB updated | ✅ | `kb_ask("sync login kb-updated")` → entry removed from code-drift.md; `sync/drift-log/2026-03.md` written with resolved entries |
+| TC-6.8 | Resolve — code reverted | ✅ | `kb_ask("sync validation code-reverted")` → resolved entry in drift-log |
+| TC-6.9 | Resolve — KB confirmed | ✅ | `kb_ask("sync login confirmed")` → resolved entry in drift-log |
+| TC-6.10 | Upsert — no duplicate entries | ✅ | Re-running drift does not add duplicate entries |
 
 ---
 
@@ -125,21 +141,19 @@
 
 | TC | Description | Result | Notes |
 |----|-------------|--------|-------|
-| TC-7.1 | Missing front-matter `id` → ERROR | ✅ | "Missing required front-matter field: id" |
-| TC-7.2 | Missing `app_scope` → ERROR | ✅ | "Missing required front-matter field: app_scope" |
-| TC-7.3 | Missing `created` → ERROR | ✅ | "Missing required front-matter field: created" |
-| TC-7.4 | Secret `sk_live_` detected → ERROR | ✅ | "Secret pattern detected: \"sk_live_\"" |
-| TC-7.5 | Secret `api_key:` detected (case-insensitive) | ✅ | "Secret pattern detected: \"api_key:\"" — `API_KEY:` matches |
-| TC-7.6 | Depth violation → ERROR with suggestion | ✅ | "Depth 5 exceeds max 3... Suggest: knowledge/features/a/b/c-d/deep.md" |
+| TC-7.1 | Missing front-matter fields → ERROR | ✅ | File without `id`, `app_scope`, `created` → 3 lint errors (one per missing field) |
+| TC-7.2 | Secret `sk_live_` detected → ERROR | ✅ | "Secret pattern detected: \"sk_live_\"" |
+| TC-7.3 | Secret `api_key:` detected (case-insensitive) | ✅ | "Secret pattern detected: \"api_key:\"" — `API_KEY:` matches case-insensitively |
+| TC-7.4 | Depth violation → ERROR with suggestion | ✅ | "Depth 5 exceeds max 3... Suggest: knowledge/features/a/b/c-d/deep.md" |
+| TC-7.5 | Unresolved git conflict markers → ERROR | ✅ | "Unresolved git conflict markers found" |
+| TC-7.6 | `@mention` resolved → no warning | ✅ | `@features/user-auth` and `@features/user-auth.md` both resolved; no warning |
+| TC-7.6b | `@mention` not found → WARN | ✅ | "@mention target not found: features/nonexistent" |
 | TC-7.7 | `@mention` in backtick code → no warning | ✅ | `` `@mui/material` `` not flagged |
 | TC-7.8 | `@mention` in fenced code → no warning | ✅ | `@internal/secret` in fenced block not flagged |
 | TC-7.9 | Prompt override (extend-after) → no lint error | ✅ | `ask-query.md` with extend-after produces no lint errors |
 | TC-7.10 | Suppress protected prompt → ERROR | ✅ | "Cannot suppress protected prompt: ask-sync" |
-| TC-7.11 | `@mention` resolved → no warning | ✅ | `@features/user-auth` and `@features/user-auth.md` both resolved |
-| TC-7.12 | `@mention` not found → WARN | ✅ | "@mention target not found: features/nonexistent" |
-| TC-7.13 | Unresolved git conflict markers → ERROR | ✅ | "Unresolved git conflict markers found" |
-| TC-7.14 | `status:` field in KB file → WARN | ✅ | "status field found in KB file — sync_state belongs in _index.yaml only" |
-| TC-7.15 | Cross-app reference without `@shared/` → WARN | ✅ | "@validation/ should use @shared/ prefix" warning |
+| — | `status:` field in KB file → WARN | ✅ | "status field found in KB file — sync_state belongs in _index.yaml only" |
+| — | Cross-app reference without `@shared/` → WARN | ✅ | "@validation/ should use @shared/ prefix" warning |
 
 ---
 
@@ -242,9 +256,9 @@
 
 | TC | Description | Result | Notes |
 |----|-------------|--------|-------|
-| TC-16.1 | Pre-push writes drift entries | ➖ | Skipped — requires remote repository |
-| TC-16.2 | Re-entry guard | ➖ | Skipped — requires remote repository |
-| TC-16.3 | No drift — no extra commit | ➖ | Skipped — requires remote repository |
+| TC-16.1 | Pre-push writes drift entries | ✅ | Added `validateEmail` to `src/validators/taskValidator.ts`, committed, then ran `git push`. Pre-push hook ran `kb_drift`, detected the new function, and auto-committed drift entry to `sync/code-drift.md` (`chore(kb): update drift queue`) before push proceeded |
+| TC-16.2 | Re-entry guard | ✅ | Guard verified via `KB_DRIFT_COMMITTING` env var — hook skips drift run when auto-committing the drift entry itself, preventing infinite loop |
+| TC-16.3 | No drift — no extra commit | ✅ | After resolving drift, subsequent `git push` produced no extra commit — clean repo results in no drift auto-commit |
 
 ---
 
@@ -301,11 +315,11 @@
 | TC-20.7 | Drift — shared flag round-trip | ✅ | Re-run: `code_entries: 0`, entry count unchanged (1), `**Shared module:** true` preserved in code-drift.md |
 | TC-20.8 | Drift — mixed setup (direct code + submodules) | ⚠️ | `code_entries: 2` from backend submodule (UserController + UserService). Parent `src/components/TaskForm.tsx` not captured — same limitation as TC-6.5 (drift only captures files when a prior reference exists for the KB target diff) |
 | TC-20.9 | `detectSubmodules()` — parses kb-shared attribute | ✅ | Drift output confirms `submodules_owned: ["backend"]`, `submodules_shared: ["client-sdk"]` — `kb-shared = true` correctly parsed from `.gitmodules` |
-| TC-20.10 | `kb_sub push` — correct order | 🔄 | Previously tested as `kb-feature.sh` script. Now `kb_sub` MCP tool — needs re-test. Expected: `all_success: true`, submodule pushed first, then parent. |
-| TC-20.11 | `kb_sub status` — shows all info | 🔄 | Previously tested as `kb-feature.sh` script. Now `kb_sub` MCP tool — needs re-test. Expected: JSON with parent.branch, submodules[] with type/pointer_changed. |
+| TC-20.10 | `kb_sub push` — correct order | ✅ | `kb_sub({ action: "push" })` → `all_success: true`. Owned submodule (backend) pushed first, then parent. Required fix: ran `git push -u origin feature/auth` on parent to set upstream before `kb_sub push` could succeed |
+| TC-20.11 | `kb_sub status` — shows all info | ✅ | Returns JSON with `parent.branch`, `submodules[]` each containing `name`, `type` (owned/shared), `pointer_changed`, `current_branch` |
 | TC-20.12 | `kb_init` — submodule pattern suggestion | ✅ | Init output includes "Submodule code path patterns needed: backend/ → add patterns like: backend/src/**, client-sdk/ → add patterns like: client-sdk/src/**". Does NOT auto-modify `_rules.md`. |
-| TC-20.13 | `kb_sub push` dry_run — plan without executing | 🔄 | New test case. Expected: `dry_run: true`, `push_plan` array, no actual push. |
-| TC-20.14 | `kb_sub merge_plan` — correct merge sequence | 🔄 | New test case. Expected: ordered steps — owned submodules first, then parent. |
+| TC-20.13 | `kb_sub push` dry_run — plan without executing | ✅ | `kb_sub({ action: "push", dry_run: true })` → `dry_run: true`, `push_plan` array showing owned→shared→parent order. No actual push executed |
+| TC-20.14 | `kb_sub merge_plan` — correct merge sequence | ✅ | `kb_sub({ action: "merge_plan" })` → ordered steps: owned submodules merged first, then parent. Includes branch and merge strategy for each step |
 
 ---
 
@@ -364,8 +378,8 @@
 | TC | Description | Result | Notes |
 |----|-------------|--------|-------|
 | TC-26.1 | Phase 1 — returns source docs and prompt | ✅ | Returns `{ source_docs, prompt, _instruction }`. Prompt contains source doc content |
-| TC-26.2 | Phase 2 — writes task YAML to sync/outbound | ⚠️ | File written and `{ file_path, written: true }` returned. Filename uses `2026-03-28` not today `2026-03-29` — tool appears to use a stale date source, not system date |
-| TC-26.3 | Phase 1 with target and project_key | ✅ | Prompt shows `Target PM Tool: jira` and `Project Key: AUTH` |
+| TC-26.2 | Phase 2 — writes task YAML to sync/outbound | ✅ | `knowledge/sync/outbound/2026-03-30-feature.yaml` written. Returns `{ file_path, written: true }`. Filename date matches today (2026-03-30) |
+| TC-26.3 | Phase 1 with target and project_key | ✅ | Prompt shows `Target PM Tool: jira` and `Project Key: PROJ` |
 | TC-26.4 | Phase 1 with scope (export mode) | ✅ | Returns all 53 KB docs as `source_docs`. Uses export mode internally |
 | TC-26.5 | Error — no filters provided | ✅ | Returns `{ error: "At least one of scope, type, or keywords is required to find source KB documents" }` |
 | TC-26.6 | Plan output not indexed | ✅ | `sync/outbound/` files absent from `_index.yaml` after reindex |
@@ -424,7 +438,7 @@
 | TC-11.5 | Response uses `remaining: 0` instead of `has_more: false` | Low — equivalent information |
 | TC-11.7 | `approve: true` response omits `reindex_result` | Low — reindex still happens |
 | TC-11.9 | Session expired message: "No active import session" (not "session expired") | Low — semantically equivalent |
-| TC-5/TC-2.8 | `kb_scaffold` with `description` does not write file; requires second call with `content` | Medium — documented in `_instruction` field |
+| TC-2.8 | `kb_scaffold` with `description` does not write file; requires second call with `content` | Medium — documented in `_instruction` field |
 | TC-6.5 | Drift only detected for code files with existing KB targets | Medium — new code without KB targets not reported until KB file created |
 | TC-22.1 | Malformed YAML `[unclosed` treated as empty front-matter rather than parse error | Low — no crash; missing-field errors still surfaced |
-| TC-26.2 | Outbound filename date is `2026-03-28` (yesterday) not today `2026-03-29` | Low — file written correctly; date source may use last-commit date or similar |
+| TC-26.2 | Outbound filename date correct (`2026-03-30`) in project9 run — prior deviation resolved | Resolved |
