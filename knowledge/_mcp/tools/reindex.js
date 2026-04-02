@@ -5,6 +5,7 @@ const yaml = require('js-yaml')
 const { loadGraph } = require('../lib/graph')
 const { loadRules } = require('../lib/rules')
 const { estimateTokens } = require('../lib/budget')
+const { extractMentions } = require('../lib/mentions')
 const { runTool: lint } = require('./lint')
 
 const KB_ROOT = 'knowledge'
@@ -26,10 +27,10 @@ async function runTool({ silent = false } = {}) {
       const parsed = matter(content)
       const data = parsed.data || {}
 
-      // Detect @mentions and ensure they're in depends_on
+      // Detect [[wikilinks]] and ensure they're in depends_on
       const mentions = extractMentions(parsed.content)
       const existingDeps = data.depends_on || []
-      const allDeps = [...new Set([...existingDeps, ...mentions.map(m => m.replace(/^@/, '').split('#')[0])])]
+      const allDeps = [...new Set([...existingDeps, ...mentions])]
         .filter(d => d && d !== relative)
 
       const tokensEst = estimateTokens(content)
@@ -128,17 +129,6 @@ async function runTool({ silent = false } = {}) {
     lint_violations: lintResult.violations.slice(0, 20),
     index_written: written
   }
-}
-
-function extractMentions(content) {
-  const stripped = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '')
-  const regex = /@([\w/-]+(?:#[\w-]+)?)/g
-  const mentions = []
-  let match
-  while ((match = regex.exec(stripped)) !== null) {
-    mentions.push(match[1].split('#')[0])
-  }
-  return [...new Set(mentions)]
 }
 
 function collectMdFiles(dir) {

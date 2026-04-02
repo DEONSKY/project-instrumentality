@@ -28,10 +28,10 @@ Rules that depend on more than one field value.
 
 ## Used by
 
-List KB files that reference these rules via @mention.
+List KB files that reference these rules via wikilink.
 
-- @features/{{name}}#fields
-- @schema/{{entity}}
+- [[features/{{name}}#fields]]
+- [[schema/{{entity}}]]
 
 ## Changelog
 

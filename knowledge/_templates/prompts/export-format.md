@@ -41,7 +41,7 @@ If no purpose is given, produce a neutral technical reference document.
 ## Output rules — all formats
 
 - Strip all front-matter (id, app_scope, depends_on etc.)
-- Strip all @mention references — render as plain text
+- Strip all [[wikilink]] references — render as plain text
 - Strip ## Open questions sections (internal only)
 - Strip ## Changelog sections unless export_format is markdown
 - Strip sync notes and draft status indicators

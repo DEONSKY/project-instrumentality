@@ -43,7 +43,6 @@ function getDefaultRules() {
       'secret:'
     ],
     cross_app_refs: {
-      prefix: '@shared/',
       always_shared: ['data', 'validation', 'integrations', 'decisions', 'standards']
     },
     code_path_patterns: [

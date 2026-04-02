@@ -9,12 +9,12 @@ created: {{date}}
 ## Enums
 
 Document all shared status/type constants here.
-Individual values are referenced as @enums#{{enum_name}} in other KB files.
+Individual values are referenced as [[data/enums#{{enum_name}}]] in other KB files.
 
 ### {{EnumName}}
 
 Purpose: {{what this enum controls}}
-Used by: @schema/{{entity}}, @features/{{name}}
+Used by: [[schema/{{entity}}]], [[features/{{name}}]]
 
 | value | label | description |
 | ----- | ----- | ----------- |

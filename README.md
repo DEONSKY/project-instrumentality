@@ -270,12 +270,12 @@ Agent classifies each batch (multi-label: one chunk can be a feature + flow + va
     ], cursor: 5 })
 → Returns next batch (or import plan when all batches classified)
 
-Import plan includes proposed files, cross-references (depends_on),
+Import plan includes proposed files, cross-references ([[wikilinks]] and depends_on),
 and items needing review (low confidence)
 
 "Looks good, write it"
 → kb_import({ source: "docs/spec.docx", auto_classify: true, approve: true })
-→ Server writes all files with cross-references in frontmatter and reindexes
+→ Server writes all files with cross-references as [[wikilinks]] in content and reindexes
 ```
 
 **Classic mode** (without `auto_classify`) still works as before — Phase 1 returns all chunks with classify prompts, Phase 2 writes agent-generated files via `files_to_write`.
@@ -639,16 +639,14 @@ Every KB file has YAML front-matter:
 ---
 id: stripe-payments
 app_scope: web
-depends_on:
-  - features/checkout.md
-  - integrations/stripe.md
 owner: payments-team
 created: 2026-03-20
-screenshot: false
 ---
 
 ## Description
 ...
+See [[features/checkout]] for the checkout flow.
+Uses [[integrations/stripe]] for payment processing.
 
 ## Business rules
 ...
@@ -657,7 +655,12 @@ screenshot: false
 2026-03-20 — created
 ```
 
-`depends_on` links are tracked in `_index.yaml` and used by `kb_impact` for blast-radius analysis.
+Cross-references use Obsidian-compatible `[[wikilinks]]` in content. These are automatically extracted during `kb_reindex` and stored as `depends_on` in `_index.yaml`, which `kb_impact` uses for blast-radius analysis.
+
+Supported wikilink formats:
+- Whole file: `[[schema/user]]`
+- Specific section: `[[schema/user#fields]]`
+- With display text: `[[schema/user#fields|User Fields]]`
 
 ---
 

@@ -62,7 +62,7 @@ Before writing any new file or component:
 1. Search the KB context for existing files that cover the same purpose
 2. Search the codebase for existing utilities, components, or services that can be reused
 3. If something similar exists, prefer extending it over creating a duplicate
-4. If you must create something new, add @mentions to reference related existing files
+4. If you must create something new, add [[wikilinks]] to reference related existing files
 
 ## Git conventions
 
@@ -70,12 +70,12 @@ Before writing any new file or component:
 - Commit format: {{conventional_or_free_form}}
 - PR size: max {{max_files_changed}} files changed
 
-## KB @mention format
+## KB linking format
 
-Within KB files, reference other files as:
-- Whole file: `@schema/user`
-- Specific section: `@schema/user#fields`
-- Cross-app: `@shared/validation/common#email`
+Within KB files, reference other files using Obsidian wikilinks:
+- Whole file: `[[schema/user]]`
+- Specific section: `[[schema/user#fields]]`
+- With display text: `[[schema/user#fields|User Fields]]`
 
 ## Changelog
 

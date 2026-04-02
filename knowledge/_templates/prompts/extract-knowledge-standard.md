@@ -12,7 +12,7 @@ You are deriving a knowledge-writing standards document from existing KB files.
 Review the sampled KB documents below. Observe the **actual writing patterns** — which sections are
 always present, which are sometimes omitted; how frontmatter fields are used; what level of detail
 is typical; what language style is used; how relationships between documents are referenced
-(@mentions, links, ids).
+([[wikilinks]], links, ids).
 
 Write a standards document that:
 

@@ -35,7 +35,7 @@ Review each group in the inventory and recommend next steps:
 For each group you recommend creating, suggest:
 - A brief description for the KB file
 - Whether it should be a feature, flow, schema, or other type
-- Which existing KB files it should reference via @mentions
+- Which existing KB files it should reference via [[wikilinks]]
 
 Prioritize groups by file count — larger groups represent more
 undocumented code and should be addressed first.

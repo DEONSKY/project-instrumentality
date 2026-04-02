@@ -42,8 +42,8 @@ flow, or concept:
    - No overlap was found, OR
    - The developer confirms they want a separate file
 
-If you proceed, reference the existing file using @mentions in the
-new file's depends_on or content where appropriate.
+If you proceed, reference the existing file using [[wikilinks]] in the
+new file's content where appropriate.
 
 ## Template to fill
 

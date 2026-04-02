@@ -39,7 +39,7 @@ Check each KB file in scope for:
    than 14 days (check ## Changelog).
 
 4. Orphaned references
-   @mentions that point to sections that do not exist.
+   [[wikilinks]] that point to sections that do not exist.
 
 5. Sync state
    Note any features with sync_state: kb-ahead or code-ahead

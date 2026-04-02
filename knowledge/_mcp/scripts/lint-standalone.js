@@ -75,13 +75,19 @@ function getMaxDepth(filePath, rules) {
   return overrides[topFolder] ?? policy.default_max ?? 3
 }
 
-// ─── @mention extraction ──────────────────────────────────────────────────────
+// ─── Wikilink extraction ─────────────────────────────────────────────────────
 
 function extractMentions(content) {
-  // Strip fenced code blocks before scanning to avoid matching @user in URLs/connection strings
+  // Strip fenced code blocks and inline code before scanning
   const stripped = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '')
-  const regex = /@[\w/-]+(?:#[\w-]+)?/g
-  return [...new Set(stripped.match(regex) || [])]
+  const regex = /\[\[([^\]|#]+?)(?:#[^\]|]+?)?(?:\|[^\]]+?)?\]\]/g
+  const mentions = []
+  let match
+  while ((match = regex.exec(stripped)) !== null) {
+    const p = match[1].trim()
+    if (p) mentions.push(p)
+  }
+  return [...new Set(mentions)]
 }
 
 // ─── Lint a single file ───────────────────────────────────────────────────────
@@ -154,15 +160,14 @@ function lintFile(filePath, rules) {
     violations.push({ file: filePath, severity: 'error', message: `Secret pattern: "${hit.pattern}" at line ${hit.line}` })
   })
 
-  // @mention existence (warn only)
+  // Wikilink existence (warn only)
   extractMentions(content).forEach(mention => {
-    const mentionPath = mention.replace(/^@/, '').split('#')[0]
-    const fullPath = path.join(KB_ROOT, mentionPath)
+    const fullPath = path.join(KB_ROOT, mention)
     const exists = fs.existsSync(fullPath) ||
       fs.existsSync(fullPath + '.md') ||
       (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory())
     if (!exists) {
-      violations.push({ file: filePath, severity: 'warn', message: `@mention not found: ${mentionPath}` })
+      violations.push({ file: filePath, severity: 'warn', message: `Wikilink target not found: ${mention}` })
     }
   })
 

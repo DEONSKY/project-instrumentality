@@ -34,7 +34,6 @@ secret_patterns:
   - "secret:"
 
 cross_app_refs:
-  prefix: "@shared/"
   always_shared:
     - data
     - validation

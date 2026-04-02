@@ -230,7 +230,7 @@ function stripInternalContent(content) {
   let cleaned = content
   cleaned = cleaned.replace(/^## Open questions[\s\S]*?(?=\n## |\n---|\n$)/gim, '')
   cleaned = cleaned.replace(/^## Changelog[\s\S]*?(?=\n## |\n---|\n$)/gim, '')
-  cleaned = cleaned.replace(/@[\w/-]+(?:#[\w-]+)?/g, '[ref]')
+  cleaned = cleaned.replace(/\[\[([^\]|#]+?)(?:#[^\]|]+?)?(?:\|([^\]]+?))?\]\]/g, (_, path, display) => display || path)
   return cleaned.trim()
 }
 

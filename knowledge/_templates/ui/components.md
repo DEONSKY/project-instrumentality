@@ -16,7 +16,7 @@ Feature-specific components belong in the feature file, not here.
 
 File: {{src/components/ComponentName.tsx}}
 Purpose: {{what it does}}
-Used by: @features/{{name}}, @features/{{name2}}
+Used by: [[features/{{name}}]], [[features/{{name2}}]]
 
 Props:
 | prop | type | required | default | notes |

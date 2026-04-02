@@ -9,7 +9,7 @@ created: {{date}}
 ## Relations
 
 One entry per meaningful entity relationship.
-Schema files reference this as @relations#{{entity}}.
+Schema files reference this as [[data/relations#{{entity}}]].
 
 ### {{EntityA}} → {{EntityB}}
 

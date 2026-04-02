@@ -14,7 +14,7 @@ created: {{date}}
 
 | field | type | required | default | validation | notes |
 | ----- | ---- | -------- | ------- | ---------- | ----- |
-| {{field}} | {{type}} | {{yes|no}} | {{default}} | @validation/{{rule_id}} | {{notes}} |
+| {{field}} | {{type}} | {{yes|no}} | {{default}} | [[validation/{{rule_id}}]] | {{notes}} |
 
 ## Business rules
 

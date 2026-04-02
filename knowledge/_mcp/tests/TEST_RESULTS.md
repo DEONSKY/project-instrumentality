@@ -146,14 +146,15 @@
 | TC-7.3 | Secret `api_key:` detected (case-insensitive) | ✅ | "Secret pattern detected: \"api_key:\"" — `API_KEY:` matches case-insensitively |
 | TC-7.4 | Depth violation → ERROR with suggestion | ✅ | "Depth 5 exceeds max 3... Suggest: knowledge/features/a/b/c-d/deep.md" |
 | TC-7.5 | Unresolved git conflict markers → ERROR | ✅ | "Unresolved git conflict markers found" |
-| TC-7.6 | `@mention` resolved → no warning | ✅ | `@features/user-auth` and `@features/user-auth.md` both resolved; no warning |
-| TC-7.6b | `@mention` not found → WARN | ✅ | "@mention target not found: features/nonexistent" |
-| TC-7.7 | `@mention` in backtick code → no warning | ✅ | `` `@mui/material` `` not flagged |
-| TC-7.8 | `@mention` in fenced code → no warning | ✅ | `@internal/secret` in fenced block not flagged |
+| TC-7.6 | Wikilink resolved → no warning | ⏳ | `[[features/user-auth]]` and `[[features/user-auth.md]]` both resolved; no warning |
+| TC-7.6b | Wikilink not found → WARN | ⏳ | "Wikilink target not found: features/nonexistent" |
+| TC-7.6c | Wikilink with section and display text | ⏳ | `[[features/auth#fields\|Auth Fields]]` resolves path, no warning |
+| TC-7.7 | Wikilink in backtick code → no warning | ⏳ | `` `[[internal/path]]` `` not flagged |
+| TC-7.8 | Wikilink in fenced code → no warning | ⏳ | `[[internal/secret]]` in fenced block not flagged |
 | TC-7.9 | Prompt override (extend-after) → no lint error | ✅ | `ask-query.md` with extend-after produces no lint errors |
 | TC-7.10 | Suppress protected prompt → ERROR | ✅ | "Cannot suppress protected prompt: ask-sync" |
 | — | `status:` field in KB file → WARN | ✅ | "status field found in KB file — sync_state belongs in _index.yaml only" |
-| — | Cross-app reference without `@shared/` → WARN | ✅ | "@validation/ should use @shared/ prefix" warning |
+| — | ~~Cross-app reference without `@shared/` → WARN~~ | — | Removed: `@shared/` prefix no longer applies with wikilink syntax |
 
 ---
 
@@ -162,8 +163,8 @@
 | TC | Description | Result | Notes |
 |----|-------------|--------|-------|
 | TC-8.1 | Index generated with file count | ✅ | `files_indexed: 38`, `index_written: true` |
-| TC-8.2 | `@mentions` auto-added to `depends_on` | ✅ | `features/billing.md` with `@features/auth` → `depends_on: [features/auth]` in `_index.yaml` |
-| TC-8.3 | npm package names excluded from `depends_on` | ✅ | `` `@mui/material` `` in backticks → `depends_on: []` for backtick-test.md |
+| TC-8.2 | Wikilinks auto-added to `depends_on` | ⏳ | `features/billing.md` with `[[features/auth]]` → `depends_on: [features/auth]` in `_index.yaml` |
+| TC-8.3 | Wikilinks in inline code ignored | ⏳ | `` `[[internal/path]]` `` in backticks → `depends_on: []` |
 | TC-8.4 | Group detection with `file_count` | ✅ | `standards/code` group: `file_count: 5`; `features/billing` group: `file_count: 1`. `_group.md` excluded from count |
 | TC-8.5 | Idempotent — no spurious writes | ✅ | Second run returns `index_written: false` |
 | TC-8.6 | Lint violations in response | ✅ | `lint_violations` array with `{ file, line, severity, message }` entries present |

@@ -24,7 +24,7 @@ created: {{date}}
 
 ## Relations
 
-See @data/relations#{{EntityName}} for full join definitions.
+See [[data/relations#{{EntityName}}]] for full join definitions.
 
 | column | references | on_delete |
 | ------ | ---------- | --------- |

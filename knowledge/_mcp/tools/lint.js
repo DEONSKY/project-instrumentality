@@ -2,6 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const matter = require('gray-matter')
 const { loadRules } = require('../lib/rules')
+const { extractMentions } = require('../lib/mentions')
 const { validateDepth } = require('../lib/depth')
 const { scan: scanSecrets } = require('../lib/secrets')
 const { loadGraph } = require('../lib/graph')
@@ -113,26 +114,11 @@ function lintFile(filePath, rules, graph) {
     })
   })
 
-  // @mention resolution
+  // Wikilink resolution
   const mentions = extractMentions(content)
-  const crossAppConfig = rules.getCrossAppRefConfig()
 
   mentions.forEach(mention => {
-    const mentionPath = mention.replace(/^@/, '').split('#')[0]
-    const fullPath = path.join(KB_ROOT, mentionPath)
-
-    // Check @shared/ prefix for cross-app refs
-    if (crossAppConfig && crossAppConfig.always_shared) {
-      const topFolder = mentionPath.split('/')[0]
-      if (crossAppConfig.always_shared.includes(topFolder) && !mention.startsWith('@shared/')) {
-        violations.push({
-          file: filePath,
-          line: 1,
-          severity: 'warn',
-          message: `Cross-app reference to shared folder should use @shared/ prefix: ${mention}`
-        })
-      }
-    }
+    const fullPath = path.join(KB_ROOT, mention)
 
     // Check file exists — try exact path, then with .md extension, then as directory
     const exists = fs.existsSync(fullPath) ||
@@ -143,7 +129,7 @@ function lintFile(filePath, rules, graph) {
         file: filePath,
         line: 1,
         severity: 'warn',
-        message: `@mention target not found: ${mentionPath}`
+        message: `Wikilink target not found: ${mention}`
       })
     }
   })
@@ -183,12 +169,6 @@ function lintPromptOverride(filePath, data, rules, violations) {
   }
 
   return violations
-}
-
-function extractMentions(content) {
-  const stripped = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '')
-  const regex = /@[\w/-]+(?:#[\w-]+)?/g
-  return [...new Set(stripped.match(regex) || [])]
 }
 
 function collectKBFiles() {

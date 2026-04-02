@@ -586,31 +586,37 @@ Create a KB file with `<<<<<<< HEAD` in body.
 
 **Pass:** Lint error: "Unresolved git conflict markers found".
 
-### TC-7.6 @mention — valid (with and without .md extension)
+### TC-7.6 Wikilink — valid (with and without .md extension)
 
-Create `knowledge/features/auth.md` and another file referencing `@features/auth` (no `.md` extension).
+Create `knowledge/features/auth.md` and another file referencing `[[features/auth]]` (no `.md` extension).
 
-**Pass:** No `@mention not found` warning. Lint resolves `@features/auth` → `knowledge/features/auth.md`.
+**Pass:** No `Wikilink target not found` warning. Lint resolves `[[features/auth]]` → `knowledge/features/auth.md`.
 
-Also test `@features/auth.md` (with extension).
+Also test `[[features/auth.md]]` (with extension).
 
 **Pass:** No warning either.
 
-### TC-7.6b @mention — missing target
+### TC-7.6b Wikilink — missing target
 
-Create a file referencing `@features/nonexistent`.
+Create a file referencing `[[features/nonexistent]]`.
 
-**Pass:** Lint warns: `@mention target not found: features/nonexistent`.
+**Pass:** Lint warns: `Wikilink target not found: features/nonexistent`.
 
-### TC-7.7 @mention — false positive from backtick code
+### TC-7.6c Wikilink — section and display text
 
-Create a KB file with `` `@mui/material` `` in inline code.
+Create a file referencing `[[features/auth#fields|Auth Fields]]`.
 
-**Pass:** No lint warning for `@mui/material` — stripped before scanning.
+**Pass:** No lint warning (resolves path `features/auth`). `depends_on` in `_index.yaml` contains `features/auth`.
 
-### TC-7.8 @mention — false positive from fenced code block
+### TC-7.7 Wikilink — false positive from backtick code
 
-Create a KB file with `@internal/secret` inside a ``````` code block.
+Create a KB file with `` `[[internal/path]]` `` in inline code.
+
+**Pass:** No lint warning — stripped before scanning.
+
+### TC-7.8 Wikilink — false positive from fenced code block
+
+Create a KB file with `[[internal/secret]]` inside a ``````` code block.
 
 **Pass:** No lint warning.
 
@@ -650,17 +656,17 @@ Create 3 KB files, run `kb_reindex({})`.
 
 **Pass:** `knowledge/_index.yaml` contains all 3 files with `id`, `app_scope`, `tokens_est`.
 
-### TC-8.2 @mentions auto-added to depends_on
+### TC-8.2 Wikilinks auto-added to depends_on
 
-Create `features/billing.md` referencing `@features/auth`.
+Create `features/billing.md` referencing `[[features/auth]]`.
 
-**Pass:** `_index.yaml` entry for `billing.md` has `auth` in `depends_on`.
+**Pass:** `_index.yaml` entry for `billing.md` has `features/auth` in `depends_on`.
 
-### TC-8.3 @mentions — package names ignored
+### TC-8.3 Wikilinks — inline code ignored
 
-Create a file with `` `@mui/material` `` in inline code.
+Create a file with `` `[[internal/path]]` `` in inline code.
 
-**Pass:** `_index.yaml` does NOT have `mui/material` in `depends_on`.
+**Pass:** `_index.yaml` does NOT have `internal/path` in `depends_on`.
 
 ### TC-8.4 Group detection and file_count
 

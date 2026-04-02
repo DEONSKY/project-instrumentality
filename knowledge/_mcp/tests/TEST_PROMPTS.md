@@ -738,9 +738,9 @@ git add -A && git commit -m "tighten depth policy"
 
 **Expected:** `features/billing/_group.md` auto-created. Three feature files inside `features/billing/`.
 
-### D.5 @mention wiring
+### D.5 Wikilink wiring
 
-> Create `features/checkout.md` with body containing `@features/billing/invoice-create`.
+> Create `features/checkout.md` with body containing `[[features/billing/invoice-create]]`.
 
 > **Prompt to agent:**
 > Reindex the knowledge base.
