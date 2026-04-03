@@ -638,6 +638,9 @@ Every KB file has YAML front-matter:
 ```markdown
 ---
 id: stripe-payments
+type: integration
+aliases: [Stripe, Stripe Payments]
+cssclasses: [kb-integration]
 app_scope: web
 owner: payments-team
 created: 2026-03-20
@@ -647,9 +650,14 @@ created: 2026-03-20
 ...
 See [[features/checkout]] for the checkout flow.
 Uses [[integrations/stripe]] for payment processing.
+![[assets/design/stripe-flow.png]]
 
 ## Business rules
 ...
+
+> [!caution] Rate limits
+> Requests per second: 100
+> Retry strategy: exponential_backoff
 
 ## Changelog
 2026-03-20 — created
@@ -661,6 +669,17 @@ Supported wikilink formats:
 - Whole file: `[[schema/user]]`
 - Specific section: `[[schema/user#fields]]`
 - With display text: `[[schema/user#fields|User Fields]]`
+- Embedded file: `![[assets/design/flow.png]]`
+
+### Obsidian vault compatibility
+
+The `knowledge/` folder is designed to open directly as an Obsidian vault. All generated templates include:
+
+- **`type`** — document type (`feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `ui`, `data`, `group`). Stored in `_index.yaml` and used for keyword-based scoring in `kb_get` / `kb_impact`. Files without an explicit `type` field have it inferred from their folder path by `inferType()` during reindex.
+- **`aliases`** — Obsidian quick-switcher (Cmd+O) and link-autocomplete aliases. Each template seeds a sensible default (`id` or a readable label).
+- **`cssclasses`** — per-type CSS class for theming (`kb-feature`, `kb-flow`, `kb-schema`, `kb-validation`, `kb-integration`, `kb-decision`, `kb-standard`, `kb-ui`, `kb-data`, `kb-group`). Add a `.obsidian/snippets/kb.css` to activate visual differentiation in the graph view.
+- **Callouts** — edge cases, guards, and open questions use Obsidian callout syntax (`> [!warning]`, `> [!important]`, `> [!question]`, `> [!info]`, `> [!caution]`) so they render as styled blocks rather than plain bullet lists.
+- **Folder notes** — group files are named after their parent folder (`features/billing/billing.md` instead of `features/billing/_group.md`), matching the Obsidian Folder Notes plugin convention. Legacy `_group.md` files are still detected for backward compatibility.
 
 ---
 

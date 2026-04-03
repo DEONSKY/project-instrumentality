@@ -163,7 +163,15 @@ kb_scaffold({ type: "feature", id: "invoice-create", content: "<filled markdown>
 kb_scaffold({ type: "feature", id: "payment-method", group: "billing" })
 ```
 
-**Pass:** File at `knowledge/features/billing/payment-method.md`. `knowledge/features/billing/_group.md` auto-created if missing.
+**Pass:** File at `knowledge/features/billing/payment-method.md`. `knowledge/features/billing/billing.md` (folder note) auto-created if missing — NOT `_group.md`.
+
+### TC-2.4b Scaffold group — folder note naming
+
+```
+kb_scaffold({ type: "group", id: "billing", group: "billing" })
+```
+
+**Pass:** Group file created at `knowledge/features/billing/billing.md` (named after parent folder). Front-matter has `type: group`. File is NOT named `_group.md`.
 
 ### TC-2.5 Scaffold depth violation
 
@@ -225,6 +233,57 @@ kb_scaffold({ type: "feature", id: "test-fill", description: "Test feature" })
 ```
 
 **Pass:** Returned prompt has `{{template_type}}` replaced with `feature` (not raw placeholder). `{{template_content}}` replaced with actual template content. `{{kb_context}}` replaced with KB file content. `{{description}}` replaced with `"Test feature"`.
+
+### TC-2.11 Template Obsidian fields — type, aliases, cssclasses
+
+```
+kb_scaffold({ type: "feature", id: "user-auth" })
+```
+
+**Pass:** `knowledge/features/user-auth.md` created. Front-matter contains:
+- `type: feature`
+- `aliases: [user-auth]`
+- `cssclasses: [kb-feature]`
+
+### TC-2.12 Template callouts — feature
+
+```
+kb_scaffold({ type: "feature", id: "test-callouts" })
+```
+
+**Pass:** Template body contains `> [!warning] Edge cases` and `> [!question] Open questions` callout blocks (not plain `## Edge cases` / `## Open questions` headings).
+
+### TC-2.13 Template callouts — flow
+
+```
+kb_scaffold({ type: "flow", id: "test-flow" })
+```
+
+**Pass:** Template body contains `> [!important] Guards` and `> [!question] Open questions` callout blocks.
+
+### TC-2.14 Template callouts — integration
+
+```
+kb_scaffold({ type: "integration", id: "test-integration" })
+```
+
+**Pass:** Template body contains `> [!caution] Rate limits` and `> [!question] Open questions` callout blocks.
+
+### TC-2.15 Template callouts — decision
+
+```
+kb_scaffold({ type: "decision", id: "test-decision" })
+```
+
+**Pass:** Template body contains `> [!info] Consequences` callout block with **Positive:** and **Negative / trade-offs:** subsections.
+
+### TC-2.16 Template callouts — validation
+
+```
+kb_scaffold({ type: "validation", id: "test-validation" })
+```
+
+**Pass:** Template body contains `> [!warning] Cross-field rules` callout block.
 
 ---
 
@@ -406,6 +465,16 @@ kb_get({ keywords: ["component"], task_context: "fixing" })
 ```
 
 **Pass:** `standards/code/components.md` score is boosted (+0.3). Appears higher in results than non-standard files with equal keyword match.
+
+### TC-4.15 Type keyword search
+
+Create `features/auth.md` with `type: feature` and `flows/auth-flow.md` with `type: flow` in `_index.yaml` (run `kb_reindex` first).
+
+```
+kb_get({ keywords: ["flow"] })
+```
+
+**Pass:** `flows/auth-flow.md` appears in results — matched because `type: flow` is part of the searchable text. `features/auth.md` does NOT match on `type`.
 
 ---
 
@@ -668,11 +737,41 @@ Create a file with `` `[[internal/path]]` `` in inline code.
 
 **Pass:** `_index.yaml` does NOT have `internal/path` in `depends_on`.
 
-### TC-8.4 Group detection and file_count
+### TC-8.4 Group detection and file_count — folder note
 
-Create `features/billing/_group.md` and `features/billing/invoice.md`.
+Create `features/billing/billing.md` (with `type: group` in front-matter) and `features/billing/invoice.md`.
 
-**Pass:** `_index.yaml` has `groups.features/billing` with `file_count: 1` (excluding `_group.md` itself). Group membership is set regardless of file processing order (second pass ensures all child files get `group` field).
+**Pass:** `_index.yaml` has `groups.features/billing` with `file_count: 1` (excluding `billing.md` folder note itself). Group membership is set regardless of file processing order (second pass ensures all child files get `group` field).
+
+### TC-8.4b Group detection — legacy _group.md backward compatibility
+
+Create `features/billing/_group.md` (legacy) and `features/billing/invoice.md`.
+
+**Pass:** `_index.yaml` still detects `features/billing` as a group with `file_count: 1`. `_group.md` excluded from count. Both naming conventions (`{name}.md` and `_group.md`) are detected.
+
+### TC-8.7 `type` field — explicit front-matter
+
+Create `features/checkout.md` with `type: feature` in front-matter. Run `kb_reindex`.
+
+**Pass:** `_index.yaml` entry for `checkout.md` has `type: feature`.
+
+### TC-8.8 `type` field — inferred by path (no front-matter type)
+
+Create `flows/order-lifecycle.md` without a `type` field in front-matter. Run `kb_reindex`.
+
+**Pass:** `_index.yaml` entry for `order-lifecycle.md` has `type: flow` (inferred from `flows/` folder path by `inferType()`).
+
+### TC-8.9 `type` field — inferType coverage
+
+Create one file in each folder: `features/`, `flows/`, `data/schema/`, `validation/`, `integrations/`, `decisions/`, `standards/`, `ui/`, `data/` (non-schema). None has an explicit `type` field.
+
+**Pass:** Each entry in `_index.yaml` gets the correct inferred type: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `ui`, `data`.
+
+### TC-8.10 Embed wikilinks extracted as dependencies
+
+Create `features/checkout.md` with `![[assets/design/checkout-flow.png]]` in body. Run `kb_reindex`.
+
+**Pass:** `_index.yaml` entry for `checkout.md` has `assets/design/checkout-flow.png` in `depends_on` (embed syntax `![[...]]` is parsed the same as `[[...]]`).
 
 ### TC-8.5 Idempotent — no spurious writes
 
@@ -717,6 +816,16 @@ kb_impact({ change_description: "API rate limit changes" })
 ```
 
 **Pass:** Files with "api" in path/id/tags are matched (not dropped by keyword filter).
+
+### TC-9.4 Type keyword match in impact
+
+Create `integrations/stripe.md` with `type: integration`.
+
+```
+kb_impact({ change_description: "changing the integration layer" })
+```
+
+**Pass:** `integrations/stripe.md` appears in `affected_files` — matched because `type: integration` is searchable text. Files of other types with no keyword match are excluded.
 
 ---
 

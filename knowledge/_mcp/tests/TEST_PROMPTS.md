@@ -736,7 +736,7 @@ git add -A && git commit -m "tighten depth policy"
 > **Prompt to agent:**
 > Create features for the billing domain: invoice-create, invoice-send, payment-receive. Group them under "billing".
 
-**Expected:** `features/billing/_group.md` auto-created. Three feature files inside `features/billing/`.
+**Expected:** `features/billing/billing.md` (folder note) auto-created — NOT `_group.md`. Three feature files inside `features/billing/`. The folder note has `type: group` in front-matter.
 
 ### D.5 Wikilink wiring
 
@@ -783,6 +783,55 @@ git add -A && git commit -m "tighten depth policy"
 > We're changing the auth token format from JWT to opaque tokens. What's the impact?
 
 **Expected:** Impact returns all three files (auth → checkout → payment) via transitive dependency.
+
+### D.10 Obsidian vault fields — scaffold and verify
+
+> **Prompt to agent:**
+> Scaffold a new feature called "order-tracking". Then open the created file and verify it has `type`, `aliases`, and `cssclasses` fields in its front-matter.
+
+**Expected:**
+1. Agent calls `kb_scaffold({ type: "feature", id: "order-tracking", description: "..." })`, fills, writes.
+2. `knowledge/features/order-tracking.md` front-matter contains:
+   - `type: feature`
+   - `aliases: [order-tracking]`
+   - `cssclasses: [kb-feature]`
+3. Body contains `> [!warning] Edge cases` and `> [!question] Open questions` callouts (not plain headings).
+
+**TC:** TC-2.11, TC-2.12
+
+### D.11 Type keyword search in kb_get
+
+> Create `flows/checkout-flow.md` (with `type: flow` in front-matter) and `features/checkout.md` (with `type: feature`). Run `kb_reindex`. Then:
+
+> **Prompt to agent:**
+> Load KB context using the keyword "flow".
+
+**Expected:** Agent calls `kb_get({ keywords: ["flow"] })`. `flows/checkout-flow.md` appears in results (matched on `type: flow` in search text). `features/checkout.md` does not match on type alone.
+
+**TC:** TC-4.15
+
+### D.12 Type inferred from folder path (no explicit type field)
+
+> Create `integrations/stripe.md` without a `type` field in front-matter. Run `kb_reindex`.
+
+> **Prompt to agent:**
+> Run `kb_reindex` and check the `_index.yaml` entry for `integrations/stripe.md`.
+
+**Expected:** `_index.yaml` entry has `type: integration` — inferred by `inferType()` from the `integrations/` folder path.
+
+**TC:** TC-8.8
+
+### D.13 Folder note group creation
+
+> **Prompt to agent:**
+> Create features for the payments domain: charge-create, refund-issue. Group them under "payments".
+
+**Expected:**
+1. `features/payments/charge-create.md` and `features/payments/refund-issue.md` created.
+2. `features/payments/payments.md` auto-created as folder note (NOT `features/payments/_group.md`).
+3. `payments.md` has `type: group` in front-matter.
+
+**TC:** TC-2.4, TC-2.4b
 
 ---
 
