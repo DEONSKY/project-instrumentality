@@ -1,5 +1,8 @@
 ---
 id: ui-components
+type: ui-components
+aliases: [Components]
+cssclasses: [kb-ui]
 app_scope: {{app_scope}}
 depends_on:
   - foundation/conventions.md

@@ -1,5 +1,8 @@
 ---
 id: {{id}}
+type: feature
+aliases: [{{id}}]
+cssclasses: [kb-feature]
 app_scope: {{app_scope}}
 depends_on: []
 owner: {{owner}}
@@ -21,14 +24,12 @@ created: {{date}}
 - {{Rule: describe invariant or constraint in plain language.}}
 - {{Rule: describe invariant or constraint in plain language.}}
 
-## Edge cases
+> [!warning] Edge cases
+> - {{Edge case: describe what happens under unusual conditions.}}
+> - {{Edge case: describe what happens under unusual conditions.}}
 
-- {{Edge case: describe what happens under unusual conditions.}}
-- {{Edge case: describe what happens under unusual conditions.}}
-
-## Open questions
-
-- [ ] {{Unresolved question that needs a decision.}}
+> [!question] Open questions
+> - [ ] {{Unresolved question that needs a decision.}}
 
 ## Changelog
 

@@ -1,6 +1,8 @@
 ---
 id: {{id}}
 type: standard
+aliases: [{{id}}]
+cssclasses: [kb-standard]
 scope: {{scope}}
 app_scope: {{app_scope}}
 created: {{date}}

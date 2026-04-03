@@ -1,5 +1,8 @@
 ---
 id: {{id}}
+type: flow
+aliases: [{{id}}]
+cssclasses: [kb-flow]
 app_scope: {{app_scope}}
 depends_on: []
 owner: {{owner}}
@@ -22,16 +25,13 @@ created: {{date}}
 | ----- | ----------- | -------- |
 | {{state}} | {{what this state means}} | {{yes|no}} |
 
-## Guards
+> [!important] Guards
+> Conditions that must be true before this flow can proceed.
+> - {{Guard: condition that must hold}}
+> - {{Guard: condition that must hold}}
 
-Conditions that must be true before this flow can proceed.
-
-- {{Guard: condition that must hold}}
-- {{Guard: condition that must hold}}
-
-## Open questions
-
-- [ ] {{Unresolved question that needs a decision.}}
+> [!question] Open questions
+> - [ ] {{Unresolved question that needs a decision.}}
 
 ## Changelog
 

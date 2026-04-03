@@ -1,5 +1,8 @@
 ---
 id: enums
+type: data
+aliases: [Enums]
+cssclasses: [kb-data]
 app_scope: all
 always_load: false
 owner: {{owner}}

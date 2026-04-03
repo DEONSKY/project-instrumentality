@@ -1,5 +1,8 @@
 ---
 id: schema-{{name}}
+type: schema
+aliases: [{{name}}]
+cssclasses: [kb-schema]
 app_scope: all
 depends_on:
   - data/relations.md

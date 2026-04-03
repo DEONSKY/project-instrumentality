@@ -1,6 +1,8 @@
 ---
 id: conventions
 type: standard
+aliases: [Conventions]
+cssclasses: [kb-standard]
 scope: code
 app_scope: all
 owner: {{owner}}

@@ -22,6 +22,7 @@ async function runTool({ change_description } = {}) {
     const searchText = [
       fp,
       entry.id || '',
+      entry.type || '',
       (entry.depends_on || []).join(' '),
       (entry.affects_flows || []).join(' '),
       (entry.tags || []).join(' ')

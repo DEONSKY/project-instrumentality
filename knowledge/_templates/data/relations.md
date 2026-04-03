@@ -1,5 +1,8 @@
 ---
 id: relations
+type: data
+aliases: [Relations]
+cssclasses: [kb-data]
 app_scope: all
 always_load: false
 owner: {{owner}}

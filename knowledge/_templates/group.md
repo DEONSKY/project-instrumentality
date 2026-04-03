@@ -1,6 +1,8 @@
 ---
 id: group-{{domain}}
 type: group
+aliases: [{{domain}}]
+cssclasses: [kb-group]
 domain: {{domain}}
 app_scope: {{app_scope}}
 owner: {{owner}}

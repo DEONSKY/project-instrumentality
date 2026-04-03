@@ -1,5 +1,8 @@
 ---
 id: ui-permissions
+type: ui-permissions
+aliases: [Permissions]
+cssclasses: [kb-ui]
 app_scope: {{app_scope}}
 depends_on:
   - foundation/global-rules.md

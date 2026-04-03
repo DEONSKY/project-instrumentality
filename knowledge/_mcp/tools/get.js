@@ -129,6 +129,7 @@ function findCandidates(graph, keywords, appScopeFilter, taskContext) {
     const searchText = [
       fp,
       entry.id || '',
+      entry.type || '',
       (entry.tags || []).join(' '),
       (entry.depends_on || []).join(' ')
     ].join(' ').toLowerCase()

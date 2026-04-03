@@ -1,5 +1,8 @@
 ---
 id: decision-{{id}}
+type: decision
+aliases: [{{id}}]
+cssclasses: [kb-decision]
 app_scope: all
 depends_on: []
 owner: {{owner}}
@@ -25,13 +28,13 @@ status: {{proposed|accepted|superseded}}
 
 {{Describe the alternative and why it was not chosen.}}
 
-## Consequences
-
-**Positive:**
-- {{Benefit or positive outcome.}}
-
-**Negative / trade-offs:**
-- {{Cost or trade-off accepted.}}
+> [!info] Consequences
+>
+> **Positive:**
+> - {{Benefit or positive outcome.}}
+>
+> **Negative / trade-offs:**
+> - {{Cost or trade-off accepted.}}
 
 ## Changelog
 

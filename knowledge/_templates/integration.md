@@ -1,5 +1,8 @@
 ---
 id: integration-{{name}}
+type: integration
+aliases: [{{name}}]
+cssclasses: [kb-integration]
 app_scope: {{app_scope}}
 depends_on: []
 owner: {{owner}}
@@ -41,13 +44,12 @@ Inbound events from the external service.
 | -------------- | -------------- | -------- |
 | {{ext_code}} | {{OUR_CODE}} | {{retry|surface|ignore}} |
 
-## Rate limits
+> [!caution] Rate limits
+> Requests per second: {{n}}
+> Daily cap: {{n}}
+> Retry strategy: {{exponential_backoff|none}}
 
-Requests per second: {{n}}
-Daily cap: {{n}}
-Retry strategy: {{exponential_backoff|none}}
-
-## Open questions
+> [!question] Open questions
 
 ## Changelog
 

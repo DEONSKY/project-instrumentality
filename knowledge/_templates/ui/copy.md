@@ -1,5 +1,8 @@
 ---
 id: ui-copy
+type: ui-copy
+aliases: [UI Copy]
+cssclasses: [kb-ui]
 app_scope: {{app_scope}}
 depends_on: []
 owner: {{owner}}

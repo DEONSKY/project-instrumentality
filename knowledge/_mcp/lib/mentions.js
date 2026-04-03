@@ -1,4 +1,4 @@
-const WIKILINK_REGEX = /\[\[([^\]|#]+?)(?:#[^\]|]+?)?(?:\|[^\]]+?)?\]\]/g
+const WIKILINK_REGEX = /!?\[\[([^\]|#]+?)(?:#[^\]|]+?)?(?:\|[^\]]+?)?\]\]/g
 
 /**
  * Extract wikilink references from KB content, ignoring code blocks and inline code.

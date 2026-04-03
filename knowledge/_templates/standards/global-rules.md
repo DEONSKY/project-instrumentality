@@ -1,5 +1,8 @@
 ---
 id: global-rules
+type: standard
+aliases: [Global Rules]
+cssclasses: [kb-standard]
 app_scope: all
 always_load: true
 owner: {{owner}}

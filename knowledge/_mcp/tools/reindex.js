@@ -37,6 +37,7 @@ async function runTool({ silent = false } = {}) {
 
       const entry = {
         id: data.id || path.basename(filePath, '.md'),
+        type: data.type || inferType(relative),
         app_scope: data.app_scope || 'all',
         tokens_est: tokensEst,
         always_load: data.always_load || false,
@@ -47,8 +48,11 @@ async function runTool({ silent = false } = {}) {
 
       if (data.owner) entry.owner = data.owner
 
-      // Detect if it's a group file
-      if (data.type === 'group' || path.basename(filePath) === '_group.md') {
+      // Detect if it's a group file (folder note: {name}/{name}.md or legacy _group.md)
+      const isGroupFile = entry.type === 'group' ||
+        path.basename(filePath) === '_group.md' ||
+        path.basename(filePath, '.md') === path.basename(path.dirname(filePath))
+      if (isGroupFile) {
         entry.type = 'group'
         entry.domain = data.domain || ''
         entry.shared_depends_on = data.shared_depends_on || []
@@ -83,9 +87,12 @@ async function runTool({ silent = false } = {}) {
     }
   })
 
-  // Update group file counts (exclude the _group.md file itself)
+  // Update group file counts (exclude the group file itself — folder note or legacy _group.md)
   Object.entries(files).forEach(([fp, entry]) => {
-    if (entry.group && groups[entry.group] && path.basename(fp) !== '_group.md') {
+    const isGroupFile = entry.type === 'group' ||
+      path.basename(fp) === '_group.md' ||
+      path.basename(fp, '.md') === path.basename(path.dirname(fp))
+    if (entry.group && groups[entry.group] && !isGroupFile) {
       groups[entry.group].file_count = (groups[entry.group].file_count || 0) + 1
     }
   })
@@ -129,6 +136,19 @@ async function runTool({ silent = false } = {}) {
     lint_violations: lintResult.violations.slice(0, 20),
     index_written: written
   }
+}
+
+function inferType(relativePath) {
+  if (relativePath.startsWith('features/')) return 'feature'
+  if (relativePath.startsWith('flows/')) return 'flow'
+  if (relativePath.startsWith('data/schema/')) return 'schema'
+  if (relativePath.startsWith('validation/')) return 'validation'
+  if (relativePath.startsWith('integrations/')) return 'integration'
+  if (relativePath.startsWith('decisions/')) return 'decision'
+  if (relativePath.startsWith('standards/')) return 'standard'
+  if (relativePath.startsWith('ui/')) return 'ui'
+  if (relativePath.startsWith('data/')) return 'data'
+  return 'unknown'
 }
 
 function collectMdFiles(dir) {

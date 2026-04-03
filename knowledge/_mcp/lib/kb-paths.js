@@ -17,7 +17,7 @@ const TYPE_TO_PATH = {
   integration: 'integrations/{id}.md',
   decision: 'decisions/{id}.md',
   standard: 'standards/{id}.md',
-  group: '{folder}/_group.md',
+  group: '{folder}/{folder}.md',
   enums: 'data/enums.md',
   relations: 'data/relations.md',
   components: 'ui/components.md',
@@ -81,7 +81,8 @@ function resolveFilePath(type, id, group) {
 
   if (type === 'group') {
     const folder = group ? `${getGroupFolder(type)}/${group}` : getGroupFolder(type)
-    return path.join(KB_ROOT, folder, '_group.md')
+    const folderName = group || path.basename(folder)
+    return path.join(KB_ROOT, folder, `${folderName}.md`)
   }
 
   if (id && template.includes('{id}')) {

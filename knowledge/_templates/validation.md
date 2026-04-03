@@ -1,5 +1,8 @@
 ---
 id: {{id}}
+type: validation
+aliases: [{{id}}]
+cssclasses: [kb-validation]
 app_scope: {{app_scope}}
 depends_on: []
 owner: {{owner}}
@@ -20,11 +23,9 @@ Document regex or reusable logic referenced by rule_id above.
 {{rule_id}}: /{{regex}}/
 ```
 
-## Cross-field rules
-
-Rules that depend on more than one field value.
-
-- {{condition}} → {{what is blocked or required}}
+> [!warning] Cross-field rules
+> Rules that depend on more than one field value.
+> - {{condition}} → {{what is blocked or required}}
 
 ## Used by
 

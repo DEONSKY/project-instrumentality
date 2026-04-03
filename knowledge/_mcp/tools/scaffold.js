@@ -43,10 +43,10 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
     .replace(/\{\{date\}\}/g, today)
     .replace(/\{\{app_scope\}\}/g, app_scope)
 
-  // If group folder missing, create _group.md
+  // If group folder missing, create folder note ({name}.md)
   if (group) {
     const groupDir = path.join(KB_ROOT, getGroupFolder(type), group)
-    const groupFilePath = path.join(groupDir, '_group.md')
+    const groupFilePath = path.join(groupDir, `${group}.md`)
     if (!fs.existsSync(groupFilePath)) {
       createGroupFile(groupFilePath, group, today)
     }

@@ -1,6 +1,8 @@
 ---
 id: tech-stack
 type: standard
+aliases: [Tech Stack]
+cssclasses: [kb-standard]
 scope: code
 app_scope: all
 owner: {{owner}}
