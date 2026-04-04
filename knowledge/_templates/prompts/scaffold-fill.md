@@ -68,3 +68,29 @@ cannot confidently fill as-is with the original {{placeholder}} text.
 - Set status to: draft (always — developer promotes when ready)
 - Set created to: {{date}} (filled at runtime, keep as-is)
 - Write only the filled template content. No explanation.
+
+## Content rules by template type
+
+### When template_type is "feature"
+
+Features are **business requirement documents**, not technical references.
+
+WRITE in plain language that a product manager or domain expert can read:
+- What the feature does and who uses it
+- Field names as the user/domain sees them (labels, not variable names)
+- Business invariants: "A user can hold exactly one role", "Only admins can manage users"
+- Edge cases from a domain perspective: "If the employee no longer exists in MAB…"
+
+DO NOT write:
+- Class names, method names, or package paths
+- REST endpoint paths or HTTP verbs
+- Database table names, JPA queries, or ORM details
+- Framework-specific implementation details (Spring annotations, React hooks, etc.)
+
+If you find yourself writing technical implementation details, stop and ask:
+- Does this belong in `standards/code/` instead? → architectural pattern or convention
+- Does this belong in `decisions/` instead? → a one-time architectural choice
+- Does this belong in `integrations/` instead? → how two systems connect
+
+A good feature file answers: **What does it do and what are the rules?**
+A bad feature file answers: **How is it implemented?**
