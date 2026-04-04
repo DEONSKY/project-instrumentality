@@ -423,14 +423,6 @@ secret_patterns:
   - "api_key:"
   - "secret:"
 
-cross_app_refs:
-  always_shared:
-    - data
-    - validation
-    - integrations
-    - decisions
-    - foundation
-
 ${generateCodePathPatterns(hints)}
 
 prompt_overrides:
