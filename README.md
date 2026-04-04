@@ -102,12 +102,12 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 
 | Tool | What it does |
 |------|-------------|
-| `kb_init` | Bootstrap `knowledge/` folder, git hooks, merge drivers, and MCP config. Re-run to update `code_path_patterns` when stack changes |
+| `kb_init` | Bootstrap `knowledge/` folder, git hooks, merge drivers, MCP config, and agent rule files (`CLAUDE.md`, `.cursorrules`, `.windsurfrules`). Re-run to update `code_path_patterns` when stack changes |
 | `kb_get` | Load relevant KB files into agent context (keyword + scope filtering, token budget aware). `max_tokens` overrides the budget; default reads `token_budget` from `_rules.md`. Optional `task_context` (`creating`, `fixing`, `reviewing`, `understanding`) adjusts relevance scoring — `creating` boosts same-type files, `reviewing` includes drift targets |
 | `kb_write` | Write a KB file and auto-reindex. Rejects paths outside `knowledge/` |
 | `kb_reindex` | Rebuild `_index.yaml` from all KB files, run lint. Returns up to 20 lint violations in the result |
 | `kb_lint` | Lint KB files for front-matter correctness and secret patterns |
-| `kb_scaffold` | Create a new KB file from template (types: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `group`, `enums`, `relations`, `components`, `permissions`, `copy`, `global-rules`, `tech-stack`, `conventions`). Two-phase when `description` is given: loads related KB context, checks for overlapping entries, returns a fill prompt → agent fills → writes |
+| `kb_scaffold` | Create a new KB file from template (types: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `group`, `enums`, `relations`, `components`, `permissions`, `copy`, `global-rules`, `tech-stack`, `conventions`, `agent-rules`). Two-phase when `description` is given: loads related KB context, checks for overlapping entries, returns a fill prompt → agent fills → writes. `agent-rules` is special: writes `CLAUDE.md`, `.cursorrules`, and `.windsurfrules` to the project root. Use `force: true` to regenerate existing files |
 | `kb_ask` | Ask a question about the KB. Classifies intent (query / sync / brainstorm / challenge / onboard / generate) and returns relevant context. Short tech terms (api, jwt, sql, etc.) are preserved in keyword extraction |
 | `kb_drift` | Bidirectional drift detection. Phase 1: code→kb (code changed, KB stale) and kb→code (KB changed, code may be stale). Writes to queue files in `sync/`. Phase 2: three resolution types — `summaries` (KB updated), `reverted` (code was wrong), `kb_confirmed` (kb→code reviewed) |
 | `kb_impact` | Analyze what KB files are affected by a proposed change, using the dependency graph |
@@ -120,6 +120,8 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | `kb_issue_plan` | Generate work items from KB docs for a PM tool. Phase 1: gathers source docs by `scope`/`type`/`keywords`, returns a prompt to break them into stories/tasks with acceptance criteria. Phase 2: writes task breakdown YAML to `sync/outbound/`. Supports `target` (jira/github/linear) and `project_key` |
 | `kb_issue_consult` | Consult the KB before filing an issue. Searches for related docs and returns a prompt for the agent to advise the reporter with enriched context, suggested labels, and relevant standards. Single-phase — no write step |
 | `kb_sub` | Submodule coordination. `status`: shows parent + submodule branches, pointer changes, owned/shared types. `push`: pushes submodules first (correct order), then parent — supports `dry_run` to preview the plan. `merge_plan`: returns correct merge sequence for feature-to-main |
+| `kb_autotag` | Auto-extract tags from KB file content and write them to frontmatter. Improves `kb_ask` search accuracy when files have empty `tags: []`. Extracts from headings (3×), bold text, inline code, file path, and body word frequency. Merges with existing tags — never removes manual ones. Run `file_path: "all"` (default) or target a single file |
+| `kb_autorelate` | Discover semantic relations between KB files using keyword overlap (Overlap Coefficient). Proposes `depends_on` links. Use `dry_run: true` to preview before writing. `threshold` (default `0.25`) controls sensitivity. Direction is inferred from type priority: schemas and validation are upstream, flows and decisions are downstream |
 
 ### Two-phase tools
 
@@ -382,7 +384,47 @@ Standards are loaded via `kb_get` based on context — `task_context: "creating"
 
 ---
 
-### 9. Catching cross-branch semantic conflicts after a merge
+### 9. Improving KB search quality after import
+
+After importing documents or creating KB files in bulk, tags are often empty — `kb_ask` falls back to weak path-matching. Run the two enrichment tools to fix this.
+
+```
+"Tag all KB files automatically"
+→ kb_autotag()
+→ Returns: { tagged: 40, tags_added: 333, sample: { "features/auth.md": ["auth", "jwt", ...] } }
+
+"Discover missing depends_on relations"
+→ kb_autorelate({ dry_run: true })
+→ Returns proposals: [{ source: "features/checkout.md", target: "features/auth.md", score: 0.64, shared_terms: [...] }]
+
+"Looks good, apply them"
+→ kb_autorelate()
+→ Writes depends_on links to frontmatter, reindexes
+
+Now kb_ask finds files reliably:
+→ kb_ask({ question: "how does authentication work?" })
+→ context_files: ["features/auth.md", "flows/auth-flow.md", "validation/auth-rules.md"]
+```
+
+Both tools are safe to re-run — `kb_autotag` merges with existing tags, `kb_autorelate` skips already-present relations and prevents cycles.
+
+---
+
+### 10. Setting up agent instructions
+
+`kb_init` generates `CLAUDE.md`, `.cursorrules`, and `.windsurfrules` automatically. To regenerate them (e.g. after updating the template), use `kb_scaffold`:
+
+```
+"Regenerate agent rule files"
+→ kb_scaffold({ type: "agent-rules", force: true })
+→ Returns: { files_written: ["CLAUDE.md", ".cursorrules", ".windsurfrules"] }
+```
+
+Without `force: true`, existing files with content are not overwritten — your customizations are preserved.
+
+---
+
+### 11. Catching cross-branch semantic conflicts after a merge
 
 Two developers work in parallel. Neither causes a git conflict, but together they create an inconsistency.
 
@@ -412,7 +454,7 @@ PM opens Claude: "review code-drift.md"
 
 ---
 
-### 10. PM tool integration (Jira, GitHub Issues, Linear)
+### 12. PM tool integration (Jira, GitHub Issues, Linear)
 
 The KB bridges the gap between knowledge and project management tools through a middleware layer. No direct PM tool API calls — staging files in `sync/inbound/` and `sync/outbound/` act as the interface. External adapter scripts handle actual API sync.
 

@@ -343,6 +343,10 @@ async function runTool({ interactive = true, config = null } = {}) {
   fs.writeFileSync(path.join(cursorDir, 'mcp.json'), JSON.stringify(CURSOR_MCP, null, 2))
   filesCreated.push('.cursor/mcp.json')
 
+  // 9b. Generate agent rule files (CLAUDE.md, .cursorrules, .windsurfrules)
+  const { generateAgentRules } = require('../lib/agent-rules')
+  generateAgentRules(filesCreated)
+
   // 10. Generate initial _index.yaml
   await reindex({ silent: true })
   filesCreated.push(path.join(KB_ROOT, '_index.yaml'))

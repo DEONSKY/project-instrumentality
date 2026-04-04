@@ -17,8 +17,28 @@ const TEMPLATES_DIR = getTemplatesDir()
  *   the template and calls kb_write({ file_path, content }) to save it.
  * With content: writes the agent-filled content directly.
  */
-async function runTool({ type, id, group, description, content, app_scope = 'all' } = {}) {
+async function runTool({ type, id, group, description, content, app_scope = 'all', force = false } = {}) {
   if (!type) return { error: 'type is required' }
+
+  // Special case: agent-rules writes to project root, not knowledge/
+  if (type === 'agent-rules') {
+    const { generateAgentRules, AGENT_RULE_FILES } = require('../lib/agent-rules')
+    if (force) {
+      // Force overwrite: delete existing files so generateAgentRules will re-create them
+      const fs2 = require('fs')
+      for (const f of AGENT_RULE_FILES) {
+        if (fs2.existsSync(f)) fs2.writeFileSync(f, '', 'utf8')
+      }
+    }
+    const written = generateAgentRules()
+    const skipped = AGENT_RULE_FILES.filter(f => !written.includes(f))
+    return {
+      files_written: written,
+      files_skipped: skipped,
+      note: skipped.length > 0 ? 'Existing files with content were not overwritten. Use force: true to regenerate.' : undefined
+    }
+  }
+
   if (!TYPE_TO_TEMPLATE[type]) {
     return { error: `Unknown type: ${type}. Valid: ${Object.keys(TYPE_TO_TEMPLATE).join(', ')}` }
   }

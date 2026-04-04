@@ -1813,3 +1813,188 @@ kb_init({ interactive: false })
 ```
 
 **Pass:** `knowledge/sync/inbound/` and `knowledge/sync/outbound/` directories exist. `.gitattributes` contains `knowledge/sync/inbound/**` and `knowledge/sync/outbound/**` merge entries.
+
+---
+
+## 28. `kb_autotag` — Auto tag extraction
+
+### TC-28.1 Tag all files
+
+```
+# Run on a KB where all files have tags: []
+kb_autotag()
+```
+
+**Pass:** `tagged > 0`, `tags_added > 0`. Running `kb_reindex` afterward shows non-empty `tags` arrays in `_index.yaml`. No `skipped` count above 0 for files that have valid frontmatter.
+
+### TC-28.2 Tag single file
+
+```
+kb_autotag({ file_path: "knowledge/features/auth.md" })
+```
+
+**Pass:** Only `features/auth.md` is modified. `tags` in frontmatter now includes terms from headings and content (e.g. `auth`, `jwt`, `login`). Other files untouched.
+
+### TC-28.3 Existing tags preserved (merge, not replace)
+
+```
+# Manually set tags: [custom-tag] in a file, then run autotag
+kb_autotag({ file_path: "knowledge/features/auth.md" })
+```
+
+**Pass:** `custom-tag` still present in the file's `tags` array after autotag. Extracted tags are added; no manual tag is removed.
+
+### TC-28.4 Reindex runs automatically
+
+```
+kb_autotag()
+```
+
+**Pass:** `_index.yaml` is updated in the same call — no manual `kb_reindex` required. `last_sync` date is today.
+
+### TC-28.5 Idempotent on repeat run
+
+```
+kb_autotag()
+kb_autotag()
+```
+
+**Pass:** Second run returns `tags_added: 0`. No duplicate tags in frontmatter.
+
+### TC-28.6 kb_ask finds files after autotag
+
+```
+# Before: kb_ask({ question: "how does authentication work?" }) returns context_files: []
+kb_autotag()
+kb_ask({ question: "how does authentication work?" })
+```
+
+**Pass:** After autotag, `context_files` includes at least one auth-related file (e.g. `features/auth.md`, `flows/auth-flow.md`).
+
+### TC-28.7 Invalid file path
+
+```
+kb_autotag({ file_path: "knowledge/features/nonexistent.md" })
+```
+
+**Pass:** Returns `{ error: "File not found: ..." }`. No files modified.
+
+---
+
+## 29. `kb_autorelate` — Semantic relation discovery
+
+### TC-29.1 Dry run mode
+
+```
+kb_autorelate({ dry_run: true })
+```
+
+**Pass:** Returns `{ proposals: [...], total_proposals: N, cycles_avoided: N }`. No KB files modified. Each proposal has `source`, `target`, `score`, `shared_terms` fields.
+
+### TC-29.2 Write mode adds depends_on
+
+```
+kb_autorelate({ dry_run: false })
+```
+
+**Pass:** `relations_added > 0`. Frontmatter of affected files shows new entries in `depends_on`. `reindex` runs automatically. `_index.yaml` reflects new dependencies.
+
+### TC-29.3 Existing relations not duplicated
+
+```
+kb_autorelate()
+kb_autorelate()
+```
+
+**Pass:** Second run returns `relations_added: 0`. No duplicate entries in `depends_on` arrays.
+
+### TC-29.4 No circular dependencies introduced
+
+```
+kb_autorelate()
+# Then inspect _index.yaml depends_on chains
+```
+
+**Pass:** `cycles_avoided >= 0`. No file's `depends_on` chain loops back to itself (BFS check). If any cycles were blocked, they appear in `cycles_avoided` count.
+
+### TC-29.5 Single file mode
+
+```
+kb_autorelate({ file_path: "knowledge/features/checkout.md", dry_run: true })
+```
+
+**Pass:** Proposals only involve `features/checkout.md` as the `source`. Other file pairs not analyzed.
+
+### TC-29.6 Threshold filtering
+
+```
+kb_autorelate({ dry_run: true, threshold: 0.8 })
+```
+
+**Pass:** All returned proposals have `score >= 0.8`. Fewer proposals than with default threshold (0.25).
+
+### TC-29.7 Direction heuristic
+
+```
+# Project has both features/auth.md and data/schema/users.md
+kb_autorelate({ dry_run: true })
+```
+
+**Pass:** If a relation is proposed between a schema and a feature, the `source` (dependent) is the feature, and the `target` is the schema — not the reverse. Schema files are upstream (lower TYPE_PRIORITY number).
+
+### TC-29.8 File not in index
+
+```
+kb_autorelate({ file_path: "knowledge/features/ghost.md" })
+```
+
+**Pass:** Returns `{ error: "File not found in index: ..." }`. Suggests running `kb_reindex`.
+
+---
+
+## 30. `kb_scaffold` — agent-rules type
+
+### TC-30.1 Creates all three agent rule files
+
+```
+# From a project root with no CLAUDE.md, .cursorrules, .windsurfrules
+kb_scaffold({ type: "agent-rules" })
+```
+
+**Pass:** Returns `{ files_written: ["CLAUDE.md", ".cursorrules", ".windsurfrules"], files_skipped: [] }`. All three files exist at project root with content from the `agent-rules.md` template (contains `kb_ask`, `kb_get`, `kb_drift` instructions).
+
+### TC-30.2 Skips existing non-empty files
+
+```
+# CLAUDE.md already has custom content
+kb_scaffold({ type: "agent-rules" })
+```
+
+**Pass:** `files_skipped` includes `CLAUDE.md`. `.cursorrules` and `.windsurfrules` written if missing. Existing `CLAUDE.md` content unchanged.
+
+### TC-30.3 Force overwrites all files
+
+```
+kb_scaffold({ type: "agent-rules", force: true })
+```
+
+**Pass:** `files_written` contains all three filenames. All files reset to template content regardless of prior content.
+
+### TC-30.4 kb_init generates agent rules automatically
+
+```
+cd test-react-vite
+kb_init({ interactive: false })
+```
+
+**Pass:** `CLAUDE.md`, `.cursorrules`, `.windsurfrules` all exist at project root after init. `files_created` in the init result includes at least one of these (whichever didn't exist before).
+
+### TC-30.5 kb_init does not overwrite existing agent rule files
+
+```
+# Create CLAUDE.md with custom content first
+echo "custom content" > CLAUDE.md
+kb_init({ interactive: false })
+```
+
+**Pass:** `CLAUDE.md` still contains `"custom content"`. Init skips it silently.

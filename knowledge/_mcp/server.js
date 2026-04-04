@@ -20,7 +20,9 @@ const tools = {
   kb_issue_triage: require('./tools/issue-triage'),
   kb_issue_plan: require('./tools/issue-plan'),
   kb_issue_consult: require('./tools/issue-consult'),
-  kb_sub: require('./tools/sub')
+  kb_sub: require('./tools/sub'),
+  kb_autotag: require('./tools/autotag'),
+  kb_autorelate: require('./tools/autorelate')
 }
 
 const TOOL_DEFINITIONS = [
@@ -81,12 +83,13 @@ const TOOL_DEFINITIONS = [
       type: 'object',
       required: ['type'],
       properties: {
-        type: { type: 'string', description: 'Template type: feature|flow|schema|validation|integration|decision|standard|group|enums|relations|components|permissions|copy|global-rules|tech-stack|conventions' },
+        type: { type: 'string', description: 'Template type: feature|flow|schema|validation|integration|decision|standard|group|enums|relations|components|permissions|copy|global-rules|tech-stack|conventions|agent-rules' },
         id: { type: 'string', description: 'File identifier (kebab-case)' },
         group: { type: 'string', description: 'Group/subfolder for standards: code|knowledge|process' },
         description: { type: 'string', description: 'Description — tool returns a fill prompt for the agent to process' },
         content: { type: 'string', description: 'Agent-filled content to write (use after processing the fill prompt)' },
-        app_scope: { type: 'string', description: 'App scope for this standard (e.g. frontend, backend). Default: all' }
+        app_scope: { type: 'string', description: 'App scope for this standard (e.g. frontend, backend). Default: all' },
+        force: { type: 'boolean', description: 'For agent-rules type only: overwrite existing agent rule files. Default: false' }
       }
     }
   },
@@ -251,6 +254,28 @@ const TOOL_DEFINITIONS = [
         command: { type: 'string', enum: ['status', 'push', 'merge_plan'], description: 'Command to run' },
         dry_run: { type: 'boolean', description: 'For push: show plan without executing', default: false },
         target_branch: { type: 'string', description: 'For merge_plan: target branch name', default: 'main' }
+      }
+    }
+  },
+  {
+    name: 'kb_autotag',
+    description: 'Auto-extract tags from KB file content and write them to frontmatter. Improves kb_ask search accuracy by populating empty tags fields. Run after importing or creating KB files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Path to a single KB file (e.g. knowledge/features/auth.md), or "all" to tag the entire KB. Default: all.' }
+      }
+    }
+  },
+  {
+    name: 'kb_autorelate',
+    description: 'Discover semantic relations between KB files using keyword overlap and propose depends_on links. Use dry_run: true to preview before writing.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Analyze relations for a single file, or omit for all files.' },
+        dry_run: { type: 'boolean', description: 'Preview proposed relations without writing.', default: false },
+        threshold: { type: 'number', description: 'Minimum overlap score to propose a relation (0–1). Default: 0.25' }
       }
     }
   }

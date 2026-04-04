@@ -1432,3 +1432,134 @@ kb_init({ interactive: false })
 
 **Expected:** Setup guide suggests adding `backend/` prefixed patterns. Does NOT auto-modify `_rules.md`.
 
+
+---
+
+## Part J — kb_autotag, kb_autorelate, and Agent Rules (run on any initialized project with KB content)
+
+### J.0 Prerequisites
+
+Use an existing initialized project that has KB files with empty `tags: []` — e.g. a project initialized with `kb_init` where features were scaffolded but not manually tagged. The `kb-test-project4` fixture works well.
+
+---
+
+### J.1 Auto-tag the entire KB (TC-28.1, TC-28.4, TC-28.6)
+
+```
+"Auto-tag all KB files so kb_ask can find them"
+→ kb_autotag()
+```
+
+**Expected agent behavior:**
+1. Calls `kb_autotag()` (no args or `file_path: "all"`)
+2. Reports how many files were tagged and total tags added
+3. Notes that `_index.yaml` was rebuilt automatically
+
+**Check manually:**
+- Open any feature file — `tags:` array is now populated
+- Run `kb_ask({ question: "how does checkout work?" })` — `context_files` should include `features/checkout.md`
+
+---
+
+### J.2 Tag a single file (TC-28.2, TC-28.3)
+
+```
+"Tag only the auth feature file, and make sure my existing tags are kept"
+→ kb_autotag({ file_path: "knowledge/features/auth.md" })
+```
+
+**Expected:** Only `features/auth.md` modified. Existing tags preserved (merged).
+
+---
+
+### J.3 Discover semantic relations — preview first (TC-29.1, TC-29.7)
+
+```
+"Show me what depends_on relations you'd add across the KB — don't write yet"
+→ kb_autorelate({ dry_run: true })
+```
+
+**Expected agent behavior:**
+1. Calls `kb_autorelate({ dry_run: true })`
+2. Presents proposals in readable form: "I'd link `features/checkout.md → features/auth.md` (score 0.64, shared terms: auth, login)"
+3. Notes cycles avoided if any
+
+**Check:** Schema files appear as targets (upstream), feature/flow files appear as sources.
+
+---
+
+### J.4 Apply semantic relations (TC-29.2, TC-29.3)
+
+```
+"The proposals look good — apply them"
+→ kb_autorelate()
+```
+
+**Expected:** Agent confirms how many relations were added and which files were updated. Second run returns `relations_added: 0`.
+
+---
+
+### J.5 Full enrichment pipeline (TC-28.6 + TC-29.2)
+
+```
+"Enrich the entire KB — first tag everything, then discover relations"
+```
+
+**Expected agent behavior:**
+1. `kb_autotag()` — tag all files
+2. `kb_autorelate({ dry_run: true })` — preview relations
+3. Asks for confirmation
+4. `kb_autorelate()` — apply relations
+5. Verifies with `kb_ask` to confirm search now works
+
+---
+
+### J.6 Generate agent rule files (TC-30.1, TC-30.2)
+
+```
+"Generate the agent instruction files for Claude Code, Cursor, and Windsurf"
+→ kb_scaffold({ type: "agent-rules" })
+```
+
+**Expected:**
+- `CLAUDE.md`, `.cursorrules`, `.windsurfrules` created at project root
+- Agent reports which files were written vs skipped
+- Files contain KB-MCP instructions (`kb_ask`, `kb_get`, `kb_drift` sections)
+
+---
+
+### J.7 Regenerate agent rules after template change (TC-30.3)
+
+```
+"Regenerate all agent rule files from the latest template, overwriting existing ones"
+→ kb_scaffold({ type: "agent-rules", force: true })
+```
+
+**Expected:** All three files updated even if they had existing content.
+
+---
+
+### J.8 Verify init generates agent rules (TC-30.4, TC-30.5)
+
+```bash
+mkdir test-agent-rules && cd test-agent-rules && git init
+echo '{"name":"test"}' > package.json && git add . && git commit -m "init"
+```
+
+```
+"Initialize the KB"
+→ kb_init({ interactive: false })
+```
+
+**Expected:** `CLAUDE.md`, `.cursorrules`, `.windsurfrules` all appear after init.
+
+```bash
+# Verify custom CLAUDE.md is not overwritten
+echo "# Custom rules" > CLAUDE.md
+```
+
+```
+kb_init({ interactive: false })
+```
+
+**Expected:** `CLAUDE.md` still contains `# Custom rules`. Not overwritten.

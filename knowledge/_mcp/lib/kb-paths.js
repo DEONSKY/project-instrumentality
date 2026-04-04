@@ -44,7 +44,8 @@ const TYPE_TO_TEMPLATE = {
   copy: 'ui/copy.md',
   'global-rules': 'standards/global-rules.md',
   'tech-stack': 'standards/tech-stack.md',
-  conventions: 'standards/conventions.md'
+  conventions: 'standards/conventions.md',
+  'agent-rules': 'agent-rules.md'
 }
 
 // Maps import-classify types to scaffold types
