@@ -37,7 +37,7 @@ const TOOL_DEFINITIONS = [
         app_scope: { type: 'string', description: 'Filter by app scope (e.g. frontend, backend)' },
         scope: { type: 'string', description: 'Export scope: domain name, feature id, or "all"' },
         max_tokens: { type: 'number', description: 'Override token budget (default: 8000, or token_budget from _rules.md)' },
-        task_context: { type: 'string', enum: ['creating', 'fixing', 'reviewing', 'understanding'], description: 'Adjusts relevance scoring: creating boosts same-type files, reviewing includes drift targets' }
+        task_context: { type: 'string', enum: ['creating', 'fixing', 'reviewing'], description: 'Adjusts relevance scoring: creating boosts same-type files, fixing boosts code standards, reviewing includes drift targets' }
       }
     }
   },
@@ -161,7 +161,7 @@ const TOOL_DEFINITIONS = [
       properties: {
         scope: { description: 'Domain name, feature/flow id, or "all". Accepts an array for multi-scope export.', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], default: 'all' },
         format: { type: 'string', description: 'Output format: pdf|docx|markdown|confluence|notion|html|json', default: 'markdown' },
-        type: { type: 'string', description: 'Filter by KB type: feature, flow, schema, validation, integration, decision, foundation, enums, ui-permissions, ui-copy' },
+        type: { type: 'string', description: 'Filter by KB type: feature, flow, schema, validation, integration, decision, enums, relations, components, permissions, copy' },
         purpose: { type: 'string', description: 'Optional: describe the purpose and desired style of the export (e.g. "client-facing API overview", "onboarding guide for new backend engineers")' },
         app_scope: { type: 'string', description: 'Filter by app scope' },
         page: { type: 'number', description: 'Page number for paginated exports of large KBs (returned by previous call)' },

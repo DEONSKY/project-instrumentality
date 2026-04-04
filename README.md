@@ -25,7 +25,9 @@ your-project/
     validation/          ← validation rules
     integrations/        ← third-party integrations
     decisions/           ← architectural decisions
-    assets/              ← images and design files referenced in KB docs
+    assets/
+      design/            ← design files and diagrams
+      screenshots/       ← UI screenshots referenced in KB docs
     standards/           ← how to work on this project (contextually loaded)
       global.md          ← always_load: true — cross-cutting rules only
       code/              ← loaded when writing/reviewing code
@@ -43,6 +45,10 @@ your-project/
     _rules.md            ← KB configuration (depth policy, token_budget, code path patterns, secrets)
     _mcp/                ← MCP server (do not edit)
     _templates/          ← KB and prompt templates (customizable)
+      data/              ← schema and enum templates
+      ui/                ← UI component templates
+      standards/         ← standards templates
+      prompts/           ← prompt templates (overridable via _prompt-overrides/)
 ```
 
 ---
@@ -106,7 +112,7 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | Tool | What it does |
 |------|-------------|
 | `kb_init` | Bootstrap `knowledge/` folder, git hooks, merge drivers, MCP config, and agent rule files (`CLAUDE.md`, `.cursorrules`, `.windsurfrules`). Re-run to update `code_path_patterns` when stack changes |
-| `kb_get` | Load relevant KB files into agent context (keyword + scope filtering, token budget aware). `max_tokens` overrides the budget; default reads `token_budget` from `_rules.md`. Optional `task_context` (`creating`, `fixing`, `reviewing`, `understanding`) adjusts relevance scoring — `creating` boosts same-type files, `reviewing` includes drift targets |
+| `kb_get` | Load relevant KB files into agent context (keyword + scope filtering, token budget aware). `max_tokens` overrides the budget; default reads `token_budget` from `_rules.md`. Optional `task_context` (`creating`, `fixing`, `reviewing`) adjusts relevance scoring — `creating` boosts same-type files, `fixing` boosts code standards, `reviewing` includes drift targets |
 | `kb_write` | Write a KB file and auto-reindex. Rejects paths outside `knowledge/` |
 | `kb_reindex` | Rebuild `_index.yaml` from all KB files, run lint. Returns up to 20 lint violations in the result |
 | `kb_lint` | Lint KB files for front-matter correctness and secret patterns |
@@ -115,7 +121,7 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | `kb_drift` | Bidirectional drift detection. Phase 1: code→kb (code changed, KB stale) and kb→code (KB changed, code may be stale). Writes to queue files in `sync/`. Phase 2: three resolution types — `summaries` (KB updated), `reverted` (code was wrong), `kb_confirmed` (kb→code reviewed) |
 | `kb_impact` | Analyze what KB files are affected by a proposed change, using the dependency graph |
 | `kb_import` | Import documents (PDF, DOCX, MD, TXT, HTML) into KB files. **Auto-classify mode** (recommended): paginated batches with multi-label classification, cross-reference generation, and an import plan for review before writing. **Classic mode**: Phase 1 returns chunks, Phase 2 writes agent-generated files. Supports DOCX images. Rejects paths outside `knowledge/` |
-| `kb_export` | Export KB as JSON (direct), or Markdown / HTML / Confluence / DOCX / PDF (two-phase via agent). Supports `purpose` to guide tone/structure, `type` filter (e.g. all flows), multi-scope (array of ids/domains), and automatic pagination for large KBs. PDF and DOCX output includes proper headings, lists, and inline formatting |
+| `kb_export` | Export KB in multiple formats. `json` writes directly (no agent needed). `markdown`, `html`, `confluence`, `notion`, `docx`, `pdf` are two-phase via agent. Supports `purpose` to guide tone/structure, `type` filter (e.g. all flows), multi-scope (array of ids/domains), and automatic pagination for large KBs. PDF and DOCX output includes proper headings, lists, and inline formatting |
 | `kb_migrate` | Migrate KB files after `_rules.md` structure changes. `since` sets the comparison ref (auto-detected if omitted); `dry_run` previews prompts without writing |
 | `kb_analyze` | Scan project source files and generate a KB coverage inventory. Groups files by their KB target using `code_path_patterns` from `_rules.md`. Optional `write_drafts` creates draft KB files (`confidence: draft`) for uncovered groups. Useful for bootstrapping KB on legacy projects |
 | `kb_extract` | Derive a standards document from existing code or KB files. Phase 1: samples representative files and returns a prompt for the agent to observe patterns and fill the template. Phase 2: writes the filled standard. Supports `paths` to narrow sampling (glob patterns for code, subfolder name for KB), and `app_scope` for multi-stack projects |
@@ -163,7 +169,7 @@ You're about to build a payment flow. Load relevant context first, then scaffold
 
 ```
 "Load KB context for the checkout and payment features"
-→ kb_get({ keywords: ["checkout", "payment"], task_type: "generate" })
+→ kb_get({ keywords: ["checkout", "payment"], task_context: "creating" })
 
 "Scaffold a new feature doc for Stripe payment processing"
 → kb_scaffold({ type: "feature", id: "stripe-payments", description: "Stripe integration: charge cards at checkout, handle webhooks for refunds and disputes, store payment method tokens per user." })
@@ -589,6 +595,8 @@ Written by the server automatically, reviewed and resolved by humans via Claude.
 | `sync/kb-drift.md` | pre-push + post-merge hooks (KB changed, code may be stale) | Developer confirms code still matches |
 | `sync/review-queue.md` | git merge conflict driver (same KB file edited on two branches) | Resolve conflict markers in file, then close entry |
 | `sync/import-review.md` | `kb_import` | Classify unresolved chunks via Claude |
+| `sync/inbound/*.md` | `kb_issue_triage` | Review triage reports, apply suggested KB updates |
+| `sync/outbound/*.yaml` | `kb_issue_plan` | Review task breakdowns, push to PM tool via adapter script |
 
 Do not delete entries from Tier 3 files manually — always resolve through `kb_drift` or the relevant tool so the resolution is logged to `sync/drift-log/`.
 
