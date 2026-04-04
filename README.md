@@ -43,6 +43,8 @@ your-project/
       outbound/          ← task breakdowns for PM tools (written by kb_issue_plan)
     _index.yaml          ← auto-generated dependency graph
     _rules.md            ← KB configuration (depth policy, token_budget, code path patterns, secrets)
+    exports/             ← kb_export output files
+    _prompt-overrides/   ← project-specific prompt overrides (takes priority over _templates/prompts/)
     _mcp/                ← MCP server (do not edit)
     _templates/          ← KB and prompt templates (customizable)
       data/              ← schema and enum templates
