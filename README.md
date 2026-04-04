@@ -25,6 +25,7 @@ your-project/
     validation/          ← validation rules
     integrations/        ← third-party integrations
     decisions/           ← architectural decisions
+    assets/              ← images and design files referenced in KB docs
     standards/           ← how to work on this project (contextually loaded)
       global.md          ← always_load: true — cross-cutting rules only
       code/              ← loaded when writing/reviewing code
@@ -36,8 +37,10 @@ your-project/
       review-queue.md    ← git merge conflicts on KB files
       import-review.md   ← unclassified import chunks
       drift-log/         ← resolved drift audit trail (one file per month)
+      inbound/           ← issue triage reports (written by kb_issue_triage)
+      outbound/          ← task breakdowns for PM tools (written by kb_issue_plan)
     _index.yaml          ← auto-generated dependency graph
-    _rules.md            ← KB configuration
+    _rules.md            ← KB configuration (depth policy, token_budget, code path patterns, secrets)
     _mcp/                ← MCP server (do not edit)
     _templates/          ← KB and prompt templates (customizable)
 ```
@@ -122,6 +125,17 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | `kb_sub` | Submodule coordination. `status`: shows parent + submodule branches, pointer changes, owned/shared types. `push`: pushes submodules first (correct order), then parent — supports `dry_run` to preview the plan. `merge_plan`: returns correct merge sequence for feature-to-main |
 | `kb_autotag` | Auto-extract tags from KB file content and write them to frontmatter. Improves `kb_ask` search accuracy when files have empty `tags: []`. Extracts from headings (3×), bold text, inline code, file path, and body word frequency. Merges with existing tags — never removes manual ones. Run `file_path: "all"` (default) or target a single file |
 | `kb_autorelate` | Discover semantic relations between KB files using keyword overlap (Overlap Coefficient). Proposes `depends_on` links. Use `dry_run: true` to preview before writing. `threshold` (default `0.25`) controls sensitivity. Direction is inferred from type priority: schemas and validation are upstream, flows and decisions are downstream |
+
+### `_rules.md` configuration reference
+
+Key fields you can set in the YAML front-matter of `knowledge/_rules.md`:
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `token_budget` | `8000` | Max tokens `kb_get` loads per call. Override per-call with `max_tokens` |
+| `depth_policy` | see template | Max folder nesting per domain before files are grouped |
+| `secret_patterns` | see template | Patterns that block KB file writes if found in content |
+| `code_path_patterns` | stack preset | Maps source file globs to KB targets for drift detection |
 
 ### Two-phase tools
 
@@ -560,7 +574,7 @@ The pre-commit hook warns if any of these are staged. `_index.yaml` has a `# AUT
 
 | File | Purpose |
 |------|---------|
-| `_rules.md` | Project config — depth policy, code path patterns, secrets |
+| `_rules.md` | Project config — depth policy, code path patterns, secrets, `token_budget` |
 | `_templates/` | Customize KB file templates |
 | `_prompt-overrides/` | Override bundled prompts for your project |
 | `features/*.md`, `flows/*.md`, etc. | KB content — developers and PMs edit directly; agent can too |
