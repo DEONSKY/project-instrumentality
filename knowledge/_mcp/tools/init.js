@@ -654,9 +654,10 @@ function detectSubmodulePatternGaps(rules) {
     const pathMatch = block.match(/path\s*=\s*(.+)/)
     if (!nameMatch || !pathMatch) continue
     const subPath = pathMatch[1].trim()
+    const isShared = /kb-shared\s*=\s*true/.test(block)
     const hasCoverage = allPaths.some(p => p.startsWith(subPath + '/'))
     if (!hasCoverage) {
-      suggestions.push(subPath)
+      suggestions.push({ path: subPath, isShared })
     }
   }
   return suggestions
@@ -688,14 +689,32 @@ function printSetupGuide(cfg, hints = {}, submoduleGaps = []) {
 
   let submoduleLine = ''
   if (submoduleGaps.length > 0) {
+    const ownedGaps = submoduleGaps.filter(s => !s.isShared)
+    const sharedGaps = submoduleGaps.filter(s => s.isShared)
+
+    const ownedLines = ownedGaps.map(s => `     - ${s.path}/  →  add patterns like: ${s.path}/src/**`).join('\n')
+    const sharedLines = sharedGaps.map(s => `     - ${s.path}/  (shared — branch enforcement skipped)`).join('\n')
+    const gapLines = [ownedLines, sharedLines].filter(Boolean).join('\n')
+
+    const sharedHint = sharedGaps.length === 0
+      ? `   If a submodule is independent and not part of your feature branches:
+     Add kb-shared = true to its block in .gitmodules to skip branch enforcement.
+     Example:
+       [submodule "client-sdk"]
+           path = client-sdk
+           url = git@github.com:org/client-sdk.git
+           kb-shared = true
+`
+      : ''
+
     submoduleLine = `
 6. Submodule code path patterns needed:
    The following submodules have no matching code_path_patterns in _rules.md:
-${submoduleGaps.map(s => `     - ${s}/  →  add patterns like: ${s}/src/**`).join('\n')}
+${gapLines}
    Without prefixed patterns, drift detection won't match files inside these submodules.
    Edit knowledge/_rules.md → code_path_patterns to add them.
 
-   Push helper: use kb_sub tool (command: "push")
+${sharedHint}   Push helper: use kb_sub tool (command: "push")
    Standalone: ./knowledge/_mcp/scripts/kb-feature.sh push
    (Pushes submodules first with -u, then parent — correct order for drift)
 `
