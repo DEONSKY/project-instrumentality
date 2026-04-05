@@ -20,7 +20,7 @@ your-project/
   knowledge/
     features/            ← product features
     flows/               ← user flows and sequences
-    data/schema/         ← data models and schemas
+    data/schema/         ← data models (DBML format, one file per database)
     ui/                  ← component specs and copy
     validation/          ← validation rules
     integrations/        ← third-party integrations
@@ -133,6 +133,7 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | `kb_sub` | Submodule coordination. `status`: shows parent + submodule branches, pointer changes, owned/shared types. `push`: pushes submodules first (correct order), then parent — supports `dry_run` to preview the plan. `merge_plan`: returns correct merge sequence for feature-to-main |
 | `kb_autotag` | Auto-extract tags from KB file content and write them to frontmatter. Improves `kb_ask` search accuracy when files have empty `tags: []`. Extracts from headings (3×), bold text, inline code, file path, and body word frequency. Merges with existing tags — never removes manual ones. Run `file_path: "all"` (default) or target a single file |
 | `kb_autorelate` | Discover semantic relations between KB files using keyword overlap (Overlap Coefficient). Proposes `depends_on` links. Use `dry_run: true` to preview before writing. `threshold` (default `0.25`) controls sensitivity. Direction is inferred from type priority: schemas and validation are upstream, flows and decisions are downstream |
+| `kb_schema` | Query database schema files (DBML format) with table-level extraction. `list`: returns all table/enum names in a schema file. `query`: extracts specific tables by name (`entities`) or keyword relevance (`keywords`). Schema files use one-file-per-database layout with dbdiagram.io DBML syntax in the markdown body. `kb_get` automatically filters schema files to relevant tables when loading context |
 
 ### `_rules.md` configuration reference
 
@@ -432,7 +433,29 @@ Both tools are safe to re-run — `kb_autotag` merges with existing tags, `kb_au
 
 ---
 
-### 10. Setting up agent instructions
+### 10. Working with database schemas (DBML)
+
+Schema files use dbdiagram.io DBML syntax — one file per database, multiple tables per file. `kb_schema` extracts individual tables so the agent only loads what's relevant.
+
+```
+# List all tables in the postgres schema
+→ kb_schema({ command: "list", file: "postgres" })
+→ { tables: ["users", "orders", "products", "payments"], enums: ["order_status"], refs_count: 4 }
+
+# Extract specific tables
+→ kb_schema({ command: "query", file: "postgres", entities: ["users", "orders"] })
+→ Returns only users and orders Table blocks + related Ref: lines
+
+# Keyword-based extraction
+→ kb_schema({ command: "query", file: "postgres", keywords: ["payment", "billing"] })
+→ Returns tables mentioning payment/billing, scored by relevance
+```
+
+When `kb_get` loads a schema file during keyword search, it automatically filters to relevant tables — the full file is never sent to the agent unless all tables match.
+
+---
+
+### 11. Setting up agent instructions
 
 `kb_init` generates `CLAUDE.md`, `.cursorrules`, and `.windsurfrules` automatically. To regenerate them (e.g. after updating the template), use `kb_scaffold`:
 
@@ -446,7 +469,7 @@ Without `force: true`, existing files with content are not overwritten — your 
 
 ---
 
-### 11. Catching cross-branch semantic conflicts after a merge
+### 12. Catching cross-branch semantic conflicts after a merge
 
 Two developers work in parallel. Neither causes a git conflict, but together they create an inconsistency.
 
@@ -476,7 +499,7 @@ PM opens Claude: "review code-drift.md"
 
 ---
 
-### 12. PM tool integration (Jira, GitHub Issues, Linear)
+### 13. PM tool integration (Jira, GitHub Issues, Linear)
 
 The KB bridges the gap between knowledge and project management tools through a middleware layer. No direct PM tool API calls — staging files in `sync/inbound/` and `sync/outbound/` act as the interface. External adapter scripts handle actual API sync.
 
@@ -733,8 +756,8 @@ Cross-references use Obsidian-compatible `[[wikilinks]]` in content. These are a
 
 Supported wikilink formats:
 - Whole file: `[[schema/user]]`
-- Specific section: `[[schema/user#fields]]`
-- With display text: `[[schema/user#fields|User Fields]]`
+- Specific section: `[[data/schema/postgres#users]]` — the `#section` part is preserved in `depends_on` entries, enabling table-level cross-references for schema files
+- With display text: `[[data/schema/postgres#users|Users Table]]`
 - Embedded file: `![[assets/design/flow.png]]`
 
 ### Obsidian vault compatibility

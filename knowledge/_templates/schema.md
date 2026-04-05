@@ -4,35 +4,22 @@ type: schema
 aliases: [{{name}}]
 cssclasses: [kb-schema]
 app_scope: all
-depends_on:
-  - data/relations.md
 owner: {{owner}}
 created: {{date}}
 ---
 
-## Fields
+// {{name}} database schema
+// Format: dbdiagram.io DBML — https://dbml.dbdiagram.io/docs
 
-| column | type | nullable | default | notes |
-| ------ | ---- | -------- | ------- | ----- |
-| id | {{uuid|bigint}} | no | gen_random_uuid() | primary key |
-| {{column}} | {{type}} | {{yes|no}} | {{default}} | {{notes}} |
-| created_at | timestamptz | no | now() | |
-| updated_at | timestamptz | no | now() | |
+Table {{table_name}} {
+  id integer [pk, increment]
+  created_at timestamp [default: `now()`]
+  updated_at timestamp [default: `now()`]
+}
 
-## Indexes
+// Ref: {{table_name}}.column > other_table.id
 
-| name | columns | type | unique |
-| ---- | ------- | ---- | ------ |
-| {{index_name}} | {{columns}} | {{btree|gin|gist}} | {{yes|no}} |
-
-## Relations
-
-See [[data/relations#{{EntityName}}]] for full join definitions.
-
-| column | references | on_delete |
-| ------ | ---------- | --------- |
-| {{column}}_id | {{other_table}}.id | {{cascade|restrict|set_null}} |
-
-## Changelog
-
-{{date}} — created
+// Enum {{enum_name}} {
+//   value1
+//   value2
+// }

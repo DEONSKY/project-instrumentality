@@ -26,7 +26,8 @@ async function runTool({ task_type, keywords, app_scope, scope, max_tokens, type
   }
 
   // Standard mode: keyword-based traversal with optional task context
-  const candidates = findCandidates(graph, keywords, app_scope, task_context)
+  let candidates = findCandidates(graph, keywords, app_scope, task_context)
+  candidates = applySchemaFiltering(candidates, keywords)
 
   // For reviewing context, also load drift targets as high-priority candidates
   if (task_context === 'reviewing') {
@@ -246,6 +247,37 @@ function loadDriftTargets() {
     }
     return targets
   } catch { return [] }
+}
+
+// ── schema filtering ────────────────────────────────────────────────────────
+
+function applySchemaFiltering(candidates, keywords) {
+  if (!keywords || candidates.length === 0) return candidates
+
+  const { parseDbml, filterTablesByKeywords } = require('./schema')
+  const kwList = Array.isArray(keywords) ? keywords : [keywords]
+
+  return candidates.map(file => {
+    if (!file || file.type !== 'schema') return file
+
+    const parsed = parseDbml(file.content)
+    if (parsed.tables.length === 0) return file // old format, pass through
+
+    const matched = filterTablesByKeywords(parsed, kwList)
+    if (matched.tables.length === 0) return file // no matches, return full file
+
+    // Reconstruct content with frontmatter + matched DBML blocks
+    const { data } = matter(file.content)
+    const frontmatter = matter.stringify('', data).trim()
+    const blocks = [
+      ...matched.tables.map(t => t.content),
+      ...matched.enums.map(e => e.content),
+      ...matched.refs
+    ]
+    const filteredContent = frontmatter + '\n\n' + blocks.join('\n\n') + '\n'
+
+    return { ...file, content: filteredContent }
+  })
 }
 
 module.exports = { runTool }
