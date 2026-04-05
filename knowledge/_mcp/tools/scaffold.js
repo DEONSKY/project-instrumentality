@@ -80,15 +80,17 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
 
   // Description provided → return prompt for agent to fill
   if (description) {
-    // Load related KB context so the agent can align with existing files
+    // Load related KB file references (not full content) to keep response small
     const context = await get({ keywords: description.split(/\s+/).filter(w => w.length > 2) })
-    const kbContext = (context.files || []).map(f => `<!-- ${f.path} -->\n${f.content}`).join('\n\n---\n\n')
+    const relatedFiles = (context.files || []).map(f => ({ path: f.path, id: f.id, type: f.type }))
 
     const prompt = resolvePrompt('scaffold-fill', {
       template_content: templateContent,
       description,
       template_type: type,
-      kb_context: kbContext,
+      kb_context: relatedFiles.length > 0
+        ? `Use kb_get to load these related files before filling:\n${relatedFiles.map(f => `- ${f.path}`).join('\n')}`
+        : 'No related KB files found.',
       id: id || 'new-item',
       date: today
     })
@@ -98,7 +100,8 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
         file_path: filePath,
         template: templateContent,
         prompt,
-        _instruction: `Fill the template using the prompt above, then call kb_scaffold({ type, id, content: "<filled content>" }) to save it.`
+        related_kb_files: relatedFiles,
+        _instruction: `First call kb_get with the related file keywords to load context. Then fill the template using the prompt above. Finally call kb_scaffold({ type: "${type}", id: "${id || 'new-item'}", content: "<filled content>" }) to save it.`
       }
     }
   }

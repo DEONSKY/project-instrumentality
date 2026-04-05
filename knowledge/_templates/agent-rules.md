@@ -46,6 +46,12 @@ This project uses a structured Knowledge Base (KB) managed by the KB-MCP server.
 | `kb_export` | Export KB content to various formats |
 | `kb_lint` | Validate KB file structure (runs automatically) |
 
+## Tool output policy
+
+- If a tool result is truncated and saved to a file, you MUST read the full file before proceeding.
+- Never write KB content without first following the fill prompt returned by `kb_scaffold`.
+- When `kb_scaffold` returns `related_kb_files`, call `kb_get` to load them before filling the template.
+
 ## Key principle
 
 When code and KB disagree, investigate and resolve the discrepancy rather than silently proceeding. The KB represents the intended design — if the code differs, either the code needs fixing or the KB needs updating.

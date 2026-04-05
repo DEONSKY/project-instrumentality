@@ -28,6 +28,10 @@ description of what they are building.
 
 {{kb_context}}
 
+> If file paths are listed above, call `kb_get` with relevant keywords to load
+> their content before filling the template. Do NOT proceed without reviewing
+> existing KB files — they are needed for overlap detection and cross-referencing.
+
 ## Pre-check — overlap detection
 
 Before filling the template, scan the knowledge base context above.
