@@ -9,6 +9,14 @@ owner: {{owner}}
 created: {{date}}
 ---
 
+<!--
+  INTEGRATION FILES = interface contracts with external systems.
+  Technical details belong here: endpoint paths, HTTP methods, auth mechanisms,
+  request/response shapes, webhook events, and rate limits.
+  Do NOT document internal implementation: our class names, service layers, or data mappers.
+  Do NOT duplicate business rules already in feature files — use [[wikilinks]] instead.
+-->
+
 ## Overview
 
 Service: {{service_name}}

@@ -12,6 +12,14 @@ shared_depends_on:
 files: []
 ---
 
+<!--
+  GROUP FILES = domain overview only.
+  One paragraph describing what this domain covers and its boundaries.
+  Do NOT list files or repeat content already covered in member files.
+  Do NOT include implementation details, class names, or technical patterns.
+  Member files reference the group — the group file describes the domain boundary.
+-->
+
 ## Overview
 
 {{One paragraph describing what this domain covers and its boundaries.}}

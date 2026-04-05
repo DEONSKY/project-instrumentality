@@ -10,6 +10,14 @@ created: {{date}}
 status: {{proposed|accepted|superseded}}
 ---
 
+<!--
+  DECISION FILES = architectural records, not implementation guides.
+  Document the context, the choice made, alternatives considered, and trade-offs.
+  Technical depth is appropriate — library names, patterns, and constraints are all valid.
+  Do NOT write implementation instructions (those belong in standards/code/ files).
+  Do NOT write business requirements (those belong in feature files).
+-->
+
 ## Context
 
 {{Describe the situation, constraints, and why a decision was needed.}}

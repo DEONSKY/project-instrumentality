@@ -9,6 +9,14 @@ owner: {{owner}}
 created: {{date}}
 ---
 
+<!--
+  VALIDATION FILES = rule tables for field constraints and error messages.
+  Write: rule_id, field name, constraint type, constraint expression, user-facing error message.
+  Write: reusable regex patterns and cross-field conditions.
+  Do NOT write validator class names, annotation names, or library-specific syntax.
+  Do NOT describe how the rule is enforced — only what the rule is.
+-->
+
 ## Rules
 
 | rule_id | field | type | constraint | error_message |

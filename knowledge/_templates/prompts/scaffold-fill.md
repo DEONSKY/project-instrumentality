@@ -68,6 +68,12 @@ cannot confidently fill as-is with the original {{placeholder}} text.
 - Set status to: draft (always — developer promotes when ready)
 - Set created to: {{date}} (filled at runtime, keep as-is)
 - Write only the filled template content. No explanation.
+- **Comment blocks are hard constraints.** If the template above contains
+  an HTML comment block (`<!-- ... -->`), every DO / DO NOT instruction
+  in that block is a strict rule, not a hint. Before writing each
+  paragraph or field, verify it satisfies all instructions in the comment.
+  If a piece of content violates a DO NOT rule, redirect it to the
+  appropriate file type instead of including it here.
 
 ## Content rules by template type
 

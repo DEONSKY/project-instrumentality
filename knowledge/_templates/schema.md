@@ -8,6 +8,13 @@ owner: {{owner}}
 created: {{date}}
 ---
 
+<!--
+  SCHEMA FILES = data model definitions in DBML format.
+  Write: table names, column names, types, constraints, defaults, foreign keys, indexes, enums.
+  Do NOT write ORM mappings, entity class names, or repository names.
+  Do NOT write business rules — link to the relevant feature or validation file instead.
+-->
+
 // {{name}} database schema
 // Format: dbdiagram.io DBML — https://dbml.dbdiagram.io/docs
 

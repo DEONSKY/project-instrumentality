@@ -9,6 +9,14 @@ owner: {{owner}}
 created: {{date}}
 ---
 
+<!--
+  FLOW FILES = business process steps, not implementation traces.
+  Describe who does what and when, using actor/action/outcome language.
+  No method names, no HTTP endpoints, no queue names, no class references.
+  If a step is "calls PaymentService.charge()", rewrite it as "Payment is charged."
+  Technical wiring belongs in standards/code/ or integration/ files.
+-->
+
 ## Description
 
 {{One paragraph describing what this flow does and when it is triggered.}}
