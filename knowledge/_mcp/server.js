@@ -23,7 +23,8 @@ const tools = {
   kb_sub: require('./tools/sub'),
   kb_autotag: require('./tools/autotag'),
   kb_autorelate: require('./tools/autorelate'),
-  kb_schema: require('./tools/schema')
+  kb_schema: require('./tools/schema'),
+  kb_upgrade: require('./tools/upgrade')
 }
 
 const TOOL_DEFINITIONS = [
@@ -293,12 +294,23 @@ const TOOL_DEFINITIONS = [
         threshold: { type: 'number', description: 'Minimum overlap score to propose a relation (0–1). Default: 0.25' }
       }
     }
+  },
+  {
+    name: 'kb_upgrade',
+    description: 'Upgrade project KB templates and config after MCP server update. Auto-updates unmodified templates, returns merge prompts for customized ones, patches _rules.md with new keys.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dry_run: { type: 'boolean', description: 'Preview changes without writing', default: false },
+        force: { type: 'boolean', description: 'Overwrite all templates including customized ones', default: false }
+      }
+    }
   }
 ]
 
 async function main() {
   const server = new Server(
-    { name: 'kb-mcp', version: '1.0.0' },
+    { name: 'kb-mcp', version: '1.1.0' },
     { capabilities: { tools: {} } }
   )
 

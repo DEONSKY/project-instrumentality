@@ -575,6 +575,11 @@ function copyTemplates(filesCreated) {
 
   if (fs.existsSync(mcpTemplatesDir)) {
     copyDirRecursive(mcpTemplatesDir, kbTemplatesDir, filesCreated)
+
+    // Write manifest so kb_upgrade can track what was installed
+    const { writeManifest, buildTemplateHashes } = require('../lib/manifest')
+    const pkg = require('../package.json')
+    writeManifest(kbTemplatesDir, pkg.version, buildTemplateHashes(kbTemplatesDir))
   }
 }
 
