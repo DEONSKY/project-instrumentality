@@ -222,10 +222,25 @@ async function resolveReverted(reverted) {
 
 async function resolveKbConfirmed(kb_confirmed) {
   const kbFiles = kb_confirmed.map(r => r.kb_file || r)
+  const rules = loadRules(KB_ROOT)
+  const patterns = rules.getCodePathPatterns()
+
+  const warnings = []
+  const resolved = kbFiles.map(kb_file => {
+    const codePaths = reverseMapKbTarget(kb_file, patterns)
+    const unmapped = codePaths.length === 0
+    if (unmapped) {
+      warnings.push(`drift confirmed for "${kb_file}" but no code_path_patterns mapping exists in _rules.md. Future KB changes to this file will not trigger automatic drift detection. Recommended: add a code_path_patterns entry for this file.`)
+    }
+    return { direction: 'kb→code', resolution: 'confirmed', kb_file, ...(unmapped && { unmapped: true }) }
+  })
+
   removeFromQueue(KB_DRIFT_PATH, entry => kbFiles.some(f => entry.includes(`## ${f}`)))
-  const resolved = kbFiles.map(kb_file => ({ direction: 'kb→code', resolution: 'confirmed', kb_file }))
   appendToDriftLog(resolved)
-  return { confirmed: kbFiles.length }
+
+  const result = { confirmed: kbFiles.length }
+  if (warnings.length > 0) result.warnings = warnings
+  return result
 }
 
 // ── code-drift.md parse / serialize ──────────────────────────────────────────
@@ -354,6 +369,7 @@ function appendToDriftLog(entries) {
     if (entry.code_file) block += `\n- **Code file:** \`${entry.code_file}\``
     if (entry.code_files) block += `\n- **Code files:** ${entry.code_files.map(f => `\`${f}\``).join(', ')}`
     block += `\n- **Resolution:** ${entry.resolution}`
+    if (entry.unmapped) block += `\n- **⚠ Unmapped:** no code_path_patterns entry — drift detection inactive for this KB file`
     if (entry.summary) block += `\n- **Summary:** ${entry.summary}`
     block += '\n'
   }
