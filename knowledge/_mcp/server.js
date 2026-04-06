@@ -310,7 +310,7 @@ const TOOL_DEFINITIONS = [
 
 async function main() {
   const server = new Server(
-    { name: 'kb-mcp', version: '1.1.0' },
+    { name: 'kb-mcp', version: '1.1.1' },
     { capabilities: { tools: {} } }
   )
 
