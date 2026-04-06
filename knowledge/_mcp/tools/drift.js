@@ -139,13 +139,11 @@ async function detectDrift(since, remote) {
     const { file, commit, date, isShared } = entry
 
     if (isKbContentFile(file)) {
-      // kb→code: KB file changed — find all associated code areas
+      // kb→code: KB file changed — always flag, even without mapped code paths
       const relative = file.replace(/^knowledge\//, '')
       const codePaths = reverseMapKbTarget(relative, patterns)
-      if (codePaths.length > 0) {
-        const wasNew = upsertKbDriftEntry(relative, codePaths, commit, date)
-        if (wasNew) kbEntriesWritten++
-      }
+      const wasNew = upsertKbDriftEntry(relative, codePaths, commit, date)
+      if (wasNew) kbEntriesWritten++
     } else {
       // code→kb: first-match-wins (patterns ordered by specificity in presets)
       const matches = matchAllPatterns(file, patterns)
@@ -299,7 +297,9 @@ function upsertKbDriftEntry(kbFile, codeAreas, sinceCommit, sinceDate) {
   // Already tracked — don't duplicate (git diff since..HEAD covers new commits)
   if (content.includes(`## ${kbFile}`)) return false
 
-  const areaLines = codeAreas.map(p => `  - \`${p}\``).join('\n')
+  const areaLines = codeAreas.length > 0
+    ? codeAreas.map(p => `  - \`${p}\``).join('\n')
+    : '  - _(no mapped code paths — review manually)_'
   const entry = `\n## ${kbFile}\n\n- **KB file:** \`${kbFile}\`\n- **Code areas to review:**\n${areaLines}\n- **Since:** \`${sinceCommit}\` (${sinceDate})\n`
   fs.appendFileSync(KB_DRIFT_PATH, entry)
   return true
