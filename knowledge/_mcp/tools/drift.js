@@ -297,10 +297,14 @@ function upsertKbDriftEntry(kbFile, codeAreas, sinceCommit, sinceDate) {
   // Already tracked — don't duplicate (git diff since..HEAD covers new commits)
   if (content.includes(`## ${kbFile}`)) return false
 
-  const areaLines = codeAreas.length > 0
-    ? codeAreas.map(p => `  - \`${p}\``).join('\n')
-    : '  - _(no mapped code paths — review manually)_'
-  const entry = `\n## ${kbFile}\n\n- **KB file:** \`${kbFile}\`\n- **Code areas to review:**\n${areaLines}\n- **Since:** \`${sinceCommit}\` (${sinceDate})\n`
+  const unmapped = codeAreas.length === 0
+  const areaLines = unmapped
+    ? '  - _(no mapped code paths — review manually)_'
+    : codeAreas.map(p => `  - \`${p}\``).join('\n')
+  const unmappedHint = unmapped
+    ? `\n- **⚠ KB spec changed without mapped code paths.** Verify that the implementation still matches this spec. To enable automatic code-area tracking, add a \`code_path_patterns\` entry in \`_rules.md\` for this file.`
+    : ''
+  const entry = `\n## ${kbFile}\n\n- **KB file:** \`${kbFile}\`\n- **Code areas to review:**\n${areaLines}\n- **Since:** \`${sinceCommit}\` (${sinceDate})${unmappedHint}\n`
   fs.appendFileSync(KB_DRIFT_PATH, entry)
   return true
 }
