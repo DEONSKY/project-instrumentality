@@ -666,6 +666,78 @@ kb_drift({ kb_confirmed: [{ kb_file: "features/login.md" }] })
 
 **Pass:** Only one entry per KB target. Code file not duplicated within entry.
 
+### TC-6.16 Code rename — same KB target
+
+1. In `test-react-vite`: create `src/components/LoginForm.tsx`, commit, push (establish baseline).
+2. `git mv src/components/LoginForm.tsx src/components/auth/LoginForm.tsx`, commit.
+3. Run `kb_drift({})`.
+
+**Pass:** `code_entries: 1`. One entry in `code-drift.md` for `features/login.md`. The code file line reads:
+```
+- `src/components/auth/LoginForm.tsx` ← renamed from `src/components/LoginForm.tsx` — since ...
+```
+No separate entry for the old path. No deletion entry.
+
+### TC-6.17 Code rename — different KB targets
+
+1. In `test-react-vite`: create `src/components/CheckoutForm.tsx` (matches `features/checkout.md` pattern), commit, push.
+2. `git mv src/components/CheckoutForm.tsx src/services/checkout.ts` (matches `flows/checkout.md` pattern), commit.
+3. Run `kb_drift({})`.
+
+**Pass:** Old entry for `features/checkout.md` has `CheckoutForm.tsx` removed (or entry removed if empty). New entry for `flows/checkout.md` contains:
+```
+- `src/services/checkout.ts` ← renamed from `src/components/CheckoutForm.tsx` — since ...
+```
+
+### TC-6.18 Code rename — stale pattern warning
+
+1. In `test-react-vite`: create `src/components/ProfileForm.tsx`, commit, push.
+2. `git mv src/components/ProfileForm.tsx src/pages/ProfilePage.tsx` (matches no `code_path_patterns`), commit.
+3. Run `kb_drift({})`.
+
+**Pass:** Result contains `stale_patterns: [{ intent: "form", kb_target: "features/profile.md", moved: { from: "src/components/ProfileForm.tsx", to: "src/pages/ProfilePage.tsx" } }]`. No crash, no spurious drift entry for the new path.
+
+### TC-6.19 KB file rename — reference detection
+
+1. Create `knowledge/features/auth.md` with `id: auth`, and `knowledge/flows/login.md` with `depends_on: [features/auth]`. Run `kb_reindex`.
+2. Commit and push both files (establish baseline).
+3. `git mv knowledge/features/auth.md knowledge/features/authentication.md`, commit.
+4. Run `kb_drift({})`.
+
+**Pass:** `kb_entries: 1`. Entry in `kb-drift.md` includes:
+```
+## features/authentication.md
+- KB file: `features/authentication.md`
+- Renamed from: `features/auth.md`
+- References to update: 1 file(s) contain [[features/auth]]
+  - `flows/login.md`
+- Code areas to review: ...
+- Since: ...
+```
+No separate entry for the old path.
+
+### TC-6.20 KB file rename — no references
+
+1. Create `knowledge/features/standalone.md`, commit and push.
+2. `git mv knowledge/features/standalone.md knowledge/features/standalone-v2.md`, commit.
+3. Run `kb_drift({})`.
+
+**Pass:** Entry in `kb-drift.md` includes `- **References to update:** none found`. No crash.
+
+### TC-6.21 Rename round-trip — parse/serialize
+
+1. Run TC-6.16 to create a rename-annotated entry in `code-drift.md`.
+2. Run `kb_drift({})` again (same baseline, no new changes).
+
+**Pass:** No duplicate entries created. The `← renamed from` annotation is preserved in `code-drift.md` — it is not stripped or doubled on the second pass.
+
+### TC-6.22 Rename resolution — summaries still work
+
+1. Run TC-6.16 to create the rename entry.
+2. Run `kb_drift({ summaries: [{ kb_target: "features/login.md", summary: "login form moved to auth subfolder" }] })`.
+
+**Pass:** Entry removed from `code-drift.md`. Drift log entry appended. No error about the rename annotation.
+
 ---
 
 ## 7. `kb_lint` — Validation
