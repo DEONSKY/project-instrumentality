@@ -581,7 +581,7 @@ kb_ask({ question: "what is user-authentication?" })
 
 **Pass:** All 3 commits' changes detected (not just the last one). Uses upstream tracking ref.
 
-### TC-6.6 Initial commit — no crash
+### TC-6.6 Initial commit — no remote, no upstream (skip with warning)
 
 ```
 mkdir fresh && cd fresh && git init
@@ -589,7 +589,52 @@ echo "hello" > file.txt && git add . && git commit -m "first"
 kb_drift({})
 ```
 
-**Pass:** Returns result without error (uses empty-tree SHA fallback).
+**Pass:** Returns result without error. No entries written. `[kb-drift] warning: no sync baseline found` emitted to stderr. (Previously used empty-tree SHA; now returns null and skips cleanly.)
+
+### TC-6.11 No upstream tracking, branch exists on remote (step 2 fallback)
+
+1. Set up a repo with a remote (`temp` pointing to a bare repo).
+2. Push `main` with `git push temp main` (no `-u`).
+3. Modify a tracked file, commit.
+4. Call `kb_drift({ remote: 'temp' })` or let the pre-push hook run.
+
+**Pass:** Drift detected correctly using `temp/main` as baseline. No false positives from `HEAD~1`. Only the new commit's changes appear in `code-drift.md`.
+
+### TC-6.12 New branch first push — closest parent via merge-base (step 3 fallback)
+
+1. On `main`, commit a change to a tracked file.
+2. `git checkout -b feature-x`.
+3. Commit another tracked file change on `feature-x`.
+4. Push with `git push temp feature-x` (pre-push hook fires with `$1 = temp`).
+
+**Pass:** Drift entries include changes from step 3 only (since divergence from `main`). No drift for commits already on `main`. Hook emits no `HEAD~1` warning.
+
+### TC-6.13 Branch hierarchy — closest parent is `dev`, not `main`
+
+1. Push `main` and `dev` (created from `main` with additional commits) to `temp`.
+2. `git checkout -b feature-y` from `dev`, add commits, push.
+3. Observe drift detection.
+
+**Pass:** Baseline is `merge-base HEAD temp/dev` (fewer commits), not `merge-base HEAD temp/main`. Only `feature-y`-specific changes appear in drift entries.
+
+### TC-6.14 Stale branch hint — >20 commits since parent
+
+1. Create a branch from `main` that is 25+ commits ahead of `main`.
+2. Push for the first time (step 3 fallback fires).
+
+**Pass:** `[kb-drift] hint: N commits since parent branch — consider pulling/rebasing to reduce drift noise` emitted to stderr (where N > 20). Drift detection still completes normally.
+
+### TC-6.15 Truly no baseline — no remote, no upstream, no remote branches
+
+```
+mkdir isolated && cd isolated && git init
+echo "x" > file.txt && git add . && git commit -m "init"
+kb_drift({})
+```
+
+No remote configured, no upstream tracking.
+
+**Pass:** `[kb-drift] warning: no sync baseline found — skipping main repo drift detection` emitted. Zero drift entries written. No crash.
 
 ### TC-6.7 Resolve with summaries (Phase 2a)
 
@@ -1106,6 +1151,27 @@ Verify `KB_DRIFT_COMMITTING` env var prevents the drift auto-commit from trigger
 Push with no code changes matching any pattern.
 
 **Pass:** No drift commit created. Clean push.
+
+### TC-16.4 Remote name passed to drift tool
+
+1. Run `kb_init` to regenerate the hook.
+2. Inspect `.git/hooks/pre-push`.
+
+**Pass:** Hook contains `drift.runTool({ remote: '$1' })`, not `drift.runTool({})`. `$1` is the remote name provided by git to the pre-push hook.
+
+### TC-16.5 No false drift loop on first push of new branch
+
+1. Create a new branch, commit a tracked file change, push for the first time.
+2. Observe stderr output from the pre-push hook.
+
+**Pass:** No `HEAD~1` fallback used. Drift detection uses merge-base with closest remote parent. `chore(kb): update drift queue` only committed if real drift exists. Subsequent push of same branch produces no spurious drift entries.
+
+### TC-16.6 No false drift on repeat push with no new changes
+
+1. Push a branch to `temp` (bare repo).
+2. Push again immediately with no new commits.
+
+**Pass:** `[kb-drift] no drift detected` (or message with 0 entries). No drift commit. No entries recreated from old commits.
 
 ---
 

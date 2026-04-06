@@ -155,7 +155,7 @@ SERVER="$LOCAL"
 [ -f "$BUNDLED" ] && SERVER="$BUNDLED"
 node -e "
 const drift = require('$SERVER/../tools/drift');
-drift.runTool({}).then(result => {
+drift.runTool({ remote: '$1' }).then(result => {
   if (result.error) {
     process.stderr.write('[kb-drift] skipped: ' + result.error + '\\\\n');
     return;

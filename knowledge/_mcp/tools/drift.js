@@ -54,27 +54,27 @@ Resolved drift events. Append-only.
  *   reverted:     [{ code_file }]            PM rejected — code file reverted
  *   kb_confirmed: [{ kb_file }]              developer confirmed code matches
  */
-async function runTool({ since = 'last-sync', summaries, reverted, kb_confirmed } = {}) {
+async function runTool({ since = 'last-sync', summaries, reverted, kb_confirmed, remote } = {}) {
   if (summaries && Array.isArray(summaries)) return resolveWithSummaries(summaries)
   if (reverted && Array.isArray(reverted)) return resolveReverted(reverted)
   if (kb_confirmed && Array.isArray(kb_confirmed)) return resolveKbConfirmed(kb_confirmed)
-  return detectDrift(since)
+  return detectDrift(since, remote)
 }
 
 // ── Phase 1: detect drift ─────────────────────────────────────────────────────
 
-async function detectDrift(since) {
+async function detectDrift(since, remote) {
   const mainGit = simpleGit(process.cwd())
   const rules = loadRules(KB_ROOT)
 
   // Resolve the comparison ref:
   // - explicit SHA/ref → use directly
-  // - 'last-sync' → find the remote tracking branch tip, fall back to HEAD~1
+  // - 'last-sync' → graduated fallback via resolveLastSyncRef
   let ref
   if (since !== 'last-sync') {
     ref = since
   } else {
-    ref = await resolveLastSyncRef(mainGit)
+    ref = await resolveLastSyncRef(mainGit, remote)
   }
 
   // Get HEAD commit info for "since" tracking
@@ -89,11 +89,15 @@ async function detectDrift(since) {
   } catch { /* non-fatal */ }
 
   let changedEntries = []
-  try {
-    const mainFiles = await getChangedFiles(mainGit, ref)
-    changedEntries.push(...mainFiles.map(f => ({ file: f, git: mainGit, localFile: f, commit: headCommit, date: headDate })))
-  } catch (e) {
-    return { code_entries: 0, kb_entries: 0, error: e.message }
+  if (ref === null) {
+    process.stderr.write('[kb-drift] warning: no sync baseline found — skipping main repo drift detection\n')
+  } else {
+    try {
+      const mainFiles = await getChangedFiles(mainGit, ref)
+      changedEntries.push(...mainFiles.map(f => ({ file: f, git: mainGit, localFile: f, commit: headCommit, date: headDate })))
+    } catch (e) {
+      return { code_entries: 0, kb_entries: 0, error: e.message }
+    }
   }
 
   const submodules = await detectSubmodules()
@@ -110,7 +114,11 @@ async function detectDrift(since) {
         }
       } catch { /* non-fatal */ }
       let subRef
-      try { subRef = await resolveLastSyncRef(subGit) } catch { subRef = 'HEAD~1' }
+      try { subRef = await resolveLastSyncRef(subGit, remote) } catch { subRef = null }
+      if (subRef === null) {
+        process.stderr.write(`[kb-drift] warning: no sync baseline for submodule ${sub.path} — skipping\n`)
+        continue
+      }
       const subFiles = await getChangedFiles(subGit, subRef)
       changedEntries.push(...subFiles.map(f => ({
         file: `${sub.path}/${f}`,
@@ -382,24 +390,58 @@ function isKbContentFile(file) {
 
 /**
  * Resolve the best "last sync" ref for drift comparison.
- * Prefers the remote tracking branch (covers multi-commit pushes).
- * Falls back to HEAD~1, then to an empty-tree SHA for initial commits.
+ * Graduated fallback: upstream tracking → remote branch → closest parent branch → null.
+ * Returns null when no reliable baseline exists (caller should skip with warning).
  */
-async function resolveLastSyncRef(git) {
-  // Try the upstream tracking ref (e.g. origin/main) — covers all unpushed commits
+async function resolveLastSyncRef(git, remote) {
+  // 1. Try upstream tracking ref (e.g. origin/main) — covers all unpushed commits
   try {
     const upstream = await git.raw(['rev-parse', '--abbrev-ref', '@{upstream}'])
     if (upstream && upstream.trim()) return upstream.trim()
   } catch { /* no upstream configured */ }
 
-  // Fall back to HEAD~1 if there are at least 2 commits
-  try {
-    await git.raw(['rev-parse', 'HEAD~1'])
-    return 'HEAD~1'
-  } catch { /* only one commit */ }
+  // 2. Try <remote>/<current-branch> — branch exists on remote but no -u was used
+  if (remote) {
+    try {
+      const branch = (await git.raw(['symbolic-ref', '--short', 'HEAD'])).trim()
+      const remoteBranch = `${remote}/${branch}`
+      await git.raw(['rev-parse', remoteBranch])
+      return remoteBranch
+    } catch { /* remote branch doesn't exist yet */ }
+  }
 
-  // Initial commit — compare against empty tree
-  return '4b825dc642cb6eb9a060e54bf899d15f7dcb6820'
+  // 3. Find closest parent branch on remote — new branch, first push
+  //    Tries all remote branches, picks the one whose merge-base is closest to HEAD.
+  //    For main->dev->feature, this finds dev (not main) as the parent.
+  if (remote) {
+    try {
+      const remoteBranches = (await git.raw(['for-each-ref', '--format=%(refname:short)', `refs/remotes/${remote}/`]))
+        .split('\n')
+        .filter(b => b.trim() && !b.includes('/HEAD'))
+      let closest = null
+      let minDistance = Infinity
+      for (const rb of remoteBranches) {
+        try {
+          const mb = (await git.raw(['merge-base', 'HEAD', rb])).trim()
+          if (!mb) continue
+          const count = parseInt((await git.raw(['rev-list', '--count', `${mb}..HEAD`])).trim(), 10)
+          if (count < minDistance) {
+            minDistance = count
+            closest = mb
+          }
+        } catch { /* skip branches with no common ancestor */ }
+      }
+      if (closest) {
+        if (minDistance > 20) {
+          process.stderr.write(`[kb-drift] hint: ${minDistance} commits since parent branch — consider pulling/rebasing to reduce drift noise\n`)
+        }
+        return closest
+      }
+    } catch { /* no remote branches available */ }
+  }
+
+  // 4. No reliable baseline — return null (caller skips with warning)
+  return null
 }
 
 async function getChangedFiles(git, ref) {
