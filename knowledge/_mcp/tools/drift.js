@@ -400,11 +400,26 @@ async function resolveLastSyncRef(git, remote) {
     if (upstream && upstream.trim()) return upstream.trim()
   } catch { /* no upstream configured */ }
 
-  // 2. Try <remote>/<current-branch> — branch exists on remote but no -u was used
+  // Validate that the requested remote exists in this repo.
+  // Submodules may have different remote names than the parent repo.
+  let validRemote = remote
   if (remote) {
     try {
+      const remotes = (await git.raw(['remote'])).split('\n').filter(r => r.trim())
+      if (!remotes.includes(remote)) {
+        const cwd = git._executor?.cwd || 'unknown'
+        process.stderr.write(`[kb-drift] warning: remote '${remote}' not found in ${cwd} — available remotes: ${remotes.join(', ') || 'none'}. Skipping drift detection.\n`)
+        process.stderr.write(`[kb-drift]   fix: git -C ${cwd} remote rename <correct> ${remote}\n`)
+        validRemote = null
+      }
+    } catch { validRemote = null }
+  }
+
+  // 2. Try <remote>/<current-branch> — branch exists on remote but no -u was used
+  if (validRemote) {
+    try {
       const branch = (await git.raw(['symbolic-ref', '--short', 'HEAD'])).trim()
-      const remoteBranch = `${remote}/${branch}`
+      const remoteBranch = `${validRemote}/${branch}`
       await git.raw(['rev-parse', remoteBranch])
       return remoteBranch
     } catch { /* remote branch doesn't exist yet */ }
@@ -413,9 +428,9 @@ async function resolveLastSyncRef(git, remote) {
   // 3. Find closest parent branch on remote — new branch, first push
   //    Tries all remote branches, picks the one whose merge-base is closest to HEAD.
   //    For main->dev->feature, this finds dev (not main) as the parent.
-  if (remote) {
+  if (validRemote) {
     try {
-      const remoteBranches = (await git.raw(['for-each-ref', '--format=%(refname:short)', `refs/remotes/${remote}/`]))
+      const remoteBranches = (await git.raw(['for-each-ref', '--format=%(refname:short)', `refs/remotes/${validRemote}/`]))
         .split('\n')
         .filter(b => b.trim() && !b.includes('/HEAD'))
       let closest = null

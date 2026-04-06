@@ -1607,6 +1607,42 @@ kb_sub({ command: "merge_plan", target_branch: "main" })
 
 **Pass:** Returns `steps` array with correct merge order: (1) merge owned submodule feature/auth → main, (2) push submodule, (3) submodule_update in parent, (4) merge parent feature/auth → main, (5) push parent. Shared submodules noted separately in `shared_note`.
 
+### TC-20.15 Drift — submodule remote name mismatch (warning, not silent skip)
+
+1. Parent has remote `origin`.
+2. Rename the submodule's remote: `git -C backend remote rename origin upstream`.
+3. Push parent (pre-push hook fires with `$1 = origin`).
+
+**Pass:** Stderr shows:
+```
+[kb-drift] warning: remote 'origin' not found in backend — available remotes: upstream. Skipping drift detection.
+[kb-drift]   fix: git -C backend remote rename <correct> origin
+```
+Submodule is skipped — no false drift, no silent wrong comparison. The warning explicitly names the available remotes and a fix command.
+
+### TC-20.16 Drift — submodule no upstream, new branch, closest parent via merge-base
+
+1. Parent and owned submodule both on `main`, pushed to `origin`.
+2. In submodule: `git checkout -b feature/x`, commit a tracked file, do NOT push.
+3. In parent: stage submodule pointer, commit, push.
+
+**Pass:** Drift detection for the submodule uses merge-base with `origin/main` (closest parent). Only the `feature/x` commit's changes appear in `code-drift.md`. No `HEAD~1` fallback.
+
+### TC-20.17 Drift — submodule branch hierarchy closest parent
+
+1. Push `main` and `dev` branches in submodule to `origin`.
+2. `git -C backend checkout -b feature/y` from `dev`, commit changes.
+3. Push parent.
+
+**Pass:** Baseline is `merge-base HEAD origin/dev` (not `origin/main`). Only `feature/y`-specific changes detected.
+
+### TC-20.18 Drift — shared submodule, no upstream (skip with warning)
+
+1. Shared submodule `client-sdk` has no upstream tracking and remote name differs from parent.
+2. Push parent.
+
+**Pass:** Warning emitted for remote mismatch. Submodule skipped cleanly. No false drift entries for shared module. Push completes.
+
 ---
 
 ## 22. Error handling edge cases
