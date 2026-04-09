@@ -166,6 +166,8 @@ drift.runTool({ remote: '$1' }).then(result => {
   if (c > 0) process.stderr.write('[kb-drift] ' + c + ' code→KB entry(s) added to knowledge/sync/code-drift.md\\\\n');
   if (k > 0) process.stderr.write('[kb-drift] ' + k + ' KB→code entry(s) added to knowledge/sync/kb-drift.md\\\\n');
   if (result.message) process.stderr.write('[kb-drift] ' + result.message + '\\\\n');
+  if (c > 0 || k > 0) process.stderr.write('[kb-drift] ↑ Clean drift for files you touched before opening a PR.\\\\n');
+  if (c > 0 || k > 0) process.stderr.write('[kb-drift]   Run kb_drift in Claude to review and resolve.\\\\n');
 }).catch(() => {});
 " 2>&1 || true
 
@@ -206,6 +208,8 @@ drift.runTool({ since: '$ORIG_HEAD' }).then(result => {
   const k = result.kb_entries || 0;
   if (c > 0) process.stderr.write('[kb-drift] ' + c + ' code→KB entry(s) added to knowledge/sync/code-drift.md\\\\n');
   if (k > 0) process.stderr.write('[kb-drift] ' + k + ' KB→code entry(s) added to knowledge/sync/kb-drift.md\\\\n');
+  if (c > 0 || k > 0) process.stderr.write('[kb-drift] ↑ Pulled drift — resolve before opening a PR if you touched these files.\\\\n');
+  if (c > 0 || k > 0) process.stderr.write('[kb-drift]   Run kb_drift in Claude to review, then commit the updates.\\\\n');
 }).catch(() => {});
 " 2>&1 || true
 fi
