@@ -2,6 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const readline = require('readline')
 const matter = require('gray-matter')
+const yaml = require('js-yaml')
 const { runTool: reindex } = require('./reindex')
 const { runTool: scaffold } = require('./scaffold')
 const { resolveFilePath } = require('../lib/kb-paths')
@@ -267,23 +268,28 @@ async function runTool({ interactive = true, config = null } = {}) {
     const rulesContent = generateRulesContent(cfg, hints)
     fs.writeFileSync(rulesPath, rulesContent)
     filesCreated.push(rulesPath)
-  } else if (hints.stack) {
-    // Re-init: update code_path_patterns if stack changed, preserving other user edits
+  } else if (hints.stack || hints.submoduleStacks?.length > 0) {
+    // Re-init: update code_path_patterns if detected stacks changed, preserving other user edits
     const existing = fs.readFileSync(rulesPath, 'utf8')
     const parsed = matter(existing)
-    const presetBlock = loadPresetPatternBlock(hints.stack)
-    // Only update if the detected stack doesn't match what's currently configured
-    if (presetBlock && (!parsed.data._detected_stack || parsed.data._detected_stack !== hints.stack)) {
+    const stacksSummary = buildStacksSummary(hints)
+    const summaryKey = JSON.stringify([...stacksSummary].sort())
+    // Backward compat: read old _detected_stack (string) or new _detected_stacks (array)
+    const existingRaw = parsed.data._detected_stacks
+      || (parsed.data._detected_stack ? [parsed.data._detected_stack] : ['unknown'])
+    const existingKey = JSON.stringify([].concat(existingRaw).sort())
+    if (summaryKey !== existingKey) {
       const newPatternsYaml = generateCodePathPatterns(hints)
       // Replace the code_path_patterns section in the raw file
       const updatedContent = existing.replace(
-        /code_path_patterns:[\s\S]*?(?=\n\w|\n---|\Z)/,
+        /code_path_patterns:[\s\S]*?(?=\n\w|\n---)/,
         newPatternsYaml + '\n'
       )
       if (updatedContent !== existing) {
-        // Also update _detected_stack in front-matter
+        // Update _detected_stacks in front-matter, remove old singular field
         const updatedParsed = matter(updatedContent)
-        updatedParsed.data._detected_stack = hints.stack
+        updatedParsed.data._detected_stacks = stacksSummary
+        delete updatedParsed.data._detected_stack
         const final = matter.stringify(updatedParsed.content, updatedParsed.data)
         fs.writeFileSync(rulesPath, final)
         filesCreated.push(rulesPath + ' (updated code_path_patterns)')
@@ -294,19 +300,25 @@ async function runTool({ interactive = true, config = null } = {}) {
   // 4. Copy templates from _mcp internal templates
   copyTemplates(filesCreated)
 
-  // 4b. Scaffold standard stubs from preset (global-rules, tech-stack, conventions)
+  // 4b. Scaffold standard stubs from all detected presets (deduplicated)
   const scaffoldedStandards = []
-  if (hints.stack) {
-    const preset = loadPresetFull(hints.stack)
-    if (preset && Array.isArray(preset.standards_scaffold)) {
-      for (const entry of preset.standards_scaffold) {
-        const filePath = resolveFilePath(entry.type, entry.id, entry.group)
-        if (!filePath) continue
-        // resolveFilePath already includes KB_ROOT prefix
-        if (!fs.existsSync(filePath)) {
-          await scaffold({ type: entry.type, id: entry.id, group: entry.group })
-          scaffoldedStandards.push(filePath)
-        }
+  const stacksToScaffold = []
+  if (hints.stack && hints.stack !== 'monorepo') stacksToScaffold.push(hints.stack)
+  for (const entry of (hints.submoduleStacks || [])) {
+    if (!stacksToScaffold.includes(entry.stack)) stacksToScaffold.push(entry.stack)
+  }
+  const seenScaffold = new Set()
+  for (const stackName of stacksToScaffold) {
+    const preset = loadPresetFull(stackName)
+    if (!preset?.standards_scaffold) continue
+    for (const entry of preset.standards_scaffold) {
+      const key = `${entry.type}:${entry.id || ''}:${entry.group || ''}`
+      if (seenScaffold.has(key)) continue
+      seenScaffold.add(key)
+      const filePath = resolveFilePath(entry.type, entry.id, entry.group)
+      if (filePath && !fs.existsSync(filePath)) {
+        await scaffold({ type: entry.type, id: entry.id, group: entry.group })
+        scaffoldedStandards.push(filePath)
       }
     }
   }
@@ -363,6 +375,7 @@ async function runTool({ interactive = true, config = null } = {}) {
     files_created: filesCreated,
     hooks_installed: hooksInstalled,
     ...(hints.stack && { detected_stack: hints.stack }),
+    ...(hints.submoduleStacks?.length > 0 && { detected_stacks: buildStacksSummary(hints) }),
     ...(scaffoldedStandards.length > 0 && { scaffolded_standards: scaffoldedStandards }),
     ...(gitInitialized && { git_initialized: true, note: '`git init` was run automatically — remember to set your remote with `git remote add origin <url>`' })
   }
@@ -393,7 +406,7 @@ function generateRulesContent(cfg, hints = {}) {
 version: "1.0"
 project_name: "${cfg.projectName || 'My Project'}"
 app_names: [${appNames}]
-_detected_stack: "${hints.stack || 'unknown'}"
+_detected_stacks: [${buildStacksSummary(hints).map(s => `"${s}"`).join(', ')}]
 
 depth_policy:
   default_max: 3
@@ -453,8 +466,97 @@ See knowledge/_mcp/presets/ for stack-specific code_path_patterns presets.
 }
 
 /**
+ * Detect stack for a single directory. Checks indicator files first, then falls
+ * back to scanning for dominant source file extensions when no indicator is found.
+ */
+function detectSubdirStack(dirPath) {
+  if (fs.existsSync(path.join(dirPath, 'go.mod'))) return 'go'
+  if (fs.existsSync(path.join(dirPath, 'pom.xml')) ||
+      fs.existsSync(path.join(dirPath, 'build.gradle')) ||
+      fs.existsSync(path.join(dirPath, 'build.gradle.kts'))) return 'spring-boot'
+  if (fs.existsSync(path.join(dirPath, 'Gemfile'))) return 'rails'
+  if (fs.existsSync(path.join(dirPath, 'requirements.txt')) ||
+      fs.existsSync(path.join(dirPath, 'pyproject.toml'))) return 'django'
+
+  const pkgPath = path.join(dirPath, 'package.json')
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
+      const deps = { ...pkg.dependencies, ...pkg.devDependencies }
+      if (deps['next']) return 'nextjs'
+      if (deps['@nestjs/core']) return 'nestjs'
+      if (deps['react-native']) return 'react-native'
+      if (deps['vue'] || deps['@vue/core']) return 'vue'
+      if (deps['react']) return 'react-vite'
+    } catch { /* non-fatal */ }
+  }
+
+  return detectStackByExtension(dirPath)
+}
+
+/**
+ * Scan a directory (up to 2 levels deep) for source files and infer stack
+ * from the dominant extension. Returns a generic stack name or null.
+ */
+function detectStackByExtension(dirPath) {
+  const EXT_MAP = {
+    '.py': 'python',
+    '.go': 'go',
+    '.rb': 'rails',
+    '.java': 'spring-boot',
+    '.kt': 'spring-boot',
+    '.rs': 'rust',
+  }
+  const SKIP = new Set(['node_modules', '.git', '__pycache__', 'dist', 'build', '.venv', 'venv'])
+  const counts = {}
+
+  const scanDir = (dir, depth) => {
+    if (depth > 2) return
+    let entries
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+    for (const e of entries) {
+      if (e.name.startsWith('.') || SKIP.has(e.name)) continue
+      if (e.isDirectory()) {
+        scanDir(path.join(dir, e.name), depth + 1)
+      } else if (e.isFile()) {
+        const ext = path.extname(e.name)
+        if (EXT_MAP[ext]) counts[EXT_MAP[ext]] = (counts[EXT_MAP[ext]] || 0) + 1
+      }
+    }
+  }
+
+  scanDir(dirPath, 0)
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1])
+  return sorted.length > 0 ? sorted[0][0] : null
+}
+
+/**
+ * Build a serializable summary array of all detected stacks for frontmatter storage.
+ * Root stack (no dir prefix) + submodule stacks (stack:dir format).
+ */
+function buildStacksSummary(hints) {
+  const result = []
+  if (hints.stack && hints.stack !== 'monorepo') result.push(hints.stack)
+  for (const entry of (hints.submoduleStacks || [])) {
+    result.push(`${entry.stack}:${entry.dir}`)
+  }
+  return result.length > 0 ? result : ['unknown']
+}
+
+/**
+ * Copy a parsed code_path_patterns array, prefixing every path glob with a dir.
+ * Used to scope a preset's patterns to a specific submodule directory.
+ */
+function prefixPatternPaths(patterns, prefix) {
+  return patterns.map(p => ({
+    ...p,
+    paths: (p.paths || []).map(glob => `${prefix}/${glob}`)
+  }))
+}
+
+/**
  * Detect the project's tech stack by scanning indicator files and package.json.
- * Returns { stack: string|null, srcDirs: string[] }
+ * Returns { stack: string|null, srcDirs: string[], submoduleStacks: Array<{dir, stack}> }
  */
 function detectStackHints() {
   const cwd = process.cwd()
@@ -487,54 +589,84 @@ function detectStackHints() {
     } catch { /* non-fatal — fall through to null */ }
   }
 
-  // Monorepo: multiple package.json in subdirs (skip node_modules / hidden dirs)
+  const SKIP_SCAN = new Set(['node_modules', '.git', '.next', 'dist', 'build', 'out', 'coverage', 'knowledge'])
+
+  // Monorepo: multiple package.json in subdirs
   if (!hints.stack) {
-    const SKIP_SCAN = new Set(['node_modules', '.git', '.next', 'dist', 'build', 'out', 'coverage'])
     const subdirs = fs.readdirSync(cwd, { withFileTypes: true })
       .filter(e => e.isDirectory() && !e.name.startsWith('.') && !SKIP_SCAN.has(e.name) &&
         fs.existsSync(path.join(cwd, e.name, 'package.json')))
     if (subdirs.length >= 2) hints.stack = 'monorepo'
   }
 
+  // Multi-stack submodule/subdir detection — runs regardless of whether root stack was found
+  const submoduleStacks = []
+  const dirsToScan = []
+
+  // Prefer .gitmodules paths (precise — knows which dirs are submodules)
+  const gitmodulesPath = path.join(cwd, '.gitmodules')
+  if (fs.existsSync(gitmodulesPath)) {
+    const gmContent = fs.readFileSync(gitmodulesPath, 'utf8')
+    for (const m of gmContent.matchAll(/path\s*=\s*(.+)/g)) {
+      const subPath = m[1].trim()
+      if (fs.existsSync(path.join(cwd, subPath))) dirsToScan.push(subPath)
+    }
+  }
+  // Also include top-level non-hidden dirs not already covered
+  for (const e of fs.readdirSync(cwd, { withFileTypes: true })) {
+    if (e.isDirectory() && !e.name.startsWith('.') && !SKIP_SCAN.has(e.name) && !dirsToScan.includes(e.name)) {
+      dirsToScan.push(e.name)
+    }
+  }
+
+  for (const dir of dirsToScan) {
+    const stack = detectSubdirStack(path.join(cwd, dir))
+    if (stack) submoduleStacks.push({ dir, stack })
+  }
+
+  hints.submoduleStacks = submoduleStacks
+  if (submoduleStacks.length > 0 && !hints.stack) hints.stack = 'monorepo'
+
   return hints
 }
 
-/**
- * Load the code_path_patterns block from a preset file as raw text.
- * Returns null if the preset doesn't exist or can't be parsed.
- */
-function loadPresetPatternBlock(stackName) {
-  const presetPath = path.join(__dirname, '../presets', `${stackName}.yaml`)
-  if (!fs.existsSync(presetPath)) return null
-  try {
-    const content = fs.readFileSync(presetPath, 'utf8')
-    // Extract only the code_path_patterns block, stop at next top-level key
-    const idx = content.indexOf('code_path_patterns:')
-    if (idx === -1) return null
-    const block = content.slice(idx)
-    // Stop at next top-level YAML key (non-indented word followed by colon)
-    const nextKey = block.match(/\n[a-z_]+:/)?. index
-    return nextKey ? block.slice(0, nextKey).trimEnd() : block.trimEnd()
-  } catch { return null }
-}
 
 function loadPresetFull(stackName) {
   const presetPath = path.join(__dirname, '../presets', `${stackName}.yaml`)
   if (!fs.existsSync(presetPath)) return null
   try {
-    const yaml = require('js-yaml')
     return yaml.load(fs.readFileSync(presetPath, 'utf8'))
   } catch { return null }
 }
 
 /**
  * Generate the code_path_patterns YAML block for _rules.md.
- * Uses the detected stack's preset if available; falls back to universal defaults.
+ * Merges patterns from all detected stacks, prefixing submodule paths.
+ * Falls back to universal defaults if no stacks detected.
  */
 function generateCodePathPatterns(hints = {}) {
-  if (hints.stack) {
-    const block = loadPresetPatternBlock(hints.stack)
-    if (block) return block
+  const allPatterns = []
+
+  // Root single-stack: load preset as-is (no prefix) — backward compat
+  if (hints.stack && hints.stack !== 'monorepo') {
+    const rootPreset = loadPresetFull(hints.stack)
+    if (rootPreset && Array.isArray(rootPreset.code_path_patterns)) {
+      allPatterns.push(...rootPreset.code_path_patterns)
+    }
+  }
+
+  // Submodule stacks: load each preset, prefix all path globs with dir
+  for (const entry of (hints.submoduleStacks || [])) {
+    const preset = loadPresetFull(entry.stack)
+    if (preset && Array.isArray(preset.code_path_patterns)) {
+      allPatterns.push(...prefixPatternPaths(preset.code_path_patterns, entry.dir))
+    }
+  }
+
+  if (allPatterns.length > 0) {
+    return yaml.dump({ code_path_patterns: allPatterns }, {
+      lineWidth: 120, noRefs: true, forceQuotes: true
+    }).trimEnd()
   }
 
   // Universal fallback: dependency + config only (works for any stack)
@@ -680,9 +812,16 @@ function installMergeDrivers() {
 }
 
 function printSetupGuide(cfg, hints = {}, submoduleGaps = []) {
-  const stackLine = hints.stack
-    ? `   Detected stack: ${hints.stack} — code_path_patterns pre-filled from preset.`
-    : `   No stack detected — copy patterns from knowledge/_mcp/presets/<stack>.yaml`
+  let stackLine
+  if (hints.submoduleStacks?.length > 0) {
+    const subEntries = hints.submoduleStacks.map(e => `${e.stack} (${e.dir})`).join(', ')
+    const rootPart = (hints.stack && hints.stack !== 'monorepo') ? `${hints.stack} (root), ` : ''
+    stackLine = `   Detected stacks: ${rootPart}${subEntries} — code_path_patterns pre-filled with prefixed paths.`
+  } else if (hints.stack) {
+    stackLine = `   Detected stack: ${hints.stack} — code_path_patterns pre-filled from preset.`
+  } else {
+    stackLine = `   No stack detected — copy patterns from knowledge/_mcp/presets/<stack>.yaml`
+  }
 
   let submoduleLine = ''
   if (submoduleGaps.length > 0) {

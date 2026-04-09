@@ -1,0 +1,71 @@
+# Generic Python code_path_patterns preset
+# Used when Python files are detected but no framework (Django, Flask, etc.) is identified.
+# For Django projects, use django.yaml instead — it has more specific patterns.
+
+code_path_patterns:
+  - intent: service-logic
+    kb_target: "flows/{name}.md"
+    paths:
+      - "src/**/*.py"
+      - "src/*.py"
+      - "lib/**/*.py"
+      - "app/**/*.py"
+      - "*.py"
+    name_extraction:
+      strip_suffix: [_service, _handler, _controller, _worker]
+      case: kebab
+
+  - intent: data-model
+    kb_target: "data/schema/{name}.md"
+    paths:
+      - "src/models/**/*.py"
+      - "models/**/*.py"
+    name_extraction:
+      strip_suffix: [_model, Model]
+      case: kebab
+
+  - intent: api-contract
+    kb_target: "features/{name}.api.md"
+    paths:
+      - "src/api/**/*.py"
+      - "api/**/*.py"
+    name_extraction:
+      strip_suffix: [_api, _routes, _views, _endpoint]
+      case: kebab
+
+  - intent: validation
+    kb_target: "validation/common.md"
+    paths:
+      - "src/validators/**/*.py"
+      - "validators/**/*.py"
+
+  - intent: route-guard
+    kb_target: "flows/{name}.guards.md"
+    paths:
+      - "src/middleware/**/*.py"
+      - "middleware/**/*.py"
+
+  - intent: dependency
+    kb_target: "standards/code/tech-stack.md"
+    paths:
+      - "requirements.txt"
+      - "requirements/*.txt"
+      - "pyproject.toml"
+      - "Pipfile"
+      - "poetry.lock"
+      - "setup.py"
+      - "setup.cfg"
+
+  - intent: config
+    kb_target: "standards/code/conventions.md"
+    paths:
+      - "setup.cfg"
+      - ".flake8"
+      - "pyproject.toml"
+      - "tox.ini"
+      - "mypy.ini"
+
+standards_scaffold:
+  - type: global-rules
+  - type: tech-stack
+  - type: conventions
