@@ -198,17 +198,39 @@ async function detectDrift(since, remote) {
   if (sharedSubs.length > 0) subParts.push(`shared: ${sharedSubs.join(', ')}`)
   const subInfo = subParts.length > 0 ? ` (submodules — ${subParts.join('; ')})` : ''
 
-  return {
+  const result = {
     code_entries: codeEntriesWritten,
     kb_entries: kbEntriesWritten,
     submodules_owned: ownedSubs,
     submodules_shared: sharedSubs,
     ...(stalePatterns.length > 0 && { stale_patterns: stalePatterns }),
-    ...(noDrift
-      ? { message: `No drift detected.${subInfo}` }
-      : { message: `${codeEntriesWritten} code→KB entry(s) in sync/code-drift.md, ${kbEntriesWritten} KB→code entry(s) in sync/kb-drift.md.${subInfo}` }
-    )
+    message: noDrift
+      ? `No drift detected.${subInfo}`
+      : `${codeEntriesWritten} code→KB entry(s) in sync/code-drift.md, ${kbEntriesWritten} KB→code entry(s) in sync/kb-drift.md.${subInfo}`
   }
+
+  if (!noDrift) {
+    let instruction = 'To resolve drift entries:\n\n'
+      + '1. Read sync/code-drift.md or sync/kb-drift.md to see pending entries\n'
+      + '2. For each entry, read the KB target file\n'
+      + '3. Update the KB file to reflect the code change (Edit / kb_write)\n'
+      + '4. Read the KB file again to confirm the edit landed\n'
+      + '5. THEN call kb_drift(summaries=[...]) to close the entry\n\n'
+      + 'Do NOT call kb_drift(summaries) before verifying the KB file was actually updated. '
+      + 'The tool only closes the queue entry — it does not write to the KB.'
+
+    if (submodules.length > 0) {
+      const subHints = submodules.map(s => `  - Files under ${s.path}/ → git -C ${s.path} diff <sha> -- <relative-path>`).join('\n')
+      instruction += '\n\nSubmodule git commands:\n'
+        + 'Commit SHAs in the drift queue belong to submodule git histories, not the parent repo. '
+        + 'Running git diff <sha> from the root will fail with "fatal: bad revision". Use:\n'
+        + subHints
+    }
+
+    result._instruction = instruction
+  }
+
+  return result
 }
 
 // ── Phase 2a: code→kb resolved — KB updated ──────────────────────────────────
@@ -228,7 +250,15 @@ async function resolveWithSummaries(summaries) {
   writeCodeDriftEntries(header, remaining)
 
   appendToDriftLog(resolved)
-  return { resolved: resolved.length }
+
+  const kbTargetList = resolved.map(r => r.kb_target).join(', ')
+  return {
+    resolved: resolved.length,
+    _instruction: `Queue entries closed for: ${kbTargetList}. `
+      + 'Verify that each KB file above was actually updated before this call. '
+      + 'If not, the drift queue is now clean but the KB is stale — '
+      + 'read the KB file(s) to confirm, and use kb_write to fix any that were missed.'
+  }
 }
 
 // ── Phase 2b: code→kb resolved — code file reverted ──────────────────────────

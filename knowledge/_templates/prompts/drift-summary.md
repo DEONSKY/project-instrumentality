@@ -39,6 +39,27 @@ File: {{kb_target}}
 {{kb_section}}
 ```
 
+## Pre-condition: verify KB file before closing this entry
+
+Before writing the summary and calling `kb_drift` with summaries, you MUST:
+
+1. **Read `{{kb_target}}`** and check its current content.
+2. **If the file has `{{placeholders}}`** — it was never filled. Update it first
+   using `kb_extract` (standards from code) or `kb_scaffold` (features/flows/ui).
+3. **If the file does not exist** — create it first. Do not close the entry
+   against a missing file.
+4. **If the file is up to date** — proceed to write the summary and close.
+
+**Sequence (non-negotiable):**
+1. Read `{{kb_target}}`
+2. Update or create it if needed (`kb_extract` / `kb_scaffold` / Write)
+3. Confirm the file reflects the code change
+4. THEN write the summary and call `kb_drift(summaries=[...])` to close
+
+Closing the queue entry before updating the KB leaves knowledge stale
+while the drift tracker shows "resolved". This is the failure mode this
+rule prevents.
+
 ## Task
 
 Write a single summary line that describes what changed and
