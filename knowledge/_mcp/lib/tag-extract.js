@@ -12,6 +12,10 @@ const STOPWORDS = new Set([
   'like', 'use', 'used', 'using', 'uses', 'well', 'back', 'even', 'give',
   'new', 'way', 'want', 'look', 'first', 'also', 'take', 'come', 'made',
   'find', 'long', 'need', 'know', 'get', 'see', 'now', 'any', 'many',
+  // Structural filler that leaks through as sub-parts or body text
+  'based', 'specific', 'related', 'given', 'following', 'within',
+  'every', 'without', 'another', 'different', 'certain', 'general',
+  'common', 'current', 'available', 'existing', 'relevant', 'appropriate',
   // Structural KB terms (shouldn't become tags)
   'description', 'fields', 'business', 'rules', 'changelog', 'created', 'notes',
   'default', 'required', 'type', 'edge', 'cases', 'open', 'questions', 'summary',
@@ -46,13 +50,16 @@ function extractTagsFromText(markdownContent, opts = {}, maxTags = 20) {
   function addTerm(term, weight) {
     const normalized = normalize(term)
     if (!normalized) return
-    const parts = normalized.split('-').filter(p => p.length > 0)
     if (normalized.length > 2 && !STOPWORDS.has(normalized)) {
       scores.set(normalized, (scores.get(normalized) || 0) + weight)
     }
-    for (const part of parts) {
-      if (isValidTag(part)) {
-        scores.set(part, (scores.get(part) || 0) + weight * 0.5)
+    // Only split compounds that are too long to be useful tags
+    if (normalized.length > 30) {
+      const parts = normalized.split('-').filter(p => p.length > 0)
+      for (const part of parts) {
+        if (isValidTag(part)) {
+          scores.set(part, (scores.get(part) || 0) + weight * 0.5)
+        }
       }
     }
   }
@@ -98,7 +105,12 @@ function extractTagsFromText(markdownContent, opts = {}, maxTags = 20) {
   }
 
   // 5. Body text (weight 1) — only words that appear 2+ times
-  const bodyWords = splitWords(stripped)
+  //    Strip headings, bold, and inline code so they don't double-count
+  const bodyOnly = stripped
+    .replace(/^#{1,4}\s+.+$/gm, '')
+    .replace(/\*\*[^*]+\*\*/g, '')
+    .replace(/`[^`]+`/g, '')
+  const bodyWords = splitWords(bodyOnly)
   const bodyCounts = new Map()
   for (const w of bodyWords) {
     const n = normalize(w)
