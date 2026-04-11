@@ -185,14 +185,14 @@ function loadFile(filePath) {
   if (!fs.existsSync(fullPath)) return null
 
   try {
-    const content = fs.readFileSync(fullPath, 'utf8')
-    const parsed = matter(content)
+    const raw = fs.readFileSync(fullPath, 'utf8')
+    const parsed = matter(raw)
     return {
       path: filePath.startsWith('knowledge/') ? filePath : `knowledge/${filePath}`,
       id: parsed.data.id || path.basename(fullPath, '.md'),
       type: parsed.data.type || inferType(fullPath),
       app_scope: parsed.data.app_scope || 'all',
-      content
+      content: parsed.content
     }
   } catch (e) {
     return null
@@ -266,17 +266,13 @@ function applySchemaFiltering(candidates, keywords) {
     const matched = filterTablesByKeywords(parsed, kwList)
     if (matched.tables.length === 0) return file // no matches, return full file
 
-    // Reconstruct content with frontmatter + matched DBML blocks
-    const { data } = matter(file.content)
-    const frontmatter = matter.stringify('', data).trim()
+    // Reconstruct content with only the matched DBML blocks
     const blocks = [
       ...matched.tables.map(t => t.content),
       ...matched.enums.map(e => e.content),
       ...matched.refs
     ]
-    const filteredContent = frontmatter + '\n\n' + blocks.join('\n\n') + '\n'
-
-    return { ...file, content: filteredContent }
+    return { ...file, content: blocks.join('\n\n') + '\n' }
   })
 }
 
