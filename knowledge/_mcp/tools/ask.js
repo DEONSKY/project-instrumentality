@@ -11,6 +11,20 @@ async function runTool({ question } = {}) {
   const intent = classifyIntent(question)
   const context = await loadContext(question)
 
+  // Guide the agent when the KB has no matching content
+  if (context.length === 0) {
+    return {
+      intent,
+      prompt: null,
+      context_files: [],
+      _instruction: `No KB documents match this question. Before answering from general knowledge:
+1. Run kb_get with broader or different keywords to verify what exists
+2. If the KB is empty or sparse for this topic, use kb_scaffold to create relevant documents first
+3. Check _rules.md for the KB folder structure and valid document types
+4. Do NOT guess answers — tell the user the KB has no documentation for this topic yet`
+    }
+  }
+
   const promptVars = buildPromptVars(question, intent, context)
   const promptName = intentToPrompt(intent)
 

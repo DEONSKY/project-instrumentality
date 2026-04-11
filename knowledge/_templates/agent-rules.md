@@ -30,6 +30,19 @@ This project uses a structured Knowledge Base (KB) managed by the KB-MCP server.
 - Check existing KB files for related features to maintain consistency
 - Add `[[wikilinks]]` to reference related KB documents
 
+## Before creating new KB files
+
+- Check the KB structure: valid folders are defined in `_rules.md` under `depth_policy.overrides`
+- Use `kb_scaffold` to create files — it enforces the correct folder and template
+- Create **separate files per topic** — never combine multiple features/flows into one document
+- Read 2-3 existing files in the target folder first to match the style and granularity
+- Feature files describe **what** (fields, rules, constraints) — no code, no endpoints, no class names
+- Flow files describe **who does what** — actor -> action -> outcome steps, no technical wiring
+- Standard files describe **how** (architecture, patterns, code conventions)
+- Match the `type` frontmatter field to the folder (features/ -> feature, flows/ -> flow, etc.)
+- Fill ALL `{{placeholders}}` before saving — especially in `always_load` files
+- Use `[[folder/file-id]]` wikilinks when referencing other KB documents
+
 ## KB Tool Reference
 
 | Tool | Purpose |

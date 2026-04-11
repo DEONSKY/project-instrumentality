@@ -51,6 +51,23 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
     return { error: `Depth violation: ${depthResult.actual} levels deep, max is ${depthResult.max}`, suggestion: depthResult.suggestion }
   }
 
+  // Warn if the group subfolder doesn't exist yet
+  let groupWarning
+  if (group) {
+    const parentFolder = path.join(KB_ROOT, getGroupFolder(type))
+    const groupDir = path.join(parentFolder, group)
+    if (!fs.existsSync(groupDir)) {
+      const existingGroups = fs.existsSync(parentFolder)
+        ? fs.readdirSync(parentFolder, { withFileTypes: true })
+            .filter(e => e.isDirectory())
+            .map(e => e.name)
+        : []
+      groupWarning = existingGroups.length > 0
+        ? `Group '${group}' does not exist yet under ${getGroupFolder(type)}/. Existing groups: ${existingGroups.join(', ')}. A new group will be created.`
+        : `Group '${group}' does not exist yet under ${getGroupFolder(type)}/. A new group will be created.`
+    }
+  }
+
   const templatePath = path.join(TEMPLATES_DIR, TYPE_TO_TEMPLATE[type])
   if (!fs.existsSync(templatePath)) {
     return { error: `Template not found: ${templatePath}` }
@@ -75,7 +92,9 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
   // Agent passes back filled content → write it
   if (content) {
     const writeResult = await write({ file_path: filePath, content })
-    return { file_path: filePath, written: writeResult.written, lint_errors: writeResult.lint_errors }
+    const r = { file_path: filePath, written: writeResult.written, lint_errors: writeResult.lint_errors }
+    if (groupWarning) r.group_warning = groupWarning
+    return r
   }
 
   // Description provided → return prompt for agent to fill
@@ -96,24 +115,28 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
     })
 
     if (prompt) {
-      return {
+      const r = {
         file_path: filePath,
         template: templateContent,
         prompt,
         related_kb_files: relatedFiles,
         _instruction: `First call kb_get with the related file keywords to load context. Then fill the template using the prompt above. Finally call kb_scaffold({ type: "${type}", id: "${id || 'new-item'}", content: "<filled content>" }) to save it.`
       }
+      if (groupWarning) r.group_warning = groupWarning
+      return r
     }
   }
 
   // No description → write template as-is
   const writeResult = await write({ file_path: filePath, content: templateContent })
-  return {
+  const result = {
     file_path: filePath,
     written: writeResult.written,
     lint_errors: writeResult.lint_errors,
     filled_by_ai: false
   }
+  if (groupWarning) result.group_warning = groupWarning
+  return result
 }
 
 function createGroupFile(groupFilePath, groupName, today) {

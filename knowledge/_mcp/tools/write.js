@@ -1,14 +1,77 @@
 const fs = require('fs')
 const path = require('path')
+const matter = require('gray-matter')
+const yaml = require('js-yaml')
 const { runTool: reindex } = require('./reindex')
+const { loadRules } = require('../lib/rules')
+
+const KB_ROOT = 'knowledge'
+
+// Folders that are not KB content — skip folder validation
+const NON_CONTENT_DIRS = new Set([
+  '_mcp', '_templates', 'exports', 'assets', 'sync',
+  '.obsidian', 'node_modules', 'drift-log'
+])
 
 function validateKbPath(filePath) {
   const resolved = path.resolve(filePath)
-  const kbDir = path.resolve('knowledge')
+  const kbDir = path.resolve(KB_ROOT)
   if (!resolved.startsWith(kbDir + path.sep) && resolved !== kbDir) {
     return 'file_path must be inside the knowledge/ directory'
   }
   return null
+}
+
+function validateFolder(filePath) {
+  const relative = path.relative(KB_ROOT, filePath)
+  const topFolder = relative.split(path.sep)[0]
+
+  // Skip validation for non-content directories and root-level files
+  if (!topFolder || NON_CONTENT_DIRS.has(topFolder) || !relative.includes(path.sep)) {
+    return null
+  }
+
+  const rules = loadRules(KB_ROOT)
+  const validFolders = Object.keys(rules.getDepthPolicy().overrides || {})
+
+  if (!validFolders.includes(topFolder)) {
+    return `Unknown KB folder: '${topFolder}'. Valid content folders: ${validFolders.join(', ')}. Use kb_scaffold to create files in the correct location, or update _rules.md depth_policy if this is a new folder.`
+  }
+  return null
+}
+
+function findRelatedFiles(filePath, content) {
+  try {
+    const parsed = matter(content)
+    const fileTags = parsed.data.tags || []
+    const fileDeps = parsed.data.depends_on || []
+    const fileId = parsed.data.id || path.basename(filePath, '.md')
+
+    if (fileTags.length === 0) return []
+
+    const indexPath = path.join(KB_ROOT, '_index.yaml')
+    if (!fs.existsSync(indexPath)) return []
+
+    const raw = fs.readFileSync(indexPath, 'utf8').replace(/^#[^\n]*\n/, '')
+    const index = yaml.load(raw)
+
+    const candidates = []
+    for (const [fp, entry] of Object.entries(index.files || {})) {
+      if (entry.id === fileId) continue
+      if (fileDeps.includes(entry.id) || fileDeps.includes(fp.replace(/\.md$/, ''))) continue
+
+      const overlap = (entry.tags || []).filter(t => fileTags.includes(t))
+      if (overlap.length >= 2) {
+        candidates.push({ path: fp, id: entry.id, shared_tags: overlap })
+      }
+    }
+
+    return candidates
+      .sort((a, b) => b.shared_tags.length - a.shared_tags.length)
+      .slice(0, 3)
+  } catch {
+    return []
+  }
 }
 
 async function runTool({ file_path, content }) {
@@ -30,7 +93,11 @@ async function runTool({ file_path, content }) {
     return { error: 'Drift queue files are managed by kb_drift. Use kb_drift({ summaries/reverted/kb_confirmed }) to resolve entries.' }
   }
 
-  // Ensure parent directory exists
+  // Validate folder against _rules.md depth_policy
+  const folderError = validateFolder(file_path)
+  if (folderError) return { error: folderError }
+
+  // Ensure parent directory exists (only for validated folders)
   const dir = path.dirname(file_path)
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true })
@@ -42,13 +109,33 @@ async function runTool({ file_path, content }) {
   // Always call reindex as final step
   const reindexResult = await reindex({})
 
-  return {
+  // Build guidance hints from lint results
+  const guidance = []
+  if (reindexResult.lint_errors > 0) {
+    guidance.push('Fix lint errors before proceeding — they indicate structural problems in the written file.')
+  }
+  if (reindexResult.lint_warnings > 0) {
+    guidance.push('Review lint warnings — they may indicate stale references, type mismatches, or unfilled placeholders.')
+  }
+
+  // Find related files for cross-referencing
+  const suggestions = findRelatedFiles(file_path, content)
+
+  const result = {
     written: true,
     file_path,
     lint_errors: reindexResult.lint_errors,
     lint_warnings: reindexResult.lint_warnings,
     reindex_result: reindexResult
   }
+
+  if (guidance.length > 0) result.guidance = guidance
+  if (suggestions.length > 0) {
+    result.related_suggestions = suggestions
+    result._hint = `Consider adding [[wikilinks]] to these related files: ${suggestions.map(s => s.id).join(', ')}`
+  }
+
+  return result
 }
 
 module.exports = { runTool }

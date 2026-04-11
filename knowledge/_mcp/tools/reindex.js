@@ -6,6 +6,7 @@ const { loadGraph } = require('../lib/graph')
 const { loadRules } = require('../lib/rules')
 const { estimateTokens } = require('../lib/budget')
 const { extractMentions } = require('../lib/mentions')
+const { inferType } = require('../lib/types')
 const { runTool: lint } = require('./lint')
 
 const KB_ROOT = 'knowledge'
@@ -27,11 +28,21 @@ async function runTool({ silent = false } = {}) {
       const parsed = matter(content)
       const data = parsed.data || {}
 
-      // Detect [[wikilinks]] and ensure they're in depends_on
+      // Detect [[wikilinks]] and merge with frontmatter depends_on (deduped by bare ID)
       const mentions = extractMentions(parsed.content)
       const existingDeps = data.depends_on || []
-      const allDeps = [...new Set([...existingDeps, ...mentions])]
-        .filter(d => d && d !== relative)
+      const seen = new Map()
+      for (const d of [...existingDeps, ...mentions]) {
+        if (!d) continue
+        const key = d.replace(/#.*$/, '').replace(/\.md$/, '').split('/').pop()
+        // When duplicates collide, keep the longer (more qualified) form
+        if (!seen.has(key) || d.length > seen.get(key).length) seen.set(key, d)
+      }
+      const selfKey = relative.replace(/\.md$/, '').split('/').pop()
+      const allDeps = [...seen.values()].filter(d => {
+        const k = d.replace(/#.*$/, '').replace(/\.md$/, '').split('/').pop()
+        return k !== selfKey
+      })
 
       const tokensEst = estimateTokens(content)
 
@@ -138,18 +149,7 @@ async function runTool({ silent = false } = {}) {
   }
 }
 
-function inferType(relativePath) {
-  if (relativePath.startsWith('features/')) return 'feature'
-  if (relativePath.startsWith('flows/')) return 'flow'
-  if (relativePath.startsWith('data/schema/')) return 'schema'
-  if (relativePath.startsWith('validation/')) return 'validation'
-  if (relativePath.startsWith('integrations/')) return 'integration'
-  if (relativePath.startsWith('decisions/')) return 'decision'
-  if (relativePath.startsWith('standards/')) return 'standard'
-  if (relativePath.startsWith('ui/')) return 'ui'
-  if (relativePath.startsWith('data/')) return 'data'
-  return 'unknown'
-}
+// inferType moved to lib/types.js
 
 function collectMdFiles(dir) {
   const files = []

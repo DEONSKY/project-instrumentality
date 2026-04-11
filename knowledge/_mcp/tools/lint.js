@@ -4,6 +4,7 @@ const matter = require('gray-matter')
 const { loadRules } = require('../lib/rules')
 const { extractMentions } = require('../lib/mentions')
 const { validateDepth } = require('../lib/depth')
+const { inferType } = require('../lib/types')
 const { scan: scanSecrets } = require('../lib/secrets')
 const { loadGraph } = require('../lib/graph')
 
@@ -87,6 +88,19 @@ function lintFile(filePath, rules, graph) {
     }
   })
 
+  // Type/folder mismatch check
+  const relativePath = filePath.replace(/^knowledge\//, '')
+  const inferredType = inferType(relativePath)
+  if (data.type && inferredType !== 'unknown' && data.type !== inferredType) {
+    const folder = relativePath.split('/')[0]
+    violations.push({
+      file: filePath,
+      line: 1,
+      severity: 'warn',
+      message: `Frontmatter type '${data.type}' does not match folder-inferred type '${inferredType}' for folder '${folder}/'. Either move the file to the correct folder or update the type field.`
+    })
+  }
+
   // No status fields allowed
   if (data.status !== undefined) {
     violations.push({ file: filePath, line: 1, severity: 'warn', message: 'status field found in KB file — use frontmatter fields id, type, app_scope, created; workflow state does not belong in KB files' })
@@ -113,6 +127,28 @@ function lintFile(filePath, rules, graph) {
       message: `Secret pattern detected: "${hit.pattern}" at column ${hit.column}`
     })
   })
+
+  // Detect unfilled {{placeholders}} from templates
+  const placeholderNames = []
+  let firstPlaceholderLine = 0
+  content.split('\n').forEach((line, idx) => {
+    const re = /\{\{([^}]+)\}\}/g
+    let m
+    while ((m = re.exec(line)) !== null) {
+      if (!firstPlaceholderLine) firstPlaceholderLine = idx + 1
+      placeholderNames.push(m[1].trim())
+    }
+  })
+  if (placeholderNames.length > 0) {
+    const unique = [...new Set(placeholderNames)]
+    const isAlwaysLoad = data.always_load === true
+    violations.push({
+      file: filePath,
+      line: firstPlaceholderLine,
+      severity: isAlwaysLoad ? 'error' : 'warn',
+      message: `${placeholderNames.length} unfilled placeholder(s): ${unique.join(', ')}${isAlwaysLoad ? '. This file has always_load:true — unfilled placeholders waste tokens on EVERY query. Fill or remove them immediately.' : '. Fill these placeholders or remove the unused sections.'}`
+    })
+  }
 
   // Wikilink resolution
   const mentions = extractMentions(content)
