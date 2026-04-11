@@ -95,9 +95,9 @@ git add -A && git commit -m "initial project setup"
 > Create the standards files for this project. The project name is "TaskFlow". We use React 18 + Vite + TypeScript + TanStack Query + Zod for validation. Conventions: all components are functional, API calls go through TanStack Query hooks, validation uses Zod schemas.
 
 **Expected:** Agent calls `kb_scaffold` at minimum:
-- `type: "global-rules"` → `standards/global.md` (always_load: true)
 - `type: "tech-stack"` → `standards/code/tech-stack.md`
 - `type: "conventions"` → `standards/code/conventions.md`
+- Focused `type: "standard"` files for specific concerns (e.g. auth-rules, api-conventions)
 
 ### A.3 Scaffold a feature with description
 
@@ -1205,8 +1205,8 @@ EOF
 
 **Expected:**
 1. Agent calls `kb_init({ interactive: false })`.
-2. Result includes `scaffolded_standards: ["standards/global.md", "standards/code/tech-stack.md", "standards/code/conventions.md"]`.
-3. All three files exist with template placeholder content.
+2. Result includes `scaffolded_standards: ["standards/code/tech-stack.md", "standards/code/conventions.md"]`.
+3. All files exist with template placeholder content.
 4. Re-running `kb_init` does NOT re-scaffold (files already exist).
 
 **TC:** TC-1.9, TC-1.10

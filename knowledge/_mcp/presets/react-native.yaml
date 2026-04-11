@@ -76,6 +76,5 @@ code_path_patterns:
       - "app.config.*"
 
 standards_scaffold:
-  - type: global-rules
   - type: tech-stack
   - type: conventions

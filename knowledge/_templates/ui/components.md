@@ -8,6 +8,7 @@ depends_on:
   - foundation/conventions.md
 owner: {{owner}}
 created: {{date}}
+tags: []
 ---
 
 ## Shared components

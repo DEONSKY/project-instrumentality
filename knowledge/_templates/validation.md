@@ -7,6 +7,7 @@ app_scope: {{app_scope}}
 depends_on: []
 owner: {{owner}}
 created: {{date}}
+tags: []
 ---
 
 <!--

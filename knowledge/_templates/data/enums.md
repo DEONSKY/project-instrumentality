@@ -7,6 +7,7 @@ app_scope: all
 always_load: false
 owner: {{owner}}
 created: {{date}}
+tags: []
 ---
 
 ## Enums

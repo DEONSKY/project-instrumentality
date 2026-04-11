@@ -61,6 +61,24 @@ After completing the pre-check above, replace {{placeholders}} with
 real values derived from the description. Leave any placeholder you
 cannot confidently fill as-is with the original {{placeholder}} text.
 
+## Tags
+
+The `tags` field in frontmatter is **critical for discoverability**. The KB search
+engine matches keywords against tags — files with empty tags will not appear in
+`kb_get` results unless the keyword happens to match the file path or id.
+
+When filling the `tags` field:
+- Extract 5–15 domain keywords from the description and content
+- Include synonyms and abbreviations (e.g. both "authentication" and "auth")
+- Include key entities, actions, and technical terms mentioned in the file
+- Prefer lowercase, kebab-case for multi-word tags (e.g. "error-handling")
+- Do NOT use generic structural terms (e.g. "feature", "flow", "rules", "description")
+
+Example: a file about user authentication might have:
+```yaml
+tags: [auth, authentication, login, jwt, ldap, roles, sadm, plcmt, active-directory, session]
+```
+
 ## Rules
 
 - Only fill what the description clearly states

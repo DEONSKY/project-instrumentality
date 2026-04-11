@@ -82,6 +82,5 @@ code_path_patterns:
       - "nest-cli.json"
 
 standards_scaffold:
-  - type: global-rules
   - type: tech-stack
   - type: conventions

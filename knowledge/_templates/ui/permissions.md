@@ -4,10 +4,10 @@ type: ui-permissions
 aliases: [Permissions]
 cssclasses: [kb-ui]
 app_scope: {{app_scope}}
-depends_on:
-  - foundation/global-rules.md
+depends_on: []
 owner: {{owner}}
 created: {{date}}
+tags: []
 ---
 
 ## Permission matrix

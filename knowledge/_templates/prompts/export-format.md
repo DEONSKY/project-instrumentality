@@ -8,7 +8,7 @@
 #   {{scope_label}}     — what was exported (e.g. "billing domain", "all features")
 #   {{export_format}}   — pdf | docx | markdown | confluence | notion | html | json
 #   {{kb_files}}        — gathered KB content (front-matter stripped)
-#   {{project_name}}    — from foundation/global-rules.md or kb_init config
+#   {{project_name}}    — from _rules.md project_name field
 #   {{export_date}}     — today's date
 
 ---

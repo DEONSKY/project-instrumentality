@@ -69,6 +69,5 @@ code_path_patterns:
       - "config/environments/*.rb"
 
 standards_scaffold:
-  - type: global-rules
   - type: tech-stack
   - type: conventions

@@ -2,6 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const matter = require('gray-matter')
 const { getTemplatesDir, TYPE_TO_TEMPLATE } = require('./kb-paths')
+const { extractTagsFromText } = require('./tag-extract')
 
 /**
  * Fill a KB template with chunk content and classification metadata.
@@ -41,6 +42,11 @@ function fillTemplate(chunk, classification, sourceFile, dependsOn = []) {
   if (dependsOn.length > 0) {
     fm.depends_on = [...new Set([...(fm.depends_on || []), ...dependsOn])]
   }
+
+  // Auto-extract tags from imported content
+  const extractedTags = extractTagsFromText(chunk.text, { id })
+  const existingTags = Array.isArray(fm.tags) ? fm.tags : []
+  fm.tags = [...new Set([...existingTags, ...extractedTags])]
 
   // Build body: insert imported content after first heading, preserve rest
   const body = parsed.content

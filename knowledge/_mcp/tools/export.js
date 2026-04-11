@@ -246,13 +246,6 @@ function getProjectName() {
       if (parsed.data.project_name) return parsed.data.project_name
     } catch { /* fall through */ }
   }
-  const globalRulesPath = 'knowledge/standards/global.md'
-  if (fs.existsSync(globalRulesPath)) {
-    try {
-      const parsed = matter(fs.readFileSync(globalRulesPath, 'utf8'))
-      if (parsed.data.project_name) return parsed.data.project_name
-    } catch { /* fall through */ }
-  }
   return 'Project'
 }
 

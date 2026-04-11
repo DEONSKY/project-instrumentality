@@ -528,7 +528,6 @@ function getTypeFromPath(filePath) {
     'ui/components.md': 'components',
     'ui/permissions.md': 'permissions',
     'ui/copy.md': 'copy',
-    'standards/global.md': 'global-rules',
     'standards/code/tech-stack.md': 'tech-stack',
     'standards/code/conventions.md': 'conventions'
   }

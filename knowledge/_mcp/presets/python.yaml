@@ -66,6 +66,5 @@ code_path_patterns:
       - "mypy.ini"
 
 standards_scaffold:
-  - type: global-rules
   - type: tech-stack
   - type: conventions

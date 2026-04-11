@@ -125,6 +125,5 @@ code_path_patterns:
       - "Makefile"
 
 standards_scaffold:
-  - type: global-rules
   - type: tech-stack
   - type: conventions

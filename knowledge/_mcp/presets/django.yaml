@@ -71,6 +71,5 @@ code_path_patterns:
       - "*/settings/*.py"
 
 standards_scaffold:
-  - type: global-rules
   - type: tech-stack
   - type: conventions

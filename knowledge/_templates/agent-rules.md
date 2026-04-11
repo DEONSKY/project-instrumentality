@@ -24,6 +24,12 @@ This project uses a structured Knowledge Base (KB) managed by the KB-MCP server.
 - If the KB needs updating to reflect your changes, use `kb_write` to keep documentation in sync
 - Do not leave code and KB in a contradictory state
 
+## After creating or updating KB files
+
+- Run `kb_autotag` on the file to extract searchable tags from its content
+- Tags are critical for discoverability — files without tags are invisible to `kb_get` keyword search
+- Example: `kb_autotag({ file_path: "features/user-auth.md" })`
+
 ## When creating new features or components
 
 - Use `kb_scaffold` to create new KB documents from templates

@@ -7,6 +7,7 @@ domain: {{domain}}
 app_scope: {{app_scope}}
 owner: {{owner}}
 created: {{date}}
+tags: []
 shared_depends_on:
   - data/schema/{{primary_entity}}.md
 files: []

@@ -29,7 +29,6 @@ your-project/
       design/            ← design files and diagrams
       screenshots/       ← UI screenshots referenced in KB docs
     standards/           ← how to work on this project (contextually loaded)
-      global.md          ← always_load: true — cross-cutting rules only
       code/              ← loaded when writing/reviewing code
       knowledge/         ← loaded when writing/reviewing KB files
       process/           ← task workflows and checklists
@@ -118,7 +117,7 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | `kb_write` | Write a KB file and auto-reindex. Rejects paths outside `knowledge/` |
 | `kb_reindex` | Rebuild `_index.yaml` from all KB files, run lint. Returns up to 20 lint violations in the result |
 | `kb_lint` | Lint KB files for front-matter correctness and secret patterns |
-| `kb_scaffold` | Create a new KB file from template (types: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `group`, `enums`, `relations`, `components`, `permissions`, `copy`, `global-rules`, `tech-stack`, `conventions`, `agent-rules`). Two-phase when `description` is given: loads related KB context, checks for overlapping entries, returns a fill prompt → agent fills → writes. `agent-rules` is special: writes `CLAUDE.md`, `.cursorrules`, and `.windsurfrules` to the project root. Use `force: true` to regenerate existing files |
+| `kb_scaffold` | Create a new KB file from template (types: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `group`, `enums`, `relations`, `components`, `permissions`, `copy`, `tech-stack`, `conventions`, `agent-rules`). Two-phase when `description` is given: loads related KB context, checks for overlapping entries, returns a fill prompt → agent fills → writes. `agent-rules` is special: writes `CLAUDE.md`, `.cursorrules`, and `.windsurfrules` to the project root. Use `force: true` to regenerate existing files |
 | `kb_ask` | Ask a question about the KB. Classifies intent (query / sync / brainstorm / challenge / onboard / generate) and returns relevant context. Short tech terms (api, jwt, sql, etc.) are preserved in keyword extraction |
 | `kb_drift` | Bidirectional drift detection. Phase 1: code→kb (code changed, KB stale) and kb→code (KB changed, code may be stale). Writes to queue files in `sync/`. Handles file/folder renames as single linked operations — code renames annotate the entry with `← renamed from`, KB renames surface broken `[[wikilink]]` references with a count and file list. Stale `_rules.md` patterns (old path matched, new path doesn't) are returned as `stale_patterns[]` warnings. Phase 2: three resolution types — `summaries` (KB updated), `reverted` (code was wrong), `kb_confirmed` (kb→code reviewed). The pre-push hook passes the remote name automatically; sync baseline is resolved via graduated fallback: upstream tracking ref → `<remote>/<branch>` → closest parent branch (merge-base across all remote branches, so `main→dev→feature` correctly finds `dev`) → skip with warning. Submodules with a different remote name than the parent are detected and warned about explicitly (with a fix command), not silently skipped or compared against the wrong remote |
 | `kb_impact` | Analyze what KB files are affected by a proposed change, using the dependency graph |
@@ -370,7 +369,7 @@ Each draft includes a file list, summary placeholder, and open questions. Review
 
 Standards govern *how to work on this project* — for both code files and KB files. They live in `knowledge/standards/` and are loaded contextually when relevant.
 
-**Auto-scaffold on init**: when `kb_init` detects a stack (React, Go, etc.), it creates `standards/global.md`, `standards/code/tech-stack.md`, and `standards/code/conventions.md` as template stubs for you to fill.
+**Auto-scaffold on init**: when `kb_init` detects a stack (React, Go, etc.), it creates `standards/code/tech-stack.md` and `standards/code/conventions.md` as template stubs for you to fill.
 
 **Scaffold manually:**
 ```
@@ -403,7 +402,7 @@ kb_scaffold({ type: "standard", id: "ts-conventions", group: "code", app_scope: 
 ```
 `kb_get({ app_scope: "frontend" })` loads only the frontend standard; `app_scope: "backend"` loads only the Go one.
 
-Standards are loaded via `kb_get` based on context — `task_context: "creating"` boosts `standards/knowledge/` files, `task_context: "fixing"` boosts `standards/code/` files. The special `global-rules` type (`standards/global.md`) is always loaded.
+Standards are loaded via `kb_get` based on context — `task_context: "creating"` boosts `standards/knowledge/` files, `task_context: "fixing"` boosts `standards/code/` files. Any file can opt into unconditional loading by setting `always_load: true` in its frontmatter.
 
 ---
 
@@ -430,6 +429,10 @@ Now kb_ask finds files reliably:
 ```
 
 Both tools are safe to re-run — `kb_autotag` merges with existing tags, `kb_autorelate` skips already-present relations and prevents cycles.
+
+> **Future improvement — content_keywords in index (Level 2)**
+>
+> Currently the `kb_get` scorer matches keywords against metadata only (path, id, type, tags, depends_on) — not file body content. Tags bridge this gap, but if files lack tags they become invisible to keyword search. A future enhancement could extract content keywords during `kb_reindex` and store them as a `content_keywords` field in `_index.yaml` (not in the source file). The scorer would then search both `tags` and `content_keywords`, making files discoverable even with empty tags. This is pure Node.js (no LLM cost), adds ~1ms per file to reindex, and requires no source file writes. See `lib/tag-extract.js` for the extraction logic that could be reused.
 
 ---
 

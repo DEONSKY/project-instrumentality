@@ -113,6 +113,5 @@ code_path_patterns:
       - ".editorconfig"
 
 standards_scaffold:
-  - type: global-rules
   - type: tech-stack
   - type: conventions

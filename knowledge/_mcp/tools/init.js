@@ -879,10 +879,11 @@ ${stackLine}
    kb_scaffold type=feature id=my-first-feature
 
 4. Add standards files:
-   kb_scaffold type=global-rules                      ← always loaded, cross-cutting rules
-   kb_scaffold type=standard id=components group=code ← loaded when working on code
-   kb_scaffold type=standard id=feature group=knowledge ← loaded when working on KB files
-   kb_scaffold type=standard id=code-review group=process ← task workflow standards
+   kb_scaffold type=standard id=api-conventions group=code ← error format, response envelope
+   kb_scaffold type=standard id=auth-rules group=code      ← roles, auth mechanism, tokens
+   kb_scaffold type=standard id=components group=code      ← loaded when working on code
+   kb_scaffold type=standard id=feature group=knowledge    ← loaded when working on KB files
+   kb_scaffold type=standard id=code-review group=process  ← task workflow standards
 
 5. Open in Cursor/Claude Code — the MCP server auto-starts.
    No API key needed — the agent IS the LLM.

@@ -85,7 +85,7 @@ const TOOL_DEFINITIONS = [
       type: 'object',
       required: ['type'],
       properties: {
-        type: { type: 'string', description: 'Template type: feature|flow|schema|validation|integration|decision|standard|group|enums|relations|components|permissions|copy|global-rules|tech-stack|conventions|agent-rules' },
+        type: { type: 'string', description: 'Template type: feature|flow|schema|validation|integration|decision|standard|group|enums|relations|components|permissions|copy|tech-stack|conventions|agent-rules' },
         id: { type: 'string', description: 'File identifier (kebab-case)' },
         group: { type: 'string', description: 'Group/subfolder for standards: code|knowledge|process' },
         description: { type: 'string', description: 'Description — tool returns a fill prompt for the agent to process' },

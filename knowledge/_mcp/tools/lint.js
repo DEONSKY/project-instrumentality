@@ -150,6 +150,17 @@ function lintFile(filePath, rules, graph) {
     })
   }
 
+  // Empty tags — files without tags are invisible to kb_get keyword search
+  const tags = data.tags
+  if (!tags || (Array.isArray(tags) && tags.length === 0)) {
+    violations.push({
+      file: filePath,
+      line: 1,
+      severity: 'warn',
+      message: 'No tags defined. This file will only be found by path or id match in kb_get. Add domain keywords to the tags array, or run kb_autotag to extract them from content.'
+    })
+  }
+
   // Wikilink resolution
   const mentions = extractMentions(content)
 

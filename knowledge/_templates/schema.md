@@ -6,6 +6,7 @@ cssclasses: [kb-schema]
 app_scope: all
 owner: {{owner}}
 created: {{date}}
+tags: []
 ---
 
 <!--

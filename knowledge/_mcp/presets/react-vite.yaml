@@ -75,6 +75,5 @@ code_path_patterns:
 
 
 standards_scaffold:
-  - type: global-rules
   - type: tech-stack
   - type: conventions

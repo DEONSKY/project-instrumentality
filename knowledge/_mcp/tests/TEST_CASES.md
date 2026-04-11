@@ -71,7 +71,7 @@ cd test-react-vite
 kb_init({ interactive: false })
 ```
 
-**Pass:** Result contains `scaffolded_standards: ["standards/global.md", "standards/code/tech-stack.md", "standards/code/conventions.md"]`. All three files exist at their paths with template placeholder content (e.g. `{{owner}}`).
+**Pass:** Result contains `scaffolded_standards: ["standards/code/tech-stack.md", "standards/code/conventions.md"]`. All files exist at their paths with template placeholder content (e.g. `{{owner}}`).
 
 Re-run `kb_init`: `scaffolded_standards` is absent (files already exist, skip silently).
 
@@ -183,7 +183,7 @@ kb_scaffold({ type: "feature", id: "deep", group: "a/b/c/d" })
 
 ### TC-2.6 All template types
 
-For each type: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `global-rules`, `tech-stack`, `conventions`, `enums`, `relations`, `components`, `permissions`, `copy`.
+For each type: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `tech-stack`, `conventions`, `enums`, `relations`, `components`, `permissions`, `copy`.
 
 **Pass:** File created at expected path with correct template content. No error.
 
@@ -343,15 +343,15 @@ kb_get({ keywords: ["auth"] })
 
 **Pass:** Returns `user-auth.md` in files. `billing.md` NOT included.
 
-### TC-4.2 Always-load standards/global.md
+### TC-4.2 Always-load files
 
-Create `standards/global.md` with `always_load: true`.
+Create any standard file with `always_load: true` in frontmatter.
 
 ```
 kb_get({ keywords: ["billing"] })
 ```
 
-**Pass:** `standards/global.md` always in result, plus billing matches.
+**Pass:** The `always_load: true` file always in result, plus billing matches.
 
 ### TC-4.3 Token budget respected
 
@@ -1073,7 +1073,7 @@ kb_export({ scope: "all", format: "markdown" })
 
 ### TC-12.3 Project name from _rules.md
 
-Verify that export prompt contains the project name from `_rules.md` (not `{{id}}` placeholder from `global-rules.md` template).
+Verify that export prompt contains the project name from `_rules.md` (not a `{{placeholder}}`).
 
 ### TC-12.4 Dry run
 
@@ -1875,7 +1875,7 @@ kb_issue_consult({ title: "some title" })
 kb_issue_consult({ title: "xyzzy frobnicator malfunction", body: "The xyzzy frobnicator stopped frobnicating." })
 ```
 
-**Pass:** Returns result with no keyword-matched docs. `related_docs` may include `always_load: true` files (e.g. `global-rules`) — this is by design. The prompt is generated and `_instruction` field is present.
+**Pass:** Returns result with no keyword-matched docs. `related_docs` may include `always_load: true` files if any exist — this is by design. The prompt is generated and `_instruction` field is present.
 
 ---
 

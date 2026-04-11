@@ -23,7 +23,6 @@ const TYPE_TO_PATH = {
   components: 'ui/components.md',
   permissions: 'ui/permissions.md',
   copy: 'ui/copy.md',
-  'global-rules': 'standards/global.md',
   'tech-stack': 'standards/code/tech-stack.md',
   conventions: 'standards/code/conventions.md'
 }
@@ -42,7 +41,6 @@ const TYPE_TO_TEMPLATE = {
   components: 'ui/components.md',
   permissions: 'ui/permissions.md',
   copy: 'ui/copy.md',
-  'global-rules': 'standards/global-rules.md',
   'tech-stack': 'standards/tech-stack.md',
   conventions: 'standards/conventions.md',
   'agent-rules': 'agent-rules.md'

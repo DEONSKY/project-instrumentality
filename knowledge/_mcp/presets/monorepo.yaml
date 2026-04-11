@@ -78,6 +78,5 @@ code_path_patterns:
       - "nx.json"
 
 standards_scaffold:
-  - type: global-rules
   - type: tech-stack
   - type: conventions
