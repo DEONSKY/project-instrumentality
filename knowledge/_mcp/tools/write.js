@@ -3,6 +3,7 @@ const path = require('path')
 const matter = require('gray-matter')
 const yaml = require('js-yaml')
 const { runTool: reindex } = require('./reindex')
+const { runTool: autotag } = require('./autotag')
 const { loadRules } = require('../lib/rules')
 
 const KB_ROOT = 'knowledge'
@@ -108,6 +109,9 @@ async function runTool({ file_path, content }) {
 
   // Always call reindex as final step
   const reindexResult = await reindex({})
+
+  // Auto-tag the written file (fast mode, single file)
+  await autotag({ file_path, mode: 'fast' })
 
   // Build guidance hints from lint results
   const guidance = []

@@ -1,6 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const matter = require('gray-matter')
+const { matterStringify } = require('./matter-utils')
 const { getTemplatesDir, TYPE_TO_TEMPLATE } = require('./kb-paths')
 const { extractTagsFromText } = require('./tag-extract')
 
@@ -62,7 +63,7 @@ function fillTemplate(chunk, classification, sourceFile, dependsOn = []) {
   }
 
   // Rebuild file
-  return matter.stringify(filledBody, fm)
+  return matterStringify(filledBody, fm)
 }
 
 /**

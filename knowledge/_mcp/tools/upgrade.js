@@ -1,6 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const matter = require('gray-matter')
+const { matterStringify } = require('../lib/matter-utils')
 const { resolvePrompt } = require('../lib/prompts')
 const { getDefaultRules } = require('../lib/rules')
 const { loadManifest, writeManifest, walkTemplateFiles, hashFileContent, buildTemplateHashes } = require('../lib/manifest')
@@ -151,7 +152,7 @@ function patchRules(rulesPath) {
   deepMerge(parsed.data, defaults, '', patched)
 
   if (patched.length > 0) {
-    const updated = matter.stringify(parsed.content, parsed.data)
+    const updated = matterStringify(parsed.content, parsed.data)
     fs.writeFileSync(rulesPath, updated)
   }
 

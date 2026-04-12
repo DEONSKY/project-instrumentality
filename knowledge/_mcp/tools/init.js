@@ -3,6 +3,7 @@ const path = require('path')
 const readline = require('readline')
 const matter = require('gray-matter')
 const yaml = require('js-yaml')
+const { matterStringify } = require('../lib/matter-utils')
 const { runTool: reindex } = require('./reindex')
 const { runTool: scaffold } = require('./scaffold')
 const { resolveFilePath } = require('../lib/kb-paths')
@@ -294,7 +295,7 @@ async function runTool({ interactive = true, config = null } = {}) {
         const updatedParsed = matter(updatedContent)
         updatedParsed.data._detected_stacks = stacksSummary
         delete updatedParsed.data._detected_stack
-        const final = matter.stringify(updatedParsed.content, updatedParsed.data)
+        const final = matterStringify(updatedParsed.content, updatedParsed.data)
         fs.writeFileSync(rulesPath, final)
         filesCreated.push(rulesPath + ' (updated code_path_patterns)')
       }

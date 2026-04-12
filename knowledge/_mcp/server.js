@@ -261,11 +261,13 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'kb_autotag',
-    description: 'Auto-extract tags from KB file content and write them to frontmatter. Improves kb_ask search accuracy by populating empty tags fields. Run after importing or creating KB files.',
+    description: 'Auto-extract and manage tags for KB files. Tags are system-owned and overwritten on each run. Modes: "fast" (regex extraction, auto-applied), "review" (returns scored candidates for LLM validation), "apply" (writes LLM-reviewed tags to frontmatter).',
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Path to a single KB file (e.g. knowledge/features/auth.md), or "all" to tag the entire KB. Default: all.' }
+        file_path: { type: 'string', description: 'Path to a single KB file (e.g. knowledge/features/auth.md), or "all" to tag the entire KB. Default: all. Used by fast and review modes.' },
+        mode: { type: 'string', enum: ['fast', 'review', 'apply'], description: 'fast: regex-extract and overwrite tags (default). review: return scored candidates grouped by confidence for LLM validation. apply: write LLM-reviewed tags from the tags parameter.' },
+        tags: { type: 'object', description: 'For mode=apply only. Map of file_path to tag array, e.g. { "features/auth.md": ["auth", "session", "jwt"] }.' }
       }
     }
   },

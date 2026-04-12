@@ -1,6 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const matter = require('gray-matter')
+const { matterStringify } = require('../lib/matter-utils')
 const { loadGraph } = require('../lib/graph')
 const { runTool: reindex } = require('./reindex')
 
@@ -344,7 +345,7 @@ function addDependsOn(sourceFile, targetFile) {
     deps.push(ref)
     parsed.data.depends_on = deps
 
-    const updated = matter.stringify(parsed.content, parsed.data)
+    const updated = matterStringify(parsed.content, parsed.data)
     fs.writeFileSync(fullPath, updated, 'utf8')
     return true
   } catch {
