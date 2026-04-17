@@ -2,3 +2,5 @@
 <!-- baseline: 740832fb28499ffed61044f06d78d55ab9ae8351 -->
 
 # KB Drift Queue
+
+> **On merge conflicts:** queue files use `merge=union` — different entries from different branches coalesce automatically. If the same entry appears twice, dedupe keeping the one with the later `since` commit. The post-merge git hook collapses duplicate `<!-- baseline: -->` lines automatically; if it didn't run, keep whichever SHA is the descendant of the other.

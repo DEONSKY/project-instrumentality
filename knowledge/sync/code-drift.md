@@ -4,3 +4,5 @@
 # Code Drift Queue
 
 Code changed without matching KB update. PM/tech lead reviews each entry.
+
+> **On merge conflicts:** queue files use `merge=union` — different entries from different branches coalesce automatically. If the same entry appears twice, dedupe keeping the one with the later `since` commit. The post-merge git hook collapses duplicate `<!-- baseline: -->` lines automatically; if it didn't run, keep whichever SHA is the descendant of the other.

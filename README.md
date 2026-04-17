@@ -244,6 +244,12 @@ Developer opens Claude: "review kb-drift.md"
 → Entry closed, resolution logged to sync/drift-log/
 ```
 
+**Merge-conflict protocol for drift queues.** The queue files (`sync/code-drift.md`, `sync/kb-drift.md`) and the drift log are committed with `merge=union` in `.gitattributes`, so branches rarely conflict:
+
+- **Different entries on each branch** — union concatenates cleanly, no action needed.
+- **Same entry on both branches** — real semantic conflict. Resolve by hand: dedupe the duplicate heading and keep the entry whose `since` commit is later.
+- **Baseline line (`<!-- baseline: <sha> -->`)** — the post-merge hook runs `kb_drift({ dedup_baselines: true })` automatically, which collapses duplicates to whichever SHA is the descendant of the other. If the hook didn't run (shallow clone, detached-HEAD merge), remove the ancestor line manually.
+
 ---
 
 ### 3. Impact analysis before a breaking change
