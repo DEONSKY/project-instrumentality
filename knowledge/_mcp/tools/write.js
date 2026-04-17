@@ -111,7 +111,7 @@ async function runTool({ file_path, content }) {
   const reindexResult = await reindex({})
 
   // Auto-tag the written file (fast mode, single file)
-  await autotag({ file_path, mode: 'fast' })
+  await autotag({ file_path, mode: 'fast', skipReindex: true })
 
   // Build guidance hints from lint results
   const guidance = []
