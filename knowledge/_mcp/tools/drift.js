@@ -47,22 +47,45 @@ Resolved drift events. Append-only.
 
 `
 
+// Baseline SHA lives inside the queue header as an HTML comment. Survives the
+// existing `indexOf('\n## ')` header/body split because it has no `##` prefix.
+const BASELINE_RE = /<!--\s*baseline:\s*([a-f0-9]+)\s*-->/i
+
+function parseBaseline(header) {
+  const m = header.match(BASELINE_RE)
+  return m ? m[1] : null
+}
+
+function setBaseline(header, sha) {
+  if (BASELINE_RE.test(header)) return header.replace(BASELINE_RE, `<!-- baseline: ${sha} -->`)
+  if (/<!-- AUTO-GENERATED[^\n]*-->\n/.test(header)) {
+    return header.replace(/(<!-- AUTO-GENERATED[^\n]*-->\n)/, `$1<!-- baseline: ${sha} -->\n`)
+  }
+  return `<!-- baseline: ${sha} -->\n` + header
+}
+
 /**
  * kb_drift — Bidirectional drift detection.
  *
  * Phase 1 (no resolution params):
  *   code→kb: code files changed → upsert entries in sync/code-drift.md
  *            keyed by KB target, tracks all code files + since-commit per file
- *            multiple commits to same file accumulate automatically (git diff since..HEAD)
  *   kb→code: KB files changed → upsert entries in sync/kb-drift.md
  *            keyed by KB file, tracks since-commit
+ *   Each queue file carries its own baseline SHA in its header; both advance
+ *   to HEAD on every successful run, regardless of whether anything drained.
  *
  * Phase 2 resolutions:
  *   summaries:    [{ kb_target, summary }]  PM approved — KB updated
  *   reverted:     [{ code_file }]            PM rejected — code file reverted
  *   kb_confirmed: [{ kb_file }]              developer confirmed code matches
+ *
+ * Admin escape hatch:
+ *   force_baseline: 'HEAD'|<sha> — reset both queue baselines
+ *   purge:         boolean        — with force_baseline, also clear all entries
  */
-async function runTool({ since = 'last-sync', summaries, reverted, kb_confirmed, remote } = {}) {
+async function runTool({ since = 'last-sync', summaries, reverted, kb_confirmed, remote, force_baseline, purge } = {}) {
+  if (force_baseline || purge) return resetBaselines({ force_baseline, purge })
   if (summaries && Array.isArray(summaries)) return resolveWithSummaries(summaries)
   if (reverted && Array.isArray(reverted)) return resolveReverted(reverted)
   if (kb_confirmed && Array.isArray(kb_confirmed)) return resolveKbConfirmed(kb_confirmed)
@@ -75,120 +98,156 @@ async function detectDrift(since, remote) {
   const mainGit = simpleGit(process.cwd())
   const rules = loadRules(KB_ROOT)
 
-  // Resolve the comparison ref:
-  // - explicit SHA/ref → use directly
-  // - 'last-sync' → KB-commit baseline (last commit touching knowledge/),
-  //   then graduated fallback via resolveLastSyncRef
-  const lastKbCommit = await getLastKbCommit(mainGit)
-  let ref
+  // Parse both queue files once up front; all mutations happen in memory.
+  const codeState = readCodeDriftEntries()
+  const kbState = readKbDriftEntries()
+
+  // Resolve per-queue baselines. Explicit `since` overrides both; otherwise
+  // read from the header, falling back to resolveLastSyncRef for bootstrap.
+  let bCode, bKb
   if (since !== 'last-sync') {
-    ref = since
+    bCode = since
+    bKb = since
   } else {
-    ref = lastKbCommit || await resolveLastSyncRef(mainGit, remote)
+    bCode = parseBaseline(codeState.header)
+    bKb = parseBaseline(kbState.header)
+    if (!bCode) bCode = await resolveLastSyncRef(mainGit, remote)
+    if (!bKb) bKb = await resolveLastSyncRef(mainGit, remote)
   }
 
-  // Get HEAD commit info for "since" tracking
+  // HEAD info — used for sinceCommit display, submodule anchoring, and the
+  // post-run baseline advance.
   let headCommit = 'unknown'
   let headDate = new Date().toISOString().split('T')[0]
+  let headSha = null
   try {
     const log = await mainGit.log({ maxCount: 1 })
     if (log.latest) {
       headCommit = log.latest.hash.slice(0, 7)
       headDate = log.latest.date.split('T')[0]
+      headSha = log.latest.hash
     }
   } catch { /* non-fatal */ }
-
-  let changedEntries = []
-  if (ref === null) {
-    process.stderr.write('[kb-drift] warning: no sync baseline found — skipping main repo drift detection\n')
-  } else {
-    try {
-      const mainFiles = await getChangedFiles(mainGit, ref)
-      changedEntries.push(...mainFiles.map(f => ({ file: f.path, oldFile: f.oldPath || null, status: f.status, git: mainGit, localFile: f.path, commit: headCommit, date: headDate })))
-    } catch (e) {
-      return { code_entries: 0, kb_entries: 0, error: e.message }
-    }
-  }
-
-  const submodules = await detectSubmodules()
-  for (const sub of submodules) {
-    try {
-      const subGit = simpleGit(sub.fullPath)
-      let subCommit = 'unknown'
-      let subDate = headDate
-      try {
-        const subLog = await subGit.log({ maxCount: 1 })
-        if (subLog.latest) {
-          subCommit = subLog.latest.hash.slice(0, 7)
-          subDate = subLog.latest.date.split('T')[0]
-        }
-      } catch { /* non-fatal */ }
-      // KB-commit baseline: use the submodule pointer at the last knowledge/ commit.
-      // This survives push — the baseline is "last KB update", not "last push".
-      let subRef = null
-      if (lastKbCommit) {
-        subRef = await getSubmodulePointerAt(mainGit, lastKbCommit, sub.path)
-      }
-      // Fallback: existing logic for repos without KB history or new submodules
-      if (subRef === null) {
-        try { subRef = await resolveLastSyncRef(subGit, remote) } catch { subRef = null }
-      }
-      if (subRef === null) {
-        process.stderr.write(`[kb-drift] warning: no sync baseline for submodule ${sub.path} — skipping\n`)
-        continue
-      }
-      const subFiles = await getChangedFiles(subGit, subRef)
-      changedEntries.push(...subFiles.map(f => ({
-        file: `${sub.path}/${f.path}`,
-        oldFile: f.oldPath ? `${sub.path}/${f.oldPath}` : null,
-        status: f.status,
-        git: subGit,
-        localFile: f.path,
-        commit: subCommit,
-        date: subDate,
-        isShared: sub.isShared
-      })))
-    } catch { /* submodule may not have enough history */ }
-  }
 
   const patterns = rules.getCodePathPatterns()
   let codeEntriesWritten = 0
   let kbEntriesWritten = 0
   const stalePatterns = []
 
-  for (const entry of changedEntries) {
-    const { file, oldFile, status, commit, date, isShared } = entry
+  // ── code→KB pass (B_code, main + submodules, non-KB files only) ───────────
+  const submodules = await detectSubmodules()
+  let codeChanges = []
+  if (bCode === null) {
+    process.stderr.write('[kb-drift] warning: no sync baseline for code-drift — skipping code→KB detection\n')
+  } else {
+    try {
+      const mainFiles = await getChangedFiles(mainGit, bCode)
+      codeChanges.push(...mainFiles.map(f => ({
+        file: f.path, oldFile: f.oldPath || null, status: f.status,
+        commit: headCommit, date: headDate, isShared: false
+      })))
+    } catch (e) {
+      return { code_entries: 0, kb_entries: 0, error: e.message }
+    }
 
-    // Rename/move — handle as a single linked operation
+    for (const sub of submodules) {
+      try {
+        const subGit = simpleGit(sub.fullPath)
+        let subCommit = 'unknown'
+        let subDate = headDate
+        try {
+          const subLog = await subGit.log({ maxCount: 1 })
+          if (subLog.latest) {
+            subCommit = subLog.latest.hash.slice(0, 7)
+            subDate = subLog.latest.date.split('T')[0]
+          }
+        } catch { /* non-fatal */ }
+        // Parent's B_code is the anchor for submodule drift. Read the submodule
+        // pointer at B_code; fall back to per-submodule bootstrap if unavailable.
+        let subRef = null
+        if (bCode) subRef = await getSubmodulePointerAt(mainGit, bCode, sub.path)
+        if (subRef === null) {
+          try { subRef = await resolveLastSyncRef(subGit, remote) } catch { subRef = null }
+        }
+        if (subRef === null) {
+          process.stderr.write(`[kb-drift] warning: no sync baseline for submodule ${sub.path} — skipping\n`)
+          continue
+        }
+        const subFiles = await getChangedFiles(subGit, subRef)
+        codeChanges.push(...subFiles.map(f => ({
+          file: `${sub.path}/${f.path}`,
+          oldFile: f.oldPath ? `${sub.path}/${f.oldPath}` : null,
+          status: f.status,
+          commit: subCommit,
+          date: subDate,
+          isShared: sub.isShared
+        })))
+      } catch { /* submodule may not have enough history */ }
+    }
+  }
+
+  for (const entry of codeChanges) {
+    const { file, oldFile, status, commit, date, isShared } = entry
+    // code→KB only cares about non-KB new paths. KB files belong to the kb pass.
+    if (isKbContentFile(file)) continue
+    if (status === 'D') continue
+
     if (status === 'R' && oldFile) {
-      const result = handleRename(file, oldFile, commit, date, isShared, patterns)
+      const result = handleCodeRename(codeState, file, oldFile, commit, date, isShared, patterns)
       if (result.codeEntry) codeEntriesWritten++
-      if (result.kbEntry) kbEntriesWritten++
       if (result.stalePattern) stalePatterns.push(result.stalePattern)
       continue
     }
 
-    // Delete — no new path to track drift against
-    if (status === 'D') continue
-
-    // M, A, or other — existing logic
-    if (isKbContentFile(file)) {
-      // kb→code: KB file changed — always flag, even without mapped code paths
-      const relative = file.replace(/^knowledge\//, '')
-      const codePaths = reverseMapKbTarget(relative, patterns)
-      const wasNew = upsertKbDriftEntry(relative, codePaths, commit, date)
-      if (wasNew) kbEntriesWritten++
-    } else {
-      // code→kb: first-match-wins (patterns ordered by specificity in presets)
-      const matches = matchAllPatterns(file, patterns)
-      if (matches.length > 0) {
-        const match = matches[0]
-        const kbTarget = resolveKbTarget(match, file)
-        const wasNew = upsertCodeDriftEntry(kbTarget, file, commit, date, isShared)
-        if (wasNew) codeEntriesWritten++
-      }
+    const matches = matchAllPatterns(file, patterns)
+    if (matches.length > 0) {
+      const kbTarget = resolveKbTarget(matches[0], file)
+      const wasNew = upsertCodeDriftEntry(codeState, kbTarget, file, commit, date, isShared)
+      if (wasNew) codeEntriesWritten++
     }
   }
+
+  // ── kb→code pass (B_kb, main repo only, KB files only) ────────────────────
+  let kbChanges = []
+  if (bKb === null) {
+    process.stderr.write('[kb-drift] warning: no sync baseline for kb-drift — skipping kb→code detection\n')
+  } else {
+    try {
+      const mainFiles = await getChangedFiles(mainGit, bKb)
+      kbChanges.push(...mainFiles.map(f => ({
+        file: f.path, oldFile: f.oldPath || null, status: f.status,
+        commit: headCommit, date: headDate
+      })))
+    } catch { /* non-fatal — kb pass is main-only and its failure shouldn't abort */ }
+  }
+
+  for (const entry of kbChanges) {
+    const { file, oldFile, status, commit, date } = entry
+    if (!isKbContentFile(file)) continue
+    if (status === 'D') continue
+
+    if (status === 'R' && oldFile && isKbContentFile(oldFile)) {
+      const result = handleKbRename(kbState, file, oldFile, commit, date, patterns)
+      if (result.kbEntry) kbEntriesWritten++
+      continue
+    }
+
+    // Normal add/modify — or cross-boundary rename where old was non-KB:
+    // treat the new KB path as a fresh add (matches the prior behavior).
+    const relative = file.replace(/^knowledge\//, '')
+    const codePaths = reverseMapKbTarget(relative, patterns)
+    const wasNew = upsertKbDriftEntry(kbState, relative, codePaths, commit, date)
+    if (wasNew) kbEntriesWritten++
+  }
+
+  // Advance both baselines to HEAD (always — cleanliness lives in the queue,
+  // not in the baseline) and write both files once.
+  if (headSha) {
+    codeState.header = setBaseline(codeState.header, headSha)
+    kbState.header = setBaseline(kbState.header, headSha)
+  }
+  writeCodeDriftEntries(codeState.header, codeState.entries)
+  writeKbDriftEntries(kbState.header, kbState.entries)
 
   const noDrift = codeEntriesWritten === 0 && kbEntriesWritten === 0
   const ownedSubs = submodules.filter(s => !s.isShared).map(s => s.path)
@@ -243,7 +302,6 @@ async function resolveWithSummaries(summaries) {
     resolved.push({ direction: 'code→kb', resolution: 'kb-updated', kb_target, summary })
   }
 
-  // Remove fully resolved KB target entries from code-drift.md
   const { entries, header } = readCodeDriftEntries()
   const kbTargets = summaries.map(s => s.kb_target)
   const remaining = entries.filter(e => !kbTargets.includes(e.kbTarget))
@@ -268,7 +326,6 @@ async function resolveReverted(reverted) {
   const { entries, header } = readCodeDriftEntries()
   const resolved = []
 
-  // Remove the reverted code file from each entry that contains it
   const updated = entries.map(entry => {
     const before = entry.codeFiles.length
     entry.codeFiles = entry.codeFiles.filter(f => !codeFiles.includes(f.path))
@@ -276,7 +333,7 @@ async function resolveReverted(reverted) {
       resolved.push({ direction: 'code→kb', resolution: 'code-reverted', kb_target: entry.kbTarget, code_files: codeFiles })
     }
     return entry
-  }).filter(entry => entry.codeFiles.length > 0) // remove empty entries
+  }).filter(entry => entry.codeFiles.length > 0)
 
   writeCodeDriftEntries(header, updated)
   appendToDriftLog(resolved)
@@ -300,12 +357,52 @@ async function resolveKbConfirmed(kb_confirmed) {
     return { direction: 'kb→code', resolution: 'confirmed', kb_file, ...(unmapped && { unmapped: true }) }
   })
 
-  removeFromQueue(KB_DRIFT_PATH, entry => kbFiles.some(f => entry.includes(`## ${f}`)))
+  const { header, entries } = readKbDriftEntries()
+  const remaining = entries.filter(e => !kbFiles.includes(e.kbFile))
+  writeKbDriftEntries(header, remaining)
+
   appendToDriftLog(resolved)
 
   const result = { confirmed: kbFiles.length }
   if (warnings.length > 0) result.warnings = warnings
   return result
+}
+
+// ── Admin escape hatch: force_baseline / purge ───────────────────────────────
+
+async function resetBaselines({ force_baseline, purge }) {
+  const git = simpleGit(process.cwd())
+  let sha = null
+  if (force_baseline) {
+    const arg = force_baseline === 'HEAD' ? 'HEAD' : force_baseline
+    try {
+      sha = (await git.revparse([arg])).trim()
+    } catch {
+      return { error: `cannot resolve force_baseline="${force_baseline}" via git rev-parse` }
+    }
+  }
+
+  const codeState = readCodeDriftEntries()
+  const kbState = readKbDriftEntries()
+
+  if (sha) {
+    codeState.header = setBaseline(codeState.header, sha)
+    kbState.header = setBaseline(kbState.header, sha)
+  }
+
+  const codeEntries = purge ? [] : codeState.entries
+  const kbEntries = purge ? [] : kbState.entries
+
+  writeCodeDriftEntries(codeState.header, codeEntries)
+  writeKbDriftEntries(kbState.header, kbEntries)
+
+  return {
+    baseline: sha,
+    purged: !!purge,
+    message: purge
+      ? `Queue files cleared; both baselines set to ${sha ? sha.slice(0, 7) : '(unchanged)'}.`
+      : `Both baselines set to ${sha ? sha.slice(0, 7) : '(unchanged)'}; queue entries preserved.`
+  }
 }
 
 // ── code-drift.md parse / serialize ──────────────────────────────────────────
@@ -324,7 +421,6 @@ function readCodeDriftEntries() {
     const hasShared = /\*\*Shared module:\*\*\s*true/.test(block)
     const codeFiles = []
     for (const line of block.split('\n')) {
-      // Match with optional ← renamed from annotation
       const m = line.match(/^\s+-\s+`([^`]+)`(?:\s+←\s+renamed from\s+`([^`]+)`)?\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)/)
       if (m) codeFiles.push({ path: m[1], ...(m[2] && { renamedFrom: m[2] }), sinceCommit: m[3], sinceDate: m[4] })
     }
@@ -347,83 +443,131 @@ function writeCodeDriftEntries(header, entries) {
 }
 
 /**
- * Upsert a code file into the entry for a KB target.
- * Returns true if a new entry was created, false if existing was updated or skipped.
- * @param {string} renamedFrom — optional old path if this file was renamed/moved
+ * Upsert a code file into the in-memory code-drift state.
+ * Returns true if a new entry was created, false if existing was updated.
  */
-function upsertCodeDriftEntry(kbTarget, codeFile, sinceCommit, sinceDate, isShared, renamedFrom) {
-  const { header, entries } = readCodeDriftEntries()
-  const existing = entries.find(e => e.kbTarget === kbTarget)
+function upsertCodeDriftEntry(state, kbTarget, codeFile, sinceCommit, sinceDate, isShared, renamedFrom) {
+  const existing = state.entries.find(e => e.kbTarget === kbTarget)
 
   if (existing) {
     if (!existing.codeFiles.some(f => f.path === codeFile)) {
       existing.codeFiles.push({ path: codeFile, sinceCommit, sinceDate, ...(renamedFrom && { renamedFrom }) })
       if (isShared) existing.hasShared = true
-      writeCodeDriftEntries(header, entries)
     }
-    return false // entry already existed
+    return false
   }
 
-  entries.push({ kbTarget, codeFiles: [{ path: codeFile, sinceCommit, sinceDate, ...(renamedFrom && { renamedFrom }) }], hasShared: !!isShared })
-  writeCodeDriftEntries(header, entries)
-  return true // new entry created
+  state.entries.push({
+    kbTarget,
+    codeFiles: [{ path: codeFile, sinceCommit, sinceDate, ...(renamedFrom && { renamedFrom }) }],
+    hasShared: !!isShared
+  })
+  return true
 }
 
-// ── kb-drift.md upsert ────────────────────────────────────────────────────────
+// ── kb-drift.md parse / serialize ────────────────────────────────────────────
 
-/**
- * Upsert a KB file entry in kb-drift.md.
- * Returns true if new entry created.
- */
-function upsertKbDriftEntry(kbFile, codeAreas, sinceCommit, sinceDate) {
+function readKbDriftEntries() {
   ensureHeader(KB_DRIFT_PATH, KB_DRIFT_HEADER)
   const content = fs.readFileSync(KB_DRIFT_PATH, 'utf8')
+  const headerEnd = content.indexOf('\n## ')
+  const header = headerEnd === -1 ? content : content.slice(0, headerEnd)
+  const entriesStr = headerEnd === -1 ? '' : content.slice(headerEnd + 1)
+  const blocks = entriesStr.split(/\n(?=## )/).filter(b => b.trim())
 
-  // Already tracked — don't duplicate (git diff since..HEAD covers new commits)
-  if (content.includes(`## ${kbFile}`)) return false
+  const entries = blocks.map(block => {
+    const headingMatch = block.match(/^## (.+)/)
+    const kbFile = headingMatch ? headingMatch[1].trim() : null
+    const renamedMatch = block.match(/\*\*Renamed from:\*\*\s*`([^`]+)`/)
+    const sinceMatch = block.match(/\*\*Since:\*\*\s*`([^`]+)`\s*\(([^)]+)\)/)
+    const unmapped = /KB spec changed without mapped code paths/.test(block)
 
-  const unmapped = codeAreas.length === 0
-  const areaLines = unmapped
-    ? '  - _(no mapped code paths — review manually)_'
-    : codeAreas.map(p => `  - \`${p}\``).join('\n')
-  const unmappedHint = unmapped
-    ? `\n- **⚠ KB spec changed without mapped code paths.** Verify that the implementation still matches this spec. To enable automatic code-area tracking, add a \`code_path_patterns\` entry in \`_rules.md\` for this file.`
-    : ''
-  const entry = `\n## ${kbFile}\n\n- **KB file:** \`${kbFile}\`\n- **Code areas to review:**\n${areaLines}\n- **Since:** \`${sinceCommit}\` (${sinceDate})${unmappedHint}\n`
-  fs.appendFileSync(KB_DRIFT_PATH, entry)
+    const codeAreas = []
+    let inCodeAreas = false
+    let inRefs = false
+    const references = []
+    let refCount = null
+    const lines = block.split('\n')
+    for (const line of lines) {
+      if (/^- \*\*Code areas to review:\*\*/.test(line)) { inCodeAreas = true; inRefs = false; continue }
+      if (/^- \*\*References to update:\*\*/.test(line)) {
+        inCodeAreas = false; inRefs = true
+        const countMatch = line.match(/\*\*References to update:\*\*\s*(\d+)\s*file\(s\)\s*contain\s*`\[\[([^\]]+)\]\]`/)
+        if (countMatch) refCount = { count: parseInt(countMatch[1], 10), anchor: countMatch[2] }
+        else if (/none found/.test(line)) refCount = { count: 0, anchor: null }
+        continue
+      }
+      if (/^- \*\*/.test(line)) { inCodeAreas = false; inRefs = false; continue }
+      if (inCodeAreas) {
+        const m = line.match(/^\s+-\s+`([^`]+)`/)
+        if (m) codeAreas.push(m[1])
+      }
+      if (inRefs) {
+        const m = line.match(/^\s+-\s+`([^`]+)`/)
+        if (m) references.push(m[1])
+      }
+    }
+
+    return {
+      kbFile,
+      ...(renamedMatch && { renamedFrom: renamedMatch[1] }),
+      codeAreas,
+      ...(refCount && { refCount }),
+      references,
+      ...(sinceMatch && { sinceCommit: sinceMatch[1], sinceDate: sinceMatch[2] }),
+      unmapped
+    }
+  }).filter(e => e.kbFile)
+
+  return { header, entries }
+}
+
+function writeKbDriftEntries(header, entries) {
+  const body = entries.map(entry => {
+    const areaLines = entry.codeAreas.length > 0
+      ? entry.codeAreas.map(p => `  - \`${p}\``).join('\n')
+      : '  - _(no mapped code paths — review manually)_'
+    const renamedLine = entry.renamedFrom ? `\n- **Renamed from:** \`${entry.renamedFrom}\`` : ''
+    let refsLine = ''
+    if (entry.refCount) {
+      if (entry.refCount.count > 0 && entry.refCount.anchor) {
+        refsLine = `\n- **References to update:** ${entry.refCount.count} file(s) contain \`[[${entry.refCount.anchor}]]\``
+        if (entry.references.length > 0) {
+          refsLine += '\n  - ' + entry.references.map(f => `\`${f}\``).join('\n  - ')
+        }
+      } else {
+        refsLine = '\n- **References to update:** none found'
+      }
+    }
+    const sinceLine = entry.sinceCommit ? `\n- **Since:** \`${entry.sinceCommit}\` (${entry.sinceDate})` : ''
+    const unmappedHint = entry.unmapped
+      ? `\n- **⚠ KB spec changed without mapped code paths.** Verify that the implementation still matches this spec. To enable automatic code-area tracking, add a \`code_path_patterns\` entry in \`_rules.md\` for this file.`
+      : ''
+    return `## ${entry.kbFile}\n\n- **KB file:** \`${entry.kbFile}\`${renamedLine}${refsLine}\n- **Code areas to review:**\n${areaLines}${sinceLine}${unmappedHint}`
+  }).join('\n\n')
+  fs.writeFileSync(KB_DRIFT_PATH, header + (body ? '\n' + body + '\n' : ''), 'utf8')
+}
+
+/**
+ * Upsert a KB file into the in-memory kb-drift state.
+ * Returns true if a new entry was created, false if one already exists.
+ */
+function upsertKbDriftEntry(state, kbFile, codeAreas, sinceCommit, sinceDate) {
+  const existing = state.entries.find(e => e.kbFile === kbFile)
+  if (existing) return false
+
+  state.entries.push({
+    kbFile,
+    codeAreas: [...codeAreas],
+    references: [],
+    sinceCommit,
+    sinceDate,
+    unmapped: codeAreas.length === 0
+  })
   return true
 }
 
 // ── Rename/move handling ─────────────────────────────────────────────────────
-
-/**
- * Dispatch a rename based on whether the files are KB or code files.
- * Returns { codeEntry: bool, kbEntry: bool, stalePattern: object|null }
- */
-function handleRename(newPath, oldPath, commit, date, isShared, patterns) {
-  const oldIsKb = isKbContentFile(oldPath)
-  const newIsKb = isKbContentFile(newPath)
-
-  if (oldIsKb && newIsKb) {
-    return handleKbRename(newPath, oldPath, commit, date, patterns)
-  }
-  if (!oldIsKb && !newIsKb) {
-    return handleCodeRename(newPath, oldPath, commit, date, isShared, patterns)
-  }
-  // Cross-boundary move (code↔KB) — unusual, treat new path as a normal add
-  if (newIsKb) {
-    const relative = newPath.replace(/^knowledge\//, '')
-    const codePaths = reverseMapKbTarget(relative, patterns)
-    const wasNew = upsertKbDriftEntry(relative, codePaths, commit, date)
-    return { codeEntry: false, kbEntry: wasNew, stalePattern: null }
-  }
-  const matches = matchAllPatterns(newPath, patterns)
-  if (matches.length > 0) {
-    const wasNew = upsertCodeDriftEntry(resolveKbTarget(matches[0], newPath), newPath, commit, date, isShared)
-    return { codeEntry: wasNew, kbEntry: false, stalePattern: null }
-  }
-  return { codeEntry: false, kbEntry: false, stalePattern: null }
-}
 
 /**
  * Handle a code file rename. Resolves KB targets for both old and new paths.
@@ -431,7 +575,7 @@ function handleRename(newPath, oldPath, commit, date, isShared, patterns) {
  * - Different targets: remove from old, add to new with rename annotation
  * - No match for new: flag stale pattern warning
  */
-function handleCodeRename(newPath, oldPath, commit, date, isShared, patterns) {
+function handleCodeRename(state, newPath, oldPath, commit, date, isShared, patterns) {
   const oldMatches = matchAllPatterns(oldPath, patterns)
   const newMatches = matchAllPatterns(newPath, patterns)
   const oldTarget = oldMatches.length > 0 ? resolveKbTarget(oldMatches[0], oldPath) : null
@@ -441,17 +585,14 @@ function handleCodeRename(newPath, oldPath, commit, date, isShared, patterns) {
   let stalePattern = null
 
   if (oldTarget && newTarget && oldTarget === newTarget) {
-    // Same KB target — swap path in-place
-    replaceCodeFileInEntry(oldTarget, oldPath, newPath, commit, date)
+    replaceCodeFileInEntry(state, oldTarget, oldPath, newPath, commit, date)
   } else {
-    // Different targets — remove old, add new with rename annotation
-    if (oldTarget) removeCodeFileFromEntry(oldTarget, oldPath)
+    if (oldTarget) removeCodeFileFromEntry(state, oldTarget, oldPath)
     if (newTarget) {
-      codeEntry = upsertCodeDriftEntry(newTarget, newPath, commit, date, isShared, oldPath)
+      codeEntry = upsertCodeDriftEntry(state, newTarget, newPath, commit, date, isShared, oldPath)
     }
   }
 
-  // New path matches nothing but old did — pattern is stale
   if (!newTarget && oldTarget) {
     stalePattern = {
       intent: oldMatches[0].intent,
@@ -460,51 +601,49 @@ function handleCodeRename(newPath, oldPath, commit, date, isShared, patterns) {
     }
   }
 
-  return { codeEntry, kbEntry: false, stalePattern }
+  return { codeEntry, stalePattern }
 }
 
 /**
  * Handle a KB file rename. Finds files that reference the old path and
  * creates a kb-drift entry with rename metadata.
  */
-function handleKbRename(newPath, oldPath, commit, date, patterns) {
+function handleKbRename(state, newPath, oldPath, commit, date, patterns) {
   const oldRelative = oldPath.replace(/^knowledge\//, '')
   const newRelative = newPath.replace(/^knowledge\//, '')
 
-  // Find files referencing old path via the graph
+  if (state.entries.some(e => e.kbFile === newRelative)) {
+    return { kbEntry: false }
+  }
+
   const graph = loadGraph(KB_ROOT)
   const oldWithoutExt = oldRelative.replace(/\.md$/, '')
   const dependents = getDependents(graph, oldWithoutExt)
   const refCount = dependents.length
   const refFiles = dependents.map(d => d.path)
 
-  // Code areas for the new path (for reviewer context)
   const codePaths = reverseMapKbTarget(newRelative, patterns)
 
-  ensureHeader(KB_DRIFT_PATH, KB_DRIFT_HEADER)
-  const content = fs.readFileSync(KB_DRIFT_PATH, 'utf8')
-  if (content.includes(`## ${newRelative}`)) return { codeEntry: false, kbEntry: false, stalePattern: null }
-
-  const areaLines = codePaths.length > 0
-    ? codePaths.map(p => `  - \`${p}\``).join('\n')
-    : '  - _(no mapped code paths — review manually)_'
-  const refLine = refCount > 0
-    ? `\n- **References to update:** ${refCount} file(s) contain \`[[${oldWithoutExt}]]\`\n  - ${refFiles.map(f => `\`${f}\``).join('\n  - ')}`
-    : '\n- **References to update:** none found'
-  const entry = `\n## ${newRelative}\n\n- **KB file:** \`${newRelative}\`\n- **Renamed from:** \`${oldRelative}\`${refLine}\n- **Code areas to review:**\n${areaLines}\n- **Since:** \`${commit}\` (${date})\n`
-  fs.appendFileSync(KB_DRIFT_PATH, entry)
-  return { codeEntry: false, kbEntry: true, stalePattern: null }
+  state.entries.push({
+    kbFile: newRelative,
+    renamedFrom: oldRelative,
+    codeAreas: codePaths,
+    refCount: { count: refCount, anchor: refCount > 0 ? oldWithoutExt : null },
+    references: refFiles,
+    sinceCommit: commit,
+    sinceDate: date,
+    unmapped: false
+  })
+  return { kbEntry: true }
 }
 
 /**
  * Replace a code file path in an existing code-drift entry (same KB target rename).
  */
-function replaceCodeFileInEntry(kbTarget, oldPath, newPath, commit, date) {
-  const { header, entries } = readCodeDriftEntries()
-  const existing = entries.find(e => e.kbTarget === kbTarget)
+function replaceCodeFileInEntry(state, kbTarget, oldPath, newPath, commit, date) {
+  const existing = state.entries.find(e => e.kbTarget === kbTarget)
   if (!existing) {
-    // No existing entry — create one with rename annotation
-    upsertCodeDriftEntry(kbTarget, newPath, commit, date, false, oldPath)
+    upsertCodeDriftEntry(state, kbTarget, newPath, commit, date, false, oldPath)
     return
   }
   const idx = existing.codeFiles.findIndex(f => f.path === oldPath)
@@ -513,19 +652,18 @@ function replaceCodeFileInEntry(kbTarget, oldPath, newPath, commit, date) {
   } else {
     existing.codeFiles.push({ path: newPath, sinceCommit: commit, sinceDate: date, renamedFrom: oldPath })
   }
-  writeCodeDriftEntries(header, entries)
 }
 
 /**
  * Remove a single code file from its code-drift entry. Removes the entry entirely if empty.
  */
-function removeCodeFileFromEntry(kbTarget, codePath) {
-  const { header, entries } = readCodeDriftEntries()
-  const existing = entries.find(e => e.kbTarget === kbTarget)
+function removeCodeFileFromEntry(state, kbTarget, codePath) {
+  const existing = state.entries.find(e => e.kbTarget === kbTarget)
   if (!existing) return
   existing.codeFiles = existing.codeFiles.filter(f => f.path !== codePath)
-  const remaining = existing.codeFiles.length > 0 ? entries : entries.filter(e => e.kbTarget !== kbTarget)
-  writeCodeDriftEntries(header, remaining)
+  if (existing.codeFiles.length === 0) {
+    state.entries = state.entries.filter(e => e.kbTarget !== kbTarget)
+  }
 }
 
 // ── Shared queue helpers ──────────────────────────────────────────────────────
@@ -534,30 +672,16 @@ function ensureHeader(filePath, header) {
   if (!fs.existsSync(filePath)) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true })
     fs.writeFileSync(filePath, header, 'utf8')
-  } else {
-    const content = fs.readFileSync(filePath, 'utf8')
-    if (!content.startsWith('<!-- AUTO-GENERATED')) {
-      fs.writeFileSync(filePath, header + content, 'utf8')
-    }
+    return
   }
-}
-
-function removeFromQueue(filePath, matchFn) {
-  if (!fs.existsSync(filePath)) return []
   const content = fs.readFileSync(filePath, 'utf8')
-  const headerEnd = content.indexOf('\n## ')
-  const header = headerEnd === -1 ? content : content.slice(0, headerEnd)
-  const entriesStr = headerEnd === -1 ? '' : content.slice(headerEnd + 1)
-  const entries = entriesStr.split(/\n(?=## )/).filter(e => e.trim())
-  const removed = []
-  const remaining = []
-  for (const entry of entries) {
-    if (matchFn(entry)) removed.push(entry)
-    else remaining.push(entry)
-  }
-  const newContent = header + (remaining.length > 0 ? '\n' + remaining.join('\n') : '')
-  fs.writeFileSync(filePath, newContent, 'utf8')
-  return removed
+  if (content.startsWith('<!-- AUTO-GENERATED')) return
+
+  // Sentinel is missing — rewrite from template, but preserve any pre-existing
+  // baseline line so we don't lose the anchor.
+  const baselineMatch = content.match(BASELINE_RE)
+  const newHeader = baselineMatch ? setBaseline(header, baselineMatch[1]) : header
+  fs.writeFileSync(filePath, newHeader + content, 'utf8')
 }
 
 function appendToDriftLog(entries) {
@@ -614,18 +738,6 @@ function isKbContentFile(file) {
 // ── git helpers ───────────────────────────────────────────────────────────────
 
 /**
- * Find the most recent commit in the parent repo that touched knowledge/.
- * Used as the drift baseline: code changes are measured from the last KB update.
- * Returns null if knowledge/ has no commit history (fresh repo).
- */
-async function getLastKbCommit(git) {
-  try {
-    const sha = (await git.raw(['log', '-1', '--format=%H', '--', 'knowledge/'])).trim()
-    return sha || null
-  } catch { return null }
-}
-
-/**
  * Get the submodule's commit SHA as recorded in the parent repo at a given commit.
  * Uses git ls-tree to read the submodule pointer (mode 160000) without checking out.
  * Returns null if the submodule didn't exist at that commit.
@@ -639,19 +751,17 @@ async function getSubmodulePointerAt(git, commitSha, subPath) {
 }
 
 /**
- * Resolve the best "last sync" ref for drift comparison.
- * Graduated fallback: upstream tracking → remote branch → closest parent branch → null.
- * Returns null when no reliable baseline exists (caller should skip with warning).
+ * Bootstrap fallback — only invoked when a queue header has no baseline line yet
+ * (first deployment, or a queue manually cleared). Graduated fallback:
+ * upstream tracking → remote branch → closest parent branch → null.
+ * Returns null when no reliable baseline exists (caller skips with warning).
  */
 async function resolveLastSyncRef(git, remote) {
-  // 1. Try upstream tracking ref (e.g. origin/main) — covers all unpushed commits
   try {
     const upstream = await git.raw(['rev-parse', '--abbrev-ref', '@{upstream}'])
     if (upstream && upstream.trim()) return upstream.trim()
   } catch { /* no upstream configured */ }
 
-  // Validate that the requested remote exists in this repo.
-  // Submodules may have different remote names than the parent repo.
   let validRemote = remote
   if (remote) {
     try {
@@ -665,7 +775,6 @@ async function resolveLastSyncRef(git, remote) {
     } catch { validRemote = null }
   }
 
-  // 2. Try <remote>/<current-branch> — branch exists on remote but no -u was used
   if (validRemote) {
     try {
       const branch = (await git.raw(['symbolic-ref', '--short', 'HEAD'])).trim()
@@ -675,9 +784,6 @@ async function resolveLastSyncRef(git, remote) {
     } catch { /* remote branch doesn't exist yet */ }
   }
 
-  // 3. Find closest parent branch on remote — new branch, first push
-  //    Tries all remote branches, picks the one whose merge-base is closest to HEAD.
-  //    For main->dev->feature, this finds dev (not main) as the parent.
   if (validRemote) {
     try {
       const remoteBranches = (await git.raw(['for-each-ref', '--format=%(refname:short)', `refs/remotes/${validRemote}/`]))
@@ -705,15 +811,9 @@ async function resolveLastSyncRef(git, remote) {
     } catch { /* no remote branches available */ }
   }
 
-  // 4. No reliable baseline — return null (caller skips with warning)
   return null
 }
 
-/**
- * Parse git diff --name-status output into structured objects.
- * Each line is tab-separated: STATUS\tPATH (or STATUS\tOLD\tNEW for renames/copies).
- * Returns: [{ status: 'M'|'A'|'D'|'R'|'C', path: string, oldPath?: string, similarity?: number }]
- */
 function parseNameStatus(output) {
   return output.split('\n').filter(l => l.trim()).map(line => {
     const parts = line.split('\t')
@@ -731,7 +831,6 @@ async function getChangedFiles(git, ref) {
     const result = await git.diff(['--name-status', '-M', ref, 'HEAD'])
     return parseNameStatus(result)
   } catch {
-    // Fallback for edge cases (detached HEAD, shallow clone, etc.)
     try {
       const result = await git.diff(['--name-status', '-M', '4b825dc642cb6eb9a060e54bf899d15f7dcb6820', 'HEAD'])
       return parseNameStatus(result)
@@ -759,8 +858,5 @@ async function detectSubmodules() {
   }
   return submodules
 }
-
-// Pattern matching functions (globMatch, matchAllPatterns, resolveKbTarget, extractName)
-// are imported from ../lib/patterns.js
 
 module.exports = { runTool }
