@@ -73,4 +73,9 @@ This project uses a structured Knowledge Base (KB) managed by the KB-MCP server.
 
 ## Key principle
 
-When code and KB disagree, investigate and resolve the discrepancy rather than silently proceeding. The KB represents the intended design — if the code differs, either the code needs fixing or the KB needs updating.
+When code and KB disagree, **present both values to the user and ask which is correct** before modifying either side. Never resolve a discrepancy silently.
+
+- **KB drift** (KB changed, code didn't) → KB is likely correct; suggest updating the code.
+- **Code drift** (code changed, KB didn't) → code is likely correct; suggest updating the KB.
+
+In both cases, wait for explicit user confirmation before making changes.

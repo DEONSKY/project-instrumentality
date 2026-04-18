@@ -368,13 +368,20 @@ async function detectDrift(since, remote) {
 
   if (!noDrift) {
     let instruction = 'To resolve drift entries:\n\n'
-      + '1. Read sync/code-drift.md or sync/kb-drift.md to see pending entries\n'
-      + '2. For each entry, read the KB target file\n'
-      + '3. Update the KB file to reflect the code change (Edit / kb_write)\n'
-      + '4. Read the KB file again to confirm the edit landed\n'
-      + '5. THEN call kb_drift(summaries=[...]) to close the entry\n\n'
-      + 'Do NOT call kb_drift(summaries) before verifying the KB file was actually updated. '
-      + 'The tool only closes the queue entry — it does not write to the KB.'
+      + '## Code drift (sync/code-drift.md) — code changed, KB did not\n'
+      + 'Code is likely correct. Suggest updating the KB to match the code.\n'
+      + '1. Read sync/code-drift.md to see pending entries\n'
+      + '2. For each entry, read the KB target file and the changed code\n'
+      + '3. Present both values (KB spec vs actual code) to the user and ask which is correct\n'
+      + '4. Only after user confirms: update the KB file (Edit / kb_write) and call kb_drift(summaries=[...])\n\n'
+      + '## KB drift (sync/kb-drift.md) — KB changed, code did not\n'
+      + 'KB is likely correct. Suggest updating the code to match the KB spec.\n'
+      + '1. Read sync/kb-drift.md to see pending entries\n'
+      + '2. For each entry, read the updated KB spec and the current code\n'
+      + '3. Check for inner KB conflicts — search other KB files (e.g. validation/, flows/) for the same field/rule and flag any contradictions\n'
+      + '4. Present both values (KB spec vs actual code) to the user, noting any inner KB conflicts, and ask which is correct\n'
+      + '5. Only after user confirms: update the code and call kb_drift(kb_confirmed=[...])\n\n'
+      + 'IMPORTANT: Never resolve a drift entry silently. Always present discrepancies to the user and wait for explicit confirmation before modifying code or KB.'
 
     if (hasUnmappedKbEntries) {
       instruction += '\n\n⚠ One or more KB entries have no mapped code paths ("review manually"). '
