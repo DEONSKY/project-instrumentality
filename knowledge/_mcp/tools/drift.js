@@ -359,6 +359,13 @@ async function detectDrift(since, remote) {
       : `${codeEntriesWritten} code→KB entry(s) in sync/code-drift.md, ${kbEntriesWritten} KB→code entry(s) in sync/kb-drift.md${reDetectedNote}.${subInfo}`
   }
 
+  const hasUnmappedKbEntries = kbEntriesWritten > 0 && (() => {
+    try {
+      const raw = fs.readFileSync(KB_DRIFT_PATH, 'utf8')
+      return raw.includes('no mapped code paths')
+    } catch { return false }
+  })()
+
   if (!noDrift) {
     let instruction = 'To resolve drift entries:\n\n'
       + '1. Read sync/code-drift.md or sync/kb-drift.md to see pending entries\n'
@@ -368,6 +375,14 @@ async function detectDrift(since, remote) {
       + '5. THEN call kb_drift(summaries=[...]) to close the entry\n\n'
       + 'Do NOT call kb_drift(summaries) before verifying the KB file was actually updated. '
       + 'The tool only closes the queue entry — it does not write to the KB.'
+
+    if (hasUnmappedKbEntries) {
+      instruction += '\n\n⚠ One or more KB entries have no mapped code paths ("review manually"). '
+        + 'Do NOT limit review to code you already know about. For each unmapped entry:\n'
+        + '  a. Search the entire codebase for all files related to the KB feature (backend, frontend, DB, tests).\n'
+        + '  b. Check every layer: controllers, services, DTOs, entities, FE components, forms, i18n, DB schema.\n'
+        + '  c. Only confirm the entry after verifying ALL layers are consistent with the KB spec.'
+    }
 
     if (submodules.length > 0) {
       const subHints = submodules.map(s => `  - Files under ${s.path}/ → git -C ${s.path} diff <sha> -- <relative-path>`).join('\n')
