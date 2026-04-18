@@ -333,7 +333,11 @@ async function detectDrift(since, remote) {
 
   const codeEntriesWritten = codeEntriesNew + codeEntriesReDetected
   const kbEntriesWritten = kbEntriesNew + kbEntriesReDetected
+  // Also count pre-existing open entries that were not touched in this run
+  const codeEntriesPending = codeState.entries.length
+  const kbEntriesPending = kbState.entries.length
   const noDrift = codeEntriesWritten === 0 && kbEntriesWritten === 0
+               && codeEntriesPending === 0 && kbEntriesPending === 0
   const ownedSubs = submodules.filter(s => !s.isShared).map(s => s.path)
   const sharedSubs = submodules.filter(s => s.isShared).map(s => s.path)
   const subParts = []
@@ -344,22 +348,32 @@ async function detectDrift(since, remote) {
   const reDetectedTotal = codeEntriesReDetected + kbEntriesReDetected
   const reDetectedNote = reDetectedTotal > 0 ? ` (${reDetectedTotal} re-detected)` : ''
 
+  // Build message: show pending queue totals (new + pre-existing) so the agent
+  // always sees the true open-entry count even when no new drift was detected.
+  const totalCodeOpen = Math.max(codeEntriesWritten, codeEntriesPending)
+  const totalKbOpen = Math.max(kbEntriesWritten, kbEntriesPending)
+  const pendingNote = (codeEntriesWritten === 0 && kbEntriesWritten === 0 && !noDrift)
+    ? ' (no new drift — pre-existing open entries remain)'
+    : reDetectedNote
+
   const result = {
     code_entries: codeEntriesWritten,
     code_entries_new: codeEntriesNew,
     code_entries_re_detected: codeEntriesReDetected,
+    code_entries_pending: codeEntriesPending,
     kb_entries: kbEntriesWritten,
     kb_entries_new: kbEntriesNew,
     kb_entries_re_detected: kbEntriesReDetected,
+    kb_entries_pending: kbEntriesPending,
     submodules_owned: ownedSubs,
     submodules_shared: sharedSubs,
     ...(stalePatterns.length > 0 && { stale_patterns: stalePatterns }),
     message: noDrift
       ? `No drift detected.${subInfo}`
-      : `${codeEntriesWritten} code→KB entry(s) in sync/code-drift.md, ${kbEntriesWritten} KB→code entry(s) in sync/kb-drift.md${reDetectedNote}.${subInfo}`
+      : `${totalCodeOpen} code→KB entry(s) in sync/code-drift.md, ${totalKbOpen} KB→code entry(s) in sync/kb-drift.md${pendingNote}.${subInfo}`
   }
 
-  const hasUnmappedKbEntries = kbEntriesWritten > 0 && (() => {
+  const hasUnmappedKbEntries = (kbEntriesWritten > 0 || kbEntriesPending > 0) && (() => {
     try {
       const raw = fs.readFileSync(KB_DRIFT_PATH, 'utf8')
       return raw.includes('no mapped code paths')
@@ -371,16 +385,27 @@ async function detectDrift(since, remote) {
       + '## Code drift (sync/code-drift.md) — code changed, KB did not\n'
       + 'Code is likely correct. Suggest updating the KB to match the code.\n'
       + '1. Read sync/code-drift.md to see pending entries\n'
-      + '2. For each entry, read the KB target file and the changed code\n'
-      + '3. Present both values (KB spec vs actual code) to the user and ask which is correct\n'
-      + '4. Only after user confirms: update the KB file (Edit / kb_write) and call kb_drift(summaries=[...])\n\n'
+      + '2. **Diff first:** For each code file in the entry, check what actually changed:\n'
+      + '   - Use the file\'s own Since (and Latest if present) commits from the queue entry\n'
+      + '   - Parent repo files: `git diff <since>~1..HEAD -- <code-file>`\n'
+      + '   - Submodule files: `git -C <submodule> diff <since>~1..HEAD -- <relative-path>`\n'
+      + '   - If `<since>~1` fails (first commit): fall back to `git show <since> -- <file>`\n'
+      + '3. Read the KB target file and compare against the diff\n'
+      + '4. Present both values (KB spec vs actual code) to the user and ask which is correct\n'
+      + '5. Only after user confirms: update the KB file (Edit / kb_write) and call kb_drift(summaries=[...])\n\n'
       + '## KB drift (sync/kb-drift.md) — KB changed, code did not\n'
       + 'KB is likely correct. Suggest updating the code to match the KB spec.\n'
       + '1. Read sync/kb-drift.md to see pending entries\n'
-      + '2. For each entry, read the updated KB spec and the current code\n'
-      + '3. Check for inner KB conflicts — search other KB files (e.g. validation/, flows/) for the same field/rule and flag any contradictions\n'
-      + '4. Present both values (KB spec vs actual code) to the user, noting any inner KB conflicts, and ask which is correct\n'
-      + '5. Only after user confirms: update the code and call kb_drift(kb_confirmed=[...])\n\n'
+      + '2. **Diff first:** For each entry, check what actually changed in the KB file:\n'
+      + '   - Use the Since (and Latest if present) commits from the queue entry\n'
+      + '   - Run: `git diff <since>~1..HEAD -- knowledge/<kb-file>`\n'
+      + '   - If the entry has a Latest commit: `git diff <since>~1..<latest> -- knowledge/<kb-file>`\n'
+      + '   - If `<since>~1` fails (first commit): fall back to `git show <since> -- knowledge/<kb-file>`\n'
+      + '   - Review the diff to understand the specific fields/rules that changed\n'
+      + '3. Read the current code for the listed code areas and compare against the KB diff\n'
+      + '4. Check for inner KB conflicts — verify the changed values are internally consistent within the KB file (e.g. field table vs changelog vs business rules), and search other KB files (validation/, flows/) for the same field/rule\n'
+      + '5. Present the diff, code values, and any conflicts to the user — ask which is correct\n'
+      + '6. Only after user confirms: update the code and call kb_drift(kb_confirmed=[...])\n\n'
       + 'IMPORTANT: Never resolve a drift entry silently. Always present discrepancies to the user and wait for explicit confirmation before modifying code or KB.'
 
     if (hasUnmappedKbEntries) {
@@ -392,10 +417,10 @@ async function detectDrift(since, remote) {
     }
 
     if (submodules.length > 0) {
-      const subHints = submodules.map(s => `  - Files under ${s.path}/ → git -C ${s.path} diff <sha> -- <relative-path>`).join('\n')
-      instruction += '\n\nSubmodule git commands:\n'
-        + 'Commit SHAs in the drift queue belong to submodule git histories, not the parent repo. '
-        + 'Running git diff <sha> from the root will fail with "fatal: bad revision". Use:\n'
+      const subHints = submodules.map(s => `  - Files under ${s.path}/ → git -C ${s.path} diff <sha>~1..HEAD -- <relative-path>`).join('\n')
+      instruction += '\n\n⚠ Submodule commit SHAs:\n'
+        + 'Since/Latest SHAs for submodule files belong to the submodule git history, not the parent repo. '
+        + 'Running `git diff <sha>` from the root will fail. Always use `git -C <submodule>` for these files:\n'
         + subHints
     }
 

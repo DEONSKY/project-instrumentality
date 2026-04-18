@@ -79,3 +79,35 @@ When code and KB disagree, **present both values to the user and ask which is co
 - **Code drift** (code changed, KB didn't) → code is likely correct; suggest updating the KB.
 
 In both cases, wait for explicit user confirmation before making changes.
+
+## Internal KB contradictions
+
+If a KB file contains an **internal contradiction** (e.g. a field table says one value while the changelog in the same file says another), treat it the same as a code↔KB discrepancy:
+
+1. Surface both conflicting values explicitly to the user.
+2. State which sources support each value (e.g. changelog, code annotation, Yup schema).
+3. **Wait for explicit confirmation** before editing anything.
+
+Never silently resolve an internal KB contradiction, even if one value appears obviously correct.
+
+## Reviewing drift entries
+
+When reviewing drift queue files (`sync/code-drift.md` or `sync/kb-drift.md`), **always check the git diff first** before comparing KB vs code. The queue entries contain `Since` (and optionally `Latest`) commit SHAs that tell you exactly what changed.
+
+### KB drift (KB changed, code did not)
+```
+git diff <since>~1..HEAD -- knowledge/<kb-file>
+```
+- If the entry has a `Latest` commit: `git diff <since>~1..<latest> -- knowledge/<kb-file>`
+- If `<since>~1` fails (first commit): `git show <since> -- knowledge/<kb-file>`
+- After reading the diff, verify the changed values are **internally consistent** within the KB file (e.g. field table matches changelog, business rules match validation rules)
+
+### Code drift (code changed, KB did not)
+```
+git diff <since>~1..HEAD -- <code-file>
+```
+- Each code file in the entry has its **own** Since/Latest — use the file's commits, not the entry-level ones
+- For submodule files: `git -C <submodule-path> diff <since>~1..HEAD -- <relative-path>`
+- If `<since>~1` fails (first commit): `git show <since> -- <file>`
+
+Understanding the diff is essential to correctly identify what changed, catch typos or contradictions, and avoid false confirmations.
