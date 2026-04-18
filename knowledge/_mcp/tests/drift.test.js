@@ -398,3 +398,163 @@ test('scenario 5: dedup_baselines collapses duplicate baseline lines to the desc
   assert.equal(matches.length, 1, 'exactly one baseline line remains')
   assert.equal(matches[0][1], descendant, 'descendant SHA wins over ancestor')
 }))
+
+// ── _diffs payload tests ─────────────────────────────────────────────────────
+
+test('_diffs: kb-drift entry carries stat, commits, diff, and reproducible cmd', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'knowledge/features/login.md', '# Login\n\nInitial spec.\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'knowledge/features/login.md', '# Login\n\nUpdated spec.\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m "edit login spec"')
+
+  const result = await DRIFT.runTool({})
+  assert.ok(result._diffs, '_diffs present')
+  assert.equal(result._diffs.kb.length, 1, 'one kb entry in _diffs')
+
+  const entry = result._diffs.kb[0]
+  assert.equal(entry.kb_file, 'features/login.md')
+  assert.ok(entry.diff && entry.diff.includes('Updated spec'), 'diff contains the change')
+  assert.ok(entry.diff && entry.diff.includes('-Initial spec'), 'diff shows removal of old spec')
+  assert.equal(entry.binary, false)
+  assert.equal(entry.truncated, false)
+  assert.ok(entry.stat && /\+\d+ -\d+/.test(entry.stat), `stat looks right: ${entry.stat}`)
+  assert.equal(entry.total_commits, 1, 'one commit in range')
+  assert.equal(entry.commits.length, 1)
+  assert.ok(/edit login spec/.test(entry.commits[0].subject), 'commit subject preserved')
+  assert.ok(entry.cmd && entry.cmd.startsWith('git diff'), `cmd looks right: ${entry.cmd}`)
+  assert.ok(entry.cmd.includes('knowledge/features/login.md'), 'cmd references kb file path')
+}))
+
+test('_diffs: code-drift entry carries per-file diffs with correct cmd', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'src/validators/email.js', '// initial\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'src/validators/email.js', '// initial\nconst rule = true\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m "add rule"')
+
+  const result = await DRIFT.runTool({})
+  assert.ok(result._diffs, '_diffs present')
+  assert.equal(result._diffs.code.length, 1)
+  const entry = result._diffs.code[0]
+  assert.equal(entry.files.length, 1)
+  const f = entry.files[0]
+  assert.equal(f.path, 'src/validators/email.js')
+  assert.equal(f.submodule, null)
+  assert.equal(f.isShared, false)
+  assert.ok(f.diff && f.diff.includes('+const rule = true'), `diff contains change: ${f.diff}`)
+  assert.ok(f.cmd && f.cmd.startsWith('git diff') && !f.cmd.includes('git -C'), `parent-repo cmd: ${f.cmd}`)
+  assert.ok(f.cmd.includes('src/validators/email.js'))
+  assert.equal(entry.total_commits, 1)
+}))
+
+test('_diffs: submodule file uses git -C in cmd and sets submodule field', withRepo(async (parent) => {
+  const subSource = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-drift-sub-'))
+  sh(subSource, 'git init -q -b main')
+  sh(subSource, 'git config user.email "test@test"')
+  sh(subSource, 'git config user.name "test"')
+  sh(subSource, 'git config commit.gpgsign false')
+  writeFile(subSource, 'src/validators/email.js', '// initial\n')
+  sh(subSource, 'git add .')
+  sh(subSource, 'git commit -q -m seed-sub')
+
+  try {
+    writeFile(parent, 'knowledge/_rules.md', RULES)
+    sh(parent, 'git add .')
+    sh(parent, 'git commit -q -m seed-parent')
+    sh(parent, `git -c protocol.file.allow=always submodule add -q "${subSource}" sub`)
+    sh(parent, 'git commit -q -m "add submodule"')
+    await DRIFT.runTool({})
+
+    writeFile(path.join(parent, 'sub'), 'src/validators/email.js', '// initial\nconst updated = true\n')
+    sh(path.join(parent, 'sub'), 'git add .')
+    sh(path.join(parent, 'sub'), 'git commit -q -m "edit email validator"')
+    sh(parent, 'git add sub')
+    sh(parent, 'git commit -q -m "bump submodule pointer"')
+
+    const result = await DRIFT.runTool({})
+    assert.ok(result._diffs, '_diffs present')
+    const entry = result._diffs.code.find(e => e.kb_target === 'validation/common.md')
+    assert.ok(entry, 'validation/common.md entry present')
+    const f = entry.files.find(x => x.path === 'sub/src/validators/email.js')
+    assert.ok(f, 'submodule file in entry')
+    assert.equal(f.submodule, 'sub')
+    assert.ok(f.cmd.startsWith('git -C sub '), `submodule cmd uses -C: ${f.cmd}`)
+    assert.ok(!f.cmd.includes('sub/src/validators/email.js'), 'cmd uses submodule-relative path')
+    assert.ok(f.cmd.includes('src/validators/email.js'), 'cmd references stripped path')
+    assert.ok(f.diff && f.diff.includes('+const updated = true'), `submodule diff fetched: ${f.diff}`)
+  } finally {
+    rmTempRepo(subSource)
+  }
+}))
+
+test('_diffs: diffs larger than per-file cap are truncated; cmd preserved', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'knowledge/features/big.md', '# Big\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  // Write a 600-line body to a KB file — the resulting diff exceeds the 400-line per-file cap.
+  const bigBody = Array.from({ length: 600 }, (_, i) => `line ${i + 1}`).join('\n') + '\n'
+  writeFile(dir, 'knowledge/features/big.md', bigBody)
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m "balloon"')
+
+  const result = await DRIFT.runTool({})
+  const entry = result._diffs.kb.find(e => e.kb_file === 'features/big.md')
+  assert.ok(entry, 'big.md entry in _diffs')
+  assert.equal(entry.truncated, true, 'diff marked truncated')
+  assert.equal(entry.diff_lines, 400, 'truncated to PER_FILE_LINE_CAP')
+  assert.ok(entry.cmd && entry.cmd.includes('knowledge/features/big.md'), 'cmd preserved for manual fetch')
+}))
+
+test('_diffs: include_diffs=false suppresses _diffs but keeps _instruction', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'knowledge/features/login.md', '# Login\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'knowledge/features/login.md', '# Login v2\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+
+  const result = await DRIFT.runTool({ include_diffs: false })
+  assert.equal(result._diffs, undefined, '_diffs should be absent')
+  assert.ok(result._instruction, '_instruction still present')
+  assert.equal(result.kb_entries, 1)
+}))
+
+test('_diffs: binary file is marked binary and not counted against budget', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  const initialPng = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00])
+  fs.mkdirSync(path.join(dir, 'src/features'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'src/features/logo.png'), initialPng)
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  // Append some bytes so git sees a change
+  const nextPng = Buffer.concat([initialPng, Buffer.from([0xff, 0xee, 0xdd])])
+  fs.writeFileSync(path.join(dir, 'src/features/logo.png'), nextPng)
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m "binary change"')
+
+  const result = await DRIFT.runTool({})
+  const entry = result._diffs.code.find(e => e.kb_target === 'features/logo.md')
+  assert.ok(entry, 'features/logo.md entry present')
+  const f = entry.files.find(x => x.path === 'src/features/logo.png')
+  assert.ok(f, 'png file in entry')
+  assert.equal(f.binary, true, 'binary flag set')
+  assert.ok(f.diff && /Binary files .* differ/.test(f.diff), `diff carries binary marker: ${f.diff}`)
+  assert.equal(f.diff_lines, 0, 'binary files do not count against per-file budget')
+}))

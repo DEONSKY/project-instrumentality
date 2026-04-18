@@ -58,6 +58,15 @@ Resolved drift events. Append-only.
 
 `
 
+// Budget for pre-fetched diffs returned via result._diffs. Prevents a single
+// large drift queue from blowing the agent's context. When caps are hit, the
+// diff content is dropped but the reproducible `cmd` is always preserved so
+// the agent can fetch the full diff manually.
+const PER_FILE_LINE_CAP = 400
+const PER_ENTRY_LINE_CAP = 1500
+const TOTAL_LINE_CAP = 6000
+const COMMIT_CAP = 10
+
 // Baseline SHA lives inside the queue header as an HTML comment. Survives the
 // existing `indexOf('\n## ')` header/body split because it has no `##` prefix.
 // Queue files are merged with `merge=union` (.gitattributes), so after a
@@ -106,18 +115,18 @@ function setBaseline(header, sha) {
  *     files (introduced by `merge=union` when two branches each wrote their
  *     own baseline). Keeps the descendant SHA; warns on diverged histories.
  */
-async function runTool({ since = 'last-sync', summaries, reverted, kb_confirmed, remote, force_baseline, purge, dedup_baselines } = {}) {
+async function runTool({ since = 'last-sync', summaries, reverted, kb_confirmed, remote, force_baseline, purge, dedup_baselines, include_diffs = true } = {}) {
   if (dedup_baselines) return dedupBaselines()
   if (force_baseline || purge) return resetBaselines({ force_baseline, purge })
   if (summaries && Array.isArray(summaries)) return resolveWithSummaries(summaries)
   if (reverted && Array.isArray(reverted)) return resolveReverted(reverted)
   if (kb_confirmed && Array.isArray(kb_confirmed)) return resolveKbConfirmed(kb_confirmed)
-  return detectDrift(since, remote)
+  return detectDrift(since, remote, { includeDiffs: include_diffs })
 }
 
 // ── Phase 1: detect drift ─────────────────────────────────────────────────────
 
-async function detectDrift(since, remote) {
+async function detectDrift(since, remote, { includeDiffs = true } = {}) {
   const mainGit = simpleGit(process.cwd())
   const rules = loadRules(KB_ROOT)
 
@@ -381,50 +390,31 @@ async function detectDrift(since, remote) {
   })()
 
   if (!noDrift) {
-    let instruction = 'To resolve drift entries:\n\n'
-      + '## Code drift (sync/code-drift.md) — code changed, KB did not\n'
-      + 'Code is likely correct. Suggest updating the KB to match the code.\n'
-      + '1. Read sync/code-drift.md to see pending entries\n'
-      + '2. **Diff first:** For each code file in the entry, check what actually changed:\n'
-      + '   - Use the file\'s own Since (and Latest if present) commits from the queue entry\n'
-      + '   - Parent repo files: `git diff <since>~1..HEAD -- <code-file>`\n'
-      + '   - Submodule files: `git -C <submodule> diff <since>~1..HEAD -- <relative-path>`\n'
-      + '   - If `<since>~1` fails (first commit): fall back to `git show <since> -- <file>`\n'
-      + '3. Read the KB target file and compare against the diff\n'
-      + '4. Present both values (KB spec vs actual code) to the user and ask which is correct\n'
-      + '5. Only after user confirms: update the KB file (Edit / kb_write) and call kb_drift(summaries=[...])\n\n'
-      + '## KB drift (sync/kb-drift.md) — KB changed, code did not\n'
-      + 'KB is likely correct. Suggest updating the code to match the KB spec.\n'
-      + '1. Read sync/kb-drift.md to see pending entries\n'
-      + '2. **Diff first:** For each entry, check what actually changed in the KB file:\n'
-      + '   - Use the Since (and Latest if present) commits from the queue entry\n'
-      + '   - Run: `git diff <since>~1..HEAD -- knowledge/<kb-file>`\n'
-      + '   - If the entry has a Latest commit: `git diff <since>~1..<latest> -- knowledge/<kb-file>`\n'
-      + '   - If `<since>~1` fails (first commit): fall back to `git show <since> -- knowledge/<kb-file>`\n'
-      + '   - Review the diff to understand the specific fields/rules that changed\n'
-      + '3. Read the current code for the listed code areas and compare against the KB diff\n'
-      + '4. Check for inner KB conflicts — verify the changed values are internally consistent within the KB file (e.g. field table vs changelog vs business rules), and search other KB files (validation/, flows/) for the same field/rule\n'
-      + '5. Present the diff, code values, and any conflicts to the user — ask which is correct\n'
-      + '6. Only after user confirms: update the code and call kb_drift(kb_confirmed=[...])\n\n'
-      + 'IMPORTANT: Never resolve a drift entry silently. Always present discrepancies to the user and wait for explicit confirmation before modifying code or KB.'
+    let instruction = 'For each entry in `_diffs.code` and `_diffs.kb`:\n'
+      + '1. Read `diff` directly. If it is null, truncated, or has `error`, run the `cmd`.\n'
+      + '2. Compare against the counterpart (KB file for code drift, listed code areas for kb drift).\n'
+      + '3. For kb drift: verify the KB file is internally consistent; cross-check validation/ and flows/ for related rules.\n'
+      + '4. Present both values (KB spec vs actual code) to the user and wait for explicit confirmation.\n'
+      + '5. After confirmation: edit, then close with `kb_drift({ summaries: [...] })` (code drift) or `kb_drift({ kb_confirmed: [...] })` (kb drift).\n\n'
+      + 'Never close silently. Never close without seeing the diff.'
 
     if (hasUnmappedKbEntries) {
       instruction += '\n\n⚠ One or more KB entries have no mapped code paths ("review manually"). '
-        + 'Do NOT limit review to code you already know about. For each unmapped entry:\n'
-        + '  a. Search the entire codebase for all files related to the KB feature (backend, frontend, DB, tests).\n'
-        + '  b. Check every layer: controllers, services, DTOs, entities, FE components, forms, i18n, DB schema.\n'
-        + '  c. Only confirm the entry after verifying ALL layers are consistent with the KB spec.'
+        + 'For each unmapped entry: search the entire codebase for files related to the KB feature '
+        + '(controllers, services, DTOs, entities, FE components, forms, i18n, DB schema) and verify '
+        + 'all layers are consistent with the KB spec before confirming.'
     }
 
     if (submodules.length > 0) {
-      const subHints = submodules.map(s => `  - Files under ${s.path}/ → git -C ${s.path} diff <sha>~1..HEAD -- <relative-path>`).join('\n')
-      instruction += '\n\n⚠ Submodule commit SHAs:\n'
-        + 'Since/Latest SHAs for submodule files belong to the submodule git history, not the parent repo. '
-        + 'Running `git diff <sha>` from the root will fail. Always use `git -C <submodule>` for these files:\n'
-        + subHints
+      instruction += '\n\nℹ Submodule files: since/latest SHAs belong to submodule history. '
+        + 'The `cmd` field in `_diffs[*].files[*]` already uses `git -C <submodule>` — use it as-is.'
     }
 
     result._instruction = instruction
+  }
+
+  if (includeDiffs && !noDrift) {
+    result._diffs = await buildDiffsPayload({ codeState, kbState, submodules })
   }
 
   return result
@@ -1242,6 +1232,271 @@ function resolveCommitRange(index, newPath, oldPath) {
   }
 }
 
+// ── Pre-fetched diffs ────────────────────────────────────────────────────────
+// Returns a structured `_diffs` payload with per-file unified diffs, stats,
+// and commit subjects so consuming agents don't have to re-run git themselves
+// (and skip the step). Every file carries a reproducible `cmd` — truncation
+// or errors never leave the agent without a way to re-fetch.
+
+function resolveGitTarget(filePath, submodules) {
+  for (const sub of submodules) {
+    const prefix = sub.path.endsWith('/') ? sub.path : sub.path + '/'
+    if (filePath === sub.path || filePath.startsWith(prefix)) {
+      return {
+        cwd: sub.fullPath,
+        relativePath: filePath.slice(prefix.length),
+        submodule: sub.path,
+        isShared: !!sub.isShared
+      }
+    }
+  }
+  return { cwd: process.cwd(), relativePath: filePath, submodule: null, isShared: false }
+}
+
+function buildCmd({ submodule, op, since, latest, relativePath }) {
+  const prefix = submodule ? `git -C ${submodule}` : 'git'
+  const to = latest || 'HEAD'
+  if (op === 'show') return `${prefix} show ${since} -- ${relativePath}`
+  if (op === 'log') return `${prefix} log --pretty="%h  %s" ${since}~1..${to} -- ${relativePath}`
+  return `${prefix} diff ${since}~1..${to} -- ${relativePath}`
+}
+
+function computeStat(diffText) {
+  if (!diffText) return '+0 -0 (0 hunks)'
+  let adds = 0, dels = 0, hunks = 0
+  for (const line of diffText.split('\n')) {
+    if (line.startsWith('@@')) hunks++
+    else if (line.startsWith('+') && !line.startsWith('+++')) adds++
+    else if (line.startsWith('-') && !line.startsWith('---')) dels++
+  }
+  return `+${adds} -${dels} (${hunks} hunk${hunks === 1 ? '' : 's'})`
+}
+
+function detectBinaryMarker(diffText) {
+  if (!diffText) return null
+  const m = diffText.match(/^Binary files .* differ$/m)
+  return m ? m[0] : null
+}
+
+function truncateDiff(diffText, cap) {
+  if (!diffText) return { text: '', lines: 0, truncated: false }
+  const lines = diffText.split('\n')
+  if (lines.length <= cap) return { text: diffText, lines: lines.length, truncated: false }
+  return { text: lines.slice(0, cap).join('\n'), lines: cap, truncated: true }
+}
+
+async function fetchFileDiff({ cwd, submodule, since, latest, relativePath }) {
+  const cmd = buildCmd({ submodule, op: 'diff', since, latest, relativePath })
+  const to = latest || 'HEAD'
+  const git = simpleGit(cwd)
+
+  // Guard: the SHA must exist in the local history. For submodules this may
+  // fail after a shallow fetch or squash-merge upstream. Preserve `cmd` so
+  // the agent can retry once they've fetched.
+  try {
+    await git.raw(['cat-file', '-e', `${since}^{commit}`])
+  } catch {
+    return { cmd, diff: null, stat: null, lines: 0, truncated: false, binary: false,
+      error: `commit ${since} not in local${submodule ? ' submodule' : ''} history` }
+  }
+
+  let raw
+  let actualCmd = cmd
+  try {
+    raw = await git.diff([`${since}~1..${to}`, '--', relativePath])
+  } catch {
+    // First-commit fallback: <since>~1 doesn't exist, so show the
+    // introducing commit instead.
+    try {
+      actualCmd = buildCmd({ submodule, op: 'show', since, relativePath })
+      raw = await git.show([since, '--', relativePath])
+    } catch (e) {
+      return { cmd, diff: null, stat: null, lines: 0, truncated: false, binary: false,
+        error: e.message || 'git invocation failed' }
+    }
+  }
+
+  if (!raw || !raw.trim()) {
+    return { cmd: actualCmd, diff: '', stat: '+0 -0 (0 hunks)', lines: 0, truncated: false, binary: false }
+  }
+
+  const binaryMarker = detectBinaryMarker(raw)
+  if (binaryMarker) {
+    return { cmd: actualCmd, diff: binaryMarker, stat: 'binary', lines: 0, truncated: false, binary: true }
+  }
+
+  const stat = computeStat(raw)
+  const { text, lines, truncated } = truncateDiff(raw, PER_FILE_LINE_CAP)
+  return { cmd: actualCmd, diff: text, stat, lines, truncated, binary: false }
+}
+
+async function fetchCommitSubjects({ cwd, submodule, since, latest, relativePath }) {
+  const to = latest || 'HEAD'
+  const cmd = buildCmd({ submodule, op: 'log', since, latest, relativePath })
+  const git = simpleGit(cwd)
+  let raw
+  try {
+    raw = await git.raw(['log', '--pretty=format:%h%x09%s', `${since}~1..${to}`, '--', relativePath])
+  } catch {
+    try {
+      raw = await git.raw(['log', '--pretty=format:%h%x09%s', '-1', since, '--', relativePath])
+    } catch {
+      return { commits: [], total: 0, cmd, error: 'git log failed' }
+    }
+  }
+  if (!raw || !raw.trim()) return { commits: [], total: 0, cmd }
+  const all = raw.split('\n').filter(Boolean).map(line => {
+    const [sha, ...rest] = line.split('\t')
+    return { sha: sha.trim(), subject: rest.join('\t') }
+  })
+  const commits = all.slice(0, COMMIT_CAP)
+  return { commits, total: all.length, cmd }
+}
+
+function dedupCommits(lists) {
+  const seen = new Set()
+  const out = []
+  let total = 0
+  for (const list of lists) {
+    total += list.total
+    for (const c of list.commits) {
+      if (seen.has(c.sha)) continue
+      seen.add(c.sha)
+      out.push(c)
+      if (out.length >= COMMIT_CAP) return { commits: out, total }
+    }
+  }
+  return { commits: out, total }
+}
+
+async function buildCodeDiffEntry(entry, submodules, budget) {
+  const fileList = []
+  const commitLists = []
+  for (const f of entry.codeFiles) {
+    const tgt = resolveGitTarget(f.path, submodules)
+    const since = f.sinceCommit
+    const latest = f.latestCommit || null
+
+    const entryBudgetLeft = PER_ENTRY_LINE_CAP - (budget.entryUsed || 0)
+    const totalBudgetLeft = TOTAL_LINE_CAP - budget.used_lines
+    const canFetchDiff = entryBudgetLeft > 0 && totalBudgetLeft > 0
+
+    const fileObj = {
+      path: f.path,
+      submodule: tgt.submodule,
+      isShared: tgt.isShared,
+      since,
+      ...(latest && { latest }),
+      ...(f.renamedFrom && { renamed: true, renamedFrom: f.renamedFrom })
+    }
+
+    if (canFetchDiff) {
+      const res = await fetchFileDiff({ cwd: tgt.cwd, submodule: tgt.submodule,
+        since, latest, relativePath: tgt.relativePath })
+      fileObj.stat = res.stat
+      fileObj.diff = res.diff
+      fileObj.diff_lines = res.lines
+      fileObj.truncated = res.truncated
+      fileObj.binary = res.binary
+      fileObj.cmd = res.cmd
+      if (res.error) fileObj.error = res.error
+      if (!res.binary && res.lines > 0) {
+        budget.used_lines += res.lines
+        budget.entryUsed = (budget.entryUsed || 0) + res.lines
+      }
+    } else {
+      fileObj.stat = null
+      fileObj.diff = null
+      fileObj.diff_lines = 0
+      fileObj.truncated = true
+      fileObj.binary = false
+      fileObj.cmd = buildCmd({ submodule: tgt.submodule, op: 'diff', since, latest, relativePath: tgt.relativePath })
+      budget.skipped.push({ kind: 'code', key: `${entry.kbTarget} :: ${f.path}`, reason: 'budget', cmd: fileObj.cmd })
+    }
+
+    const subj = await fetchCommitSubjects({ cwd: tgt.cwd, submodule: tgt.submodule,
+      since, latest, relativePath: tgt.relativePath })
+    commitLists.push(subj)
+
+    fileList.push(fileObj)
+  }
+  const { commits, total } = dedupCommits(commitLists)
+  return { kb_target: entry.kbTarget, commits, total_commits: total, files: fileList }
+}
+
+async function buildKbDiffEntry(entry, budget) {
+  const relativePath = path.posix.join(KB_ROOT, entry.kbFile)
+  const since = entry.sinceCommit
+  const latest = entry.latestCommit || null
+  const obj = {
+    kb_file: entry.kbFile,
+    since,
+    ...(latest && { latest }),
+    ...(entry.renamedFrom && { renamed: true, renamedFrom: entry.renamedFrom })
+  }
+
+  const totalBudgetLeft = TOTAL_LINE_CAP - budget.used_lines
+  if (totalBudgetLeft > 0 && since) {
+    const res = await fetchFileDiff({ cwd: process.cwd(), submodule: null,
+      since, latest, relativePath })
+    obj.stat = res.stat
+    obj.diff = res.diff
+    obj.diff_lines = res.lines
+    obj.truncated = res.truncated
+    obj.binary = res.binary
+    obj.cmd = res.cmd
+    if (res.error) obj.error = res.error
+    if (!res.binary && res.lines > 0) budget.used_lines += res.lines
+  } else {
+    obj.stat = null
+    obj.diff = null
+    obj.diff_lines = 0
+    obj.truncated = true
+    obj.binary = false
+    obj.cmd = since ? buildCmd({ submodule: null, op: 'diff', since, latest, relativePath }) : null
+    if (since) budget.skipped.push({ kind: 'kb', key: entry.kbFile, reason: 'budget', cmd: obj.cmd })
+  }
+
+  if (since) {
+    const subj = await fetchCommitSubjects({ cwd: process.cwd(), submodule: null,
+      since, latest, relativePath })
+    obj.commits = subj.commits
+    obj.total_commits = subj.total
+  } else {
+    obj.commits = []
+    obj.total_commits = 0
+  }
+  return obj
+}
+
+async function buildDiffsPayload({ codeState, kbState, submodules }) {
+  const budget = { used_lines: 0, cap_lines: TOTAL_LINE_CAP, skipped: [] }
+  const code = []
+  for (const entry of codeState.entries) {
+    budget.entryUsed = 0
+    code.push(await buildCodeDiffEntry(entry, submodules, budget))
+  }
+  const kb = []
+  for (const entry of kbState.entries) {
+    const hadRoom = TOTAL_LINE_CAP - budget.used_lines > 0
+    if (!hadRoom) {
+      // No budget left: emit command-only record.
+      const relativePath = path.posix.join(KB_ROOT, entry.kbFile)
+      const cmd = entry.sinceCommit ? buildCmd({ submodule: null, op: 'diff',
+        since: entry.sinceCommit, latest: entry.latestCommit || null, relativePath }) : null
+      kb.push({ kb_file: entry.kbFile, since: entry.sinceCommit || null,
+        ...(entry.latestCommit && { latest: entry.latestCommit }),
+        stat: null, diff: null, diff_lines: 0, truncated: true, binary: false,
+        cmd, commits: [], total_commits: 0 })
+      if (cmd) budget.skipped.push({ kind: 'kb', key: entry.kbFile, reason: 'budget', cmd })
+      continue
+    }
+    kb.push(await buildKbDiffEntry(entry, budget))
+  }
+  delete budget.entryUsed
+  return { code, kb, budget }
+}
+
 async function detectSubmodules() {
   const gitmodulesPath = path.join(process.cwd(), '.gitmodules')
   if (!fs.existsSync(gitmodulesPath)) return []
@@ -1265,7 +1520,7 @@ module.exports = {
   runTool,
   definition: {
     name: 'kb_drift',
-    description: 'Bidirectional drift detection. Phase 1: writes entries to sync/code-drift.md (keyed by KB target, tracks all code files + since-commit) and sync/kb-drift.md (keyed by KB file). Multiple commits accumulate automatically. Phase 2: summaries=KB updated, reverted=code file reverted, kb_confirmed=kb→code reviewed. To review pending entries: read the queue files then fetch diffs with git show.',
+    description: 'Bidirectional drift detection. Phase 1: writes entries to sync/code-drift.md (keyed by KB target, tracks all code files + since-commit) and sync/kb-drift.md (keyed by KB file). Multiple commits accumulate automatically. The response includes `_diffs` with pre-fetched unified diffs, stats, and commit subjects for every open entry — read those directly before resolving. Phase 2: summaries=KB updated, reverted=code file reverted, kb_confirmed=kb→code reviewed.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1274,7 +1529,8 @@ module.exports = {
         reverted: { type: 'array', description: 'Phase 2b: code reverted — close code-drift.md entries without writing KB notes', items: { type: 'object', properties: { code_file: { type: 'string' } }, required: ['code_file'] } },
         kb_confirmed: { type: 'array', description: 'Phase 2c: kb→code reviewed — close kb-drift.md entries', items: { type: 'object', properties: { kb_file: { type: 'string' } }, required: ['kb_file'] } },
         force_baseline: { type: 'string', description: 'Admin escape hatch: reset both queue baselines to this SHA (or "HEAD"). Use when the queue has gone stale and needs a manual reset.' },
-        purge: { type: 'boolean', description: 'With force_baseline: also clear all queue entries. Default: false.' }
+        purge: { type: 'boolean', description: 'With force_baseline: also clear all queue entries. Default: false.' },
+        include_diffs: { type: 'boolean', description: 'Include `_diffs` with pre-fetched git diffs, stats, and commit subjects for every open entry. Default: true. Set false for quick status scans.', default: true }
       }
     }
   }
