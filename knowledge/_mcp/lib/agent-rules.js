@@ -2,11 +2,11 @@ const fs = require('fs')
 const path = require('path')
 const { getTemplatesDir } = require('./kb-paths')
 
-const AGENT_RULE_FILES = ['CLAUDE.md', '.cursorrules', '.windsurfrules']
+const AGENT_RULE_FILES = ['CLAUDE.md', '.cursorrules', '.windsurfrules', '.github/copilot-instructions.md']
 
 /**
- * Generate agent instruction files (CLAUDE.md, .cursorrules, .windsurfrules)
- * from the shared agent-rules.md template.
+ * Generate agent instruction files (CLAUDE.md, .cursorrules, .windsurfrules,
+ * .github/copilot-instructions.md) from the shared agent-rules.md template.
  *
  * Skips files that already exist with non-empty content to preserve customizations.
  * Returns list of filenames that were written.
@@ -26,6 +26,10 @@ function generateAgentRules(filesCreated = []) {
     const isEmpty = exists && fs.readFileSync(targetPath, 'utf8').trim() === ''
 
     if (!exists || isEmpty) {
+      const parentDir = path.dirname(targetPath)
+      if (parentDir && parentDir !== '.' && !fs.existsSync(parentDir)) {
+        fs.mkdirSync(parentDir, { recursive: true })
+      }
       fs.writeFileSync(targetPath, content, 'utf8')
       written.push(filename)
       filesCreated.push(filename)

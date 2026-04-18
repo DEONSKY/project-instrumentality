@@ -57,6 +57,16 @@ const CURSOR_MCP = {
   }
 }
 
+const VSCODE_MCP = {
+  servers: {
+    kb: {
+      type: 'stdio',
+      command: 'node',
+      args: ['knowledge/_mcp/server.js']
+    }
+  }
+}
+
 // Hooks check local path first, then fall back to the MCP server's own location.
 // This makes them work whether or not the MCP server is installed inside the project.
 // On Windows, convert C:\... paths to /c/... so Git's sh.exe (MSYS2) can resolve them.
@@ -380,7 +390,16 @@ async function runTool({ interactive = true, config = null, regenerate_agent_rul
   fs.writeFileSync(path.join(cursorDir, 'mcp.json'), JSON.stringify(CURSOR_MCP, null, 2))
   filesCreated.push('.cursor/mcp.json')
 
-  // 9b. Generate agent rule files (CLAUDE.md, .cursorrules, .windsurfrules)
+  // 9a. Write .vscode/mcp.json (GitHub Copilot / VS Code MCP)
+  const vscodeDir = '.vscode'
+  const vscodeMcpPath = path.join(vscodeDir, 'mcp.json')
+  if (!fs.existsSync(vscodeDir)) fs.mkdirSync(vscodeDir, { recursive: true })
+  if (!fs.existsSync(vscodeMcpPath)) {
+    fs.writeFileSync(vscodeMcpPath, JSON.stringify(VSCODE_MCP, null, 2))
+    filesCreated.push(vscodeMcpPath)
+  }
+
+  // 9b. Generate agent rule files (CLAUDE.md, .cursorrules, .windsurfrules, .github/copilot-instructions.md)
   const { generateAgentRules } = require('../lib/agent-rules')
   generateAgentRules(filesCreated)
 
@@ -919,13 +938,13 @@ module.exports = {
   runTool,
   definition: {
     name: 'kb_init',
-    description: 'Bootstrap a new KB structure in the current monorepo. Pass regenerate_agent_rules: true to (re)generate CLAUDE.md/.cursorrules/.windsurfrules in the project root.',
+    description: 'Bootstrap a new KB structure in the current monorepo. Pass regenerate_agent_rules: true to (re)generate CLAUDE.md/.cursorrules/.windsurfrules/.github/copilot-instructions.md in the project root.',
     inputSchema: {
       type: 'object',
       properties: {
         interactive: { type: 'boolean', description: 'Run interactive setup prompts', default: true },
         config: { type: 'object', description: 'Config object (skips interactive prompts)' },
-        regenerate_agent_rules: { type: 'boolean', description: 'Only regenerate CLAUDE.md/.cursorrules/.windsurfrules; skip the full bootstrap.' },
+        regenerate_agent_rules: { type: 'boolean', description: 'Only regenerate CLAUDE.md/.cursorrules/.windsurfrules/.github/copilot-instructions.md; skip the full bootstrap.' },
         force: { type: 'boolean', description: 'With regenerate_agent_rules: overwrite existing files. Default: false (preserves customizations).' }
       }
     }
