@@ -103,4 +103,17 @@ function buildPromptVars(question, intent, context) {
   return base
 }
 
-module.exports = { runTool }
+module.exports = {
+  runTool,
+  definition: {
+    name: 'kb_ask',
+    description: 'Ask a question about the KB. Supports query, brainstorm, challenge, sync, onboard, and generate intents.',
+    inputSchema: {
+      type: 'object',
+      required: ['question'],
+      properties: {
+        question: { type: 'string', description: 'Your question. Prefix with "sync [feature] [note-id]" to resolve a sync note.' }
+      }
+    }
+  }
+}

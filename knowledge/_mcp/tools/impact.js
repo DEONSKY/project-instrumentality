@@ -95,4 +95,17 @@ function extractKeywords(text) {
     .filter(w => !STOP_WORDS.has(w))
 }
 
-module.exports = { runTool }
+module.exports = {
+  runTool,
+  definition: {
+    name: 'kb_impact',
+    description: 'Analyze impact of a change across the KB dependency graph. Returns proposals — does not write.',
+    inputSchema: {
+      type: 'object',
+      required: ['change_description'],
+      properties: {
+        change_description: { type: 'string', description: 'Description of the change to analyze' }
+      }
+    }
+  }
+}

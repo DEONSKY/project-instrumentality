@@ -142,4 +142,18 @@ async function runTool({ file_path, content }) {
   return result
 }
 
-module.exports = { runTool }
+module.exports = {
+  runTool,
+  definition: {
+    name: 'kb_write',
+    description: 'Write a KB file and automatically reindex. Never write _index.yaml directly.',
+    inputSchema: {
+      type: 'object',
+      required: ['file_path', 'content'],
+      properties: {
+        file_path: { type: 'string', description: 'Path to the KB file (e.g. knowledge/features/my-feature.md)' },
+        content: { type: 'string', description: 'Full file content including YAML front-matter' }
+      }
+    }
+  }
+}

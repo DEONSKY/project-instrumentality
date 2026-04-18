@@ -247,4 +247,22 @@ function isSourceFile(filename) {
   return sourceExtensions.has(ext) || configFiles.has(filename)
 }
 
-module.exports = { runTool }
+module.exports = {
+  runTool,
+  definition: {
+    name: 'kb_extract',
+    description: 'Sample existing code or KB files and return a prompt to derive a standards document from observed patterns. Phase 1 (no content): returns prompt + sampled file contents. Phase 2 (content provided): writes the filled standard to disk.',
+    inputSchema: {
+      type: 'object',
+      required: ['source', 'target_id', 'target_group'],
+      properties: {
+        source: { type: 'string', enum: ['code', 'knowledge'], description: 'What to sample: "code" for source files, "knowledge" for KB docs' },
+        target_id: { type: 'string', description: 'ID for the output standards file (kebab-case)' },
+        target_group: { type: 'string', enum: ['code', 'knowledge', 'process'], description: 'Standards subfolder to write into' },
+        paths: { description: 'Glob patterns to filter source files (source=code), or KB subfolder name (source=knowledge, e.g. "features")', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+        app_scope: { type: 'string', description: 'App scope for the generated standard (default: all)' },
+        content: { type: 'string', description: '(Phase 2) Filled content to write to disk' }
+      }
+    }
+  }
+}

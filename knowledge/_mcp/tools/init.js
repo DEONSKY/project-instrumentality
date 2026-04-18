@@ -228,7 +228,23 @@ elif [ -f "$BUNDLED" ]; then node "$BUNDLED"
 fi
 `
 
-async function runTool({ interactive = true, config = null } = {}) {
+async function runTool({ interactive = true, config = null, regenerate_agent_rules = false, force = false } = {}) {
+  if (regenerate_agent_rules) {
+    const { generateAgentRules, AGENT_RULE_FILES } = require('../lib/agent-rules')
+    if (force) {
+      for (const f of AGENT_RULE_FILES) {
+        if (fs.existsSync(f)) fs.writeFileSync(f, '', 'utf8')
+      }
+    }
+    const written = generateAgentRules()
+    const skipped = AGENT_RULE_FILES.filter(f => !written.includes(f))
+    return {
+      files_written: written,
+      files_skipped: skipped,
+      note: skipped.length > 0 ? 'Existing files with content were not overwritten. Use force: true to regenerate.' : undefined
+    }
+  }
+
   let cfg = config
 
   if (interactive && !cfg && process.stdin.isTTY) {
@@ -899,4 +915,19 @@ Rules: knowledge/_rules.md
 `)
 }
 
-module.exports = { runTool }
+module.exports = {
+  runTool,
+  definition: {
+    name: 'kb_init',
+    description: 'Bootstrap a new KB structure in the current monorepo. Pass regenerate_agent_rules: true to (re)generate CLAUDE.md/.cursorrules/.windsurfrules in the project root.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        interactive: { type: 'boolean', description: 'Run interactive setup prompts', default: true },
+        config: { type: 'object', description: 'Config object (skips interactive prompts)' },
+        regenerate_agent_rules: { type: 'boolean', description: 'Only regenerate CLAUDE.md/.cursorrules/.windsurfrules; skip the full bootstrap.' },
+        force: { type: 'boolean', description: 'With regenerate_agent_rules: overwrite existing files. Default: false (preserves customizations).' }
+      }
+    }
+  }
+}

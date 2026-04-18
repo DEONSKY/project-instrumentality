@@ -230,4 +230,19 @@ function handleMergePlan(targetBranch) {
   return result
 }
 
-module.exports = { runTool }
+module.exports = {
+  runTool,
+  definition: {
+    name: 'kb_sub',
+    description: 'Submodule coordination. status: shows parent + submodule branches, pointer changes, owned/shared types. push: pushes submodules first (correct order), then parent. merge_plan: returns correct merge sequence for feature-to-main.',
+    inputSchema: {
+      type: 'object',
+      required: ['command'],
+      properties: {
+        command: { type: 'string', enum: ['status', 'push', 'merge_plan'], description: 'Command to run' },
+        dry_run: { type: 'boolean', description: 'For push: show plan without executing', default: false },
+        target_branch: { type: 'string', description: 'For merge_plan: target branch name', default: 'main' }
+      }
+    }
+  }
+}

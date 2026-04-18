@@ -17,26 +17,11 @@ const TEMPLATES_DIR = getTemplatesDir()
  *   the template and calls kb_write({ file_path, content }) to save it.
  * With content: writes the agent-filled content directly.
  */
-async function runTool({ type, id, group, description, content, app_scope = 'all', force = false } = {}) {
+async function runTool({ type, id, group, description, content, app_scope = 'all' } = {}) {
   if (!type) return { error: 'type is required' }
 
-  // Special case: agent-rules writes to project root, not knowledge/
   if (type === 'agent-rules') {
-    const { generateAgentRules, AGENT_RULE_FILES } = require('../lib/agent-rules')
-    if (force) {
-      // Force overwrite: delete existing files so generateAgentRules will re-create them
-      const fs2 = require('fs')
-      for (const f of AGENT_RULE_FILES) {
-        if (fs2.existsSync(f)) fs2.writeFileSync(f, '', 'utf8')
-      }
-    }
-    const written = generateAgentRules()
-    const skipped = AGENT_RULE_FILES.filter(f => !written.includes(f))
-    return {
-      files_written: written,
-      files_skipped: skipped,
-      note: skipped.length > 0 ? 'Existing files with content were not overwritten. Use force: true to regenerate.' : undefined
-    }
+    return { error: 'agent-rules moved to kb_init. Use kb_init({ regenerate_agent_rules: true, force: true }).' }
   }
 
   if (!TYPE_TO_TEMPLATE[type]) {
@@ -155,4 +140,22 @@ function createGroupFile(groupFilePath, groupName, today) {
   fs.writeFileSync(groupFilePath, content, 'utf8')
 }
 
-module.exports = { runTool }
+module.exports = {
+  runTool,
+  definition: {
+    name: 'kb_scaffold',
+    description: 'Create a new KB file from a template. With description: returns a fill prompt for the agent. With content: writes agent-filled content. Without either: writes template with placeholders.',
+    inputSchema: {
+      type: 'object',
+      required: ['type'],
+      properties: {
+        type: { type: 'string', description: 'Template type: feature|flow|schema|validation|integration|decision|standard|group|enums|relations|components|permissions|copy|tech-stack|conventions' },
+        id: { type: 'string', description: 'File identifier (kebab-case)' },
+        group: { type: 'string', description: 'Group/subfolder for standards: code|knowledge|process' },
+        description: { type: 'string', description: 'Description — tool returns a fill prompt for the agent to process' },
+        content: { type: 'string', description: 'Agent-filled content to write (use after processing the fill prompt)' },
+        app_scope: { type: 'string', description: 'App scope for this standard (e.g. frontend, backend). Default: all' }
+      }
+    }
+  }
+}

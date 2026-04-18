@@ -780,4 +780,22 @@ function subSplitChunk(chunk) {
   return subChunks.length > 0 ? subChunks : [chunk]
 }
 
-module.exports = { runTool }
+module.exports = {
+  runTool,
+  definition: {
+    name: 'kb_import',
+    description: 'Import a document into the KB. Auto-classify mode (recommended): Phase 1 extracts and classifies in batches (multi-label). Phase 2 returns an import plan with proposed files and cross-references. Phase 3 (approve: true) writes files. Classic mode: Phase 1 returns chunks, Phase 2 writes agent-generated files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        source: { type: 'string', description: 'Path to the source document (PDF, DOCX, MD, TXT, HTML)' },
+        dry_run: { type: 'boolean', description: 'Preview without writing', default: false },
+        auto_classify: { type: 'boolean', description: 'Paginated classification mode — returns chunks in batches for agent to classify, then returns import plan for approval', default: false },
+        approve: { type: 'boolean', description: 'Execute a previously generated import plan (requires auto_classify)', default: false },
+        classifications: { type: 'array', description: 'Agent multi-label classification results from previous batch', items: { type: 'object', properties: { chunk_id: { type: 'string' }, types: { type: 'array', items: { type: 'object', properties: { type: { type: 'string' }, confidence: { type: 'number' }, suggested_id: { type: 'string' }, reason: { type: 'string' } }, required: ['type', 'confidence', 'suggested_id'] } }, suggested_group: { type: 'string' }, duplicate_of: { type: 'string' } }, required: ['chunk_id', 'types'] } },
+        cursor: { type: 'number', description: 'Current position in chunk list (returned by previous auto_classify call)' },
+        files_to_write: { type: 'array', description: 'Classic Phase 2: agent-generated files to write', items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } }
+      }
+    }
+  }
+}

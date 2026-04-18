@@ -215,4 +215,23 @@ function handleQuery(file, entities, keywords) {
   }
 }
 
-module.exports = { runTool, parseDbml, filterTablesByNames, filterTablesByKeywords }
+module.exports = {
+  runTool,
+  parseDbml,
+  filterTablesByNames,
+  filterTablesByKeywords,
+  definition: {
+    name: 'kb_schema',
+    description: 'Query database schema files (DBML format) with table-level extraction. Returns only relevant table/enum definitions.',
+    inputSchema: {
+      type: 'object',
+      required: ['command'],
+      properties: {
+        command: { type: 'string', enum: ['query', 'list'], description: 'query: extract table definitions. list: list all tables and enums.' },
+        file: { type: 'string', description: 'Schema file path or bare name (e.g. "postgres" or "data/schema/postgres.md")' },
+        entities: { type: 'array', items: { type: 'string' }, description: 'Table names to extract (exact match)' },
+        keywords: { description: 'Keywords for relevance-scored table extraction', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] }
+      }
+    }
+  }
+}

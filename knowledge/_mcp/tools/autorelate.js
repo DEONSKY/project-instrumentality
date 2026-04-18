@@ -353,4 +353,18 @@ function addDependsOn(sourceFile, targetFile) {
   }
 }
 
-module.exports = { runTool }
+module.exports = {
+  runTool,
+  definition: {
+    name: 'kb_autorelate',
+    description: 'Discover semantic relations between KB files using keyword overlap and propose depends_on links. Use dry_run: true to preview before writing.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Analyze relations for a single file, or omit for all files.' },
+        dry_run: { type: 'boolean', description: 'Preview proposed relations without writing.', default: false },
+        threshold: { type: 'number', description: 'Minimum overlap score to propose a relation (0–1). Default: 0.25' }
+      }
+    }
+  }
+}

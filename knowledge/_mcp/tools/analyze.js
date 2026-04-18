@@ -234,4 +234,17 @@ ${today} — draft created by kb_analyze
   }
 }
 
-module.exports = { runTool }
+module.exports = {
+  runTool,
+  definition: {
+    name: 'kb_analyze',
+    description: 'Analyze project source files and generate a KB coverage inventory. Groups source files by their KB target (using code_path_patterns from _rules.md) and optionally writes draft KB files for uncovered groups. Useful for bootstrapping KB on legacy projects.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        depth: { type: 'number', description: 'Max directory depth to scan (default: 4)', default: 4 },
+        write_drafts: { type: 'boolean', description: 'Write draft KB files for uncovered groups', default: false }
+      }
+    }
+  }
+}

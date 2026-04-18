@@ -103,4 +103,17 @@ function collectKBFiles() {
   return files
 }
 
-module.exports = { runTool }
+module.exports = {
+  runTool,
+  definition: {
+    name: 'kb_migrate',
+    description: 'Migrate KB files after _rules.md changes. Manual trigger only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        since: { type: 'string', description: 'Commit SHA to diff _rules.md from. Auto-detected if omitted.' },
+        dry_run: { type: 'boolean', description: 'Preview migration prompts without writing files', default: false }
+      }
+    }
+  }
+}

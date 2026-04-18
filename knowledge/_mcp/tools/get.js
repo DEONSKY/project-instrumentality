@@ -276,4 +276,21 @@ function applySchemaFiltering(candidates, keywords) {
   })
 }
 
-module.exports = { runTool }
+module.exports = {
+  runTool,
+  definition: {
+    name: 'kb_get',
+    description: 'Load relevant KB files for a task. Respects token budget and app_scope filtering.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_type: { type: 'string', description: 'Type of task (e.g. generate, review, export)' },
+        keywords: { description: 'Keywords to match KB files', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+        app_scope: { type: 'string', description: 'Filter by app scope (e.g. frontend, backend)' },
+        scope: { type: 'string', description: 'Export scope: domain name, feature id, or "all"' },
+        max_tokens: { type: 'number', description: 'Override token budget (default: 8000, or token_budget from _rules.md)' },
+        task_context: { type: 'string', enum: ['creating', 'fixing', 'reviewing'], description: 'Adjusts relevance scoring: creating boosts same-type files, fixing boosts code standards, reviewing includes drift targets' }
+      }
+    }
+  }
+}

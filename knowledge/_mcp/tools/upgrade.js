@@ -197,4 +197,17 @@ function deepMerge(target, source, prefix, patched) {
   }
 }
 
-module.exports = { runTool }
+module.exports = {
+  runTool,
+  definition: {
+    name: 'kb_upgrade',
+    description: 'Upgrade project KB templates and config after MCP server update. Auto-updates unmodified templates, returns merge prompts for customized ones, patches _rules.md with new keys.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dry_run: { type: 'boolean', description: 'Preview changes without writing', default: false },
+        force: { type: 'boolean', description: 'Overwrite all templates including customized ones', default: false }
+      }
+    }
+  }
+}

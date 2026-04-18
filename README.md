@@ -38,8 +38,8 @@ your-project/
       review-queue.md    ← git merge conflicts on KB files
       import-review.md   ← unclassified import chunks
       drift-log/         ← resolved drift audit trail (one file per month)
-      inbound/           ← issue triage reports (written by kb_issue_triage)
-      outbound/          ← task breakdowns for PM tools (written by kb_issue_plan)
+      inbound/           ← issue triage reports (written by kb_issue command=triage)
+      outbound/          ← task breakdowns for PM tools (written by kb_issue command=plan)
     _index.yaml          ← auto-generated dependency graph
     _rules.md            ← KB configuration (depth policy, token_budget, code path patterns, secrets)
     exports/             ← kb_export output files
@@ -112,12 +112,10 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 
 | Tool | What it does |
 |------|-------------|
-| `kb_init` | Bootstrap `knowledge/` folder, git hooks, merge drivers, MCP config, and agent rule files (`CLAUDE.md`, `.cursorrules`, `.windsurfrules`). Re-run to update `code_path_patterns` when stack changes |
+| `kb_init` | Bootstrap `knowledge/` folder, git hooks, merge drivers, MCP config, and agent rule files (`CLAUDE.md`, `.cursorrules`, `.windsurfrules`). Re-run to update `code_path_patterns` when stack changes. Pass `regenerate_agent_rules: true` (with optional `force: true`) to (re)generate the agent rule files only |
 | `kb_get` | Load relevant KB files into agent context (keyword + scope filtering, token budget aware). `max_tokens` overrides the budget; default reads `token_budget` from `_rules.md`. Optional `task_context` (`creating`, `fixing`, `reviewing`) adjusts relevance scoring — `creating` boosts same-type files, `fixing` boosts code standards, `reviewing` includes drift targets |
-| `kb_write` | Write a KB file and auto-reindex. Rejects paths outside `knowledge/` |
-| `kb_reindex` | Rebuild `_index.yaml` from all KB files, run lint. Returns up to 20 lint violations in the result |
-| `kb_lint` | Lint KB files for front-matter correctness and secret patterns |
-| `kb_scaffold` | Create a new KB file from template (types: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `group`, `enums`, `relations`, `components`, `permissions`, `copy`, `tech-stack`, `conventions`, `agent-rules`). Two-phase when `description` is given: loads related KB context, checks for overlapping entries, returns a fill prompt → agent fills → writes. `agent-rules` is special: writes `CLAUDE.md`, `.cursorrules`, and `.windsurfrules` to the project root. Use `force: true` to regenerate existing files |
+| `kb_write` | Write a KB file and auto-reindex. Rejects paths outside `knowledge/`. Response includes the full reindex + lint result (up to 20 lint violations). Lint and reindex run automatically on every write and via git hooks — they're not exposed as separate tools |
+| `kb_scaffold` | Create a new KB file from template (types: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `group`, `enums`, `relations`, `components`, `permissions`, `copy`, `tech-stack`, `conventions`). Two-phase when `description` is given: loads related KB context, checks for overlapping entries, returns a fill prompt → agent fills → writes |
 | `kb_ask` | Ask a question about the KB. Classifies intent (query / sync / brainstorm / challenge / onboard / generate) and returns relevant context. Short tech terms (api, jwt, sql, etc.) are preserved in keyword extraction |
 | `kb_drift` | Bidirectional drift detection. Phase 1: code→kb (code changed, KB stale) and kb→code (KB changed, code may be stale). Writes to queue files in `sync/`. Handles file/folder renames as single linked operations — code renames annotate the entry with `← renamed from`, KB renames surface broken `[[wikilink]]` references with a count and file list. Stale `_rules.md` patterns (old path matched, new path doesn't) are returned as `stale_patterns[]` warnings. Phase 2: three resolution types — `summaries` (KB updated), `reverted` (code was wrong), `kb_confirmed` (kb→code reviewed). The pre-push hook passes the remote name automatically; sync baseline is resolved via graduated fallback: upstream tracking ref → `<remote>/<branch>` → closest parent branch (merge-base across all remote branches, so `main→dev→feature` correctly finds `dev`) → skip with warning. Submodules with a different remote name than the parent are detected and warned about explicitly (with a fix command), not silently skipped or compared against the wrong remote |
 | `kb_impact` | Analyze what KB files are affected by a proposed change, using the dependency graph |
@@ -126,9 +124,7 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | `kb_migrate` | Migrate KB files after `_rules.md` structure changes. `since` sets the comparison ref (auto-detected if omitted); `dry_run` previews prompts without writing |
 | `kb_analyze` | Scan project source files and generate a KB coverage inventory. Groups files by their KB target using `code_path_patterns` from `_rules.md`. Optional `write_drafts` creates draft KB files (`confidence: draft`) for uncovered groups. Useful for bootstrapping KB on legacy projects |
 | `kb_extract` | Derive a standards document from existing code or KB files. Phase 1: samples representative files and returns a prompt for the agent to observe patterns and fill the template. Phase 2: writes the filled standard. Supports `paths` to narrow sampling (glob patterns for code, subfolder name for KB), and `app_scope` for multi-stack projects |
-| `kb_issue_triage` | Triage an issue against the KB. Phase 1: searches KB for related docs, returns a prompt to draft a triage report with root-cause hypothesis and suggested KB updates. Phase 2: writes the report to `sync/inbound/`. Supports `issue_id`, `source` (jira/github/linear), `labels`, `priority`, and `app_scope` |
-| `kb_issue_plan` | Generate work items from KB docs for a PM tool. Phase 1: gathers source docs by `scope`/`type`/`keywords`, returns a prompt to break them into stories/tasks with acceptance criteria. Phase 2: writes task breakdown YAML to `sync/outbound/`. Supports `target` (jira/github/linear) and `project_key` |
-| `kb_issue_consult` | Consult the KB before filing an issue. Searches for related docs and returns a prompt for the agent to advise the reporter with enriched context, suggested labels, and relevant standards. Single-phase — no write step |
+| `kb_issue` | Issue ↔ KB bridge. `command: "triage"` — Phase 1 searches KB for related docs and returns a triage prompt, Phase 2 writes the report to `sync/inbound/`. Supports `issue_id`, `source` (jira/github/linear), `labels`, `priority`. `command: "plan"` — Phase 1 gathers source docs by `scope`/`type`/`keywords` and returns a planning prompt, Phase 2 writes task breakdown YAML to `sync/outbound/`. Supports `target` and `project_key`. `command: "consult"` — single-phase; returns a prompt advising the reporter before filing. `app_scope` filters KB search in all three commands |
 | `kb_sub` | Submodule coordination. `status`: shows parent + submodule branches, pointer changes, owned/shared types. `push`: pushes submodules first (correct order), then parent — supports `dry_run` to preview the plan. `merge_plan`: returns correct merge sequence for feature-to-main |
 | `kb_autotag` | Auto-extract tags from KB file content and write them to frontmatter. Improves `kb_ask` search accuracy when files have empty `tags: []`. Extracts from headings (3×), bold text, inline code, file path, and body word frequency. Merges with existing tags — never removes manual ones. Run `file_path: "all"` (default) or target a single file |
 | `kb_autorelate` | Discover semantic relations between KB files using keyword overlap (Overlap Coefficient). Proposes `depends_on` links. Use `dry_run: true` to preview before writing. `threshold` (default `0.25`) controls sensitivity. Direction is inferred from type priority: schemas and validation are upstream, flows and decisions are downstream |
@@ -159,7 +155,7 @@ Agent calls kb_scaffold({ type: "feature", id: "checkout", content: "<filled con
   → Server writes the file
 ```
 
-Same pattern applies to `kb_export`, `kb_extract`, `kb_issue_triage`, and `kb_issue_plan`. `kb_scaffold` also loads related KB files before returning the fill prompt, so the agent can check for overlapping entries and align new content with existing docs. The fill prompt includes an **overlap detection** step — if an existing KB file already covers the same topic, the agent warns before creating a duplicate. `kb_import` supports a **3-phase auto-classify mode**: (1) extract and return chunks in paginated batches for agent classification, (2) return an import plan with proposed files and cross-references, (3) write files on approval. `kb_drift` works differently — Phase 1 writes entries to queue files (no prompts returned). Review happens when PM or developer asks Claude to read the queue files; Claude fetches the git diff live and explains in plain English.
+Same pattern applies to `kb_export`, `kb_extract`, and `kb_issue` (`triage` and `plan` commands). `kb_scaffold` also loads related KB files before returning the fill prompt, so the agent can check for overlapping entries and align new content with existing docs. The fill prompt includes an **overlap detection** step — if an existing KB file already covers the same topic, the agent warns before creating a duplicate. `kb_import` supports a **3-phase auto-classify mode**: (1) extract and return chunks in paginated batches for agent classification, (2) return an import plan with proposed files and cross-references, (3) write files on approval. `kb_drift` works differently — Phase 1 writes entries to queue files (no prompts returned). Review happens when PM or developer asks Claude to read the queue files; Claude fetches the git diff live and explains in plain English.
 
 ---
 
@@ -466,11 +462,11 @@ When `kb_get` loads a schema file during keyword search, it automatically filter
 
 ### 11. Setting up agent instructions
 
-`kb_init` generates `CLAUDE.md`, `.cursorrules`, and `.windsurfrules` automatically. To regenerate them (e.g. after updating the template), use `kb_scaffold`:
+`kb_init` generates `CLAUDE.md`, `.cursorrules`, and `.windsurfrules` automatically. To regenerate them (e.g. after updating the template):
 
 ```
 "Regenerate agent rule files"
-→ kb_scaffold({ type: "agent-rules", force: true })
+→ kb_init({ regenerate_agent_rules: true, force: true })
 → Returns: { files_written: ["CLAUDE.md", ".cursorrules", ".windsurfrules"] }
 ```
 
@@ -516,8 +512,9 @@ The KB bridges the gap between knowledge and project management tools through a 
 ```
 PM: "I want to file a bug about login failing with expired tokens"
 
-→ kb_issue_consult({ title: "Login fails with expired token",
-                     body: "Users get 500 error instead of redirect..." })
+→ kb_issue({ command: "consult",
+             title: "Login fails with expired token",
+             body: "Users get 500 error instead of redirect..." })
   → Returns related KB docs (features/auth.md, flows/login.md)
   → Agent advises: "This relates to the session handling flow, step 4.
      The KB notes 24h token expiry. Suggest labels: auth, session.
@@ -526,25 +523,27 @@ PM: "I want to file a bug about login failing with expired tokens"
 
 **Triage an existing Jira bug:**
 ```
-→ kb_issue_triage({ title: "Cart total wrong", body: "...",
-                    issue_id: "PROJ-123", source: "jira",
-                    labels: ["bug", "cart"], priority: "high" })
+→ kb_issue({ command: "triage",
+             title: "Cart total wrong", body: "...",
+             issue_id: "PROJ-123", source: "jira",
+             labels: ["bug", "cart"], priority: "high" })
   → Phase 1: returns related KB docs + triage prompt
   → Agent fills triage report (summary, root cause hypothesis, suggested KB updates)
 
-→ kb_issue_triage({ ..., content: "<filled triage report>" })
+→ kb_issue({ command: "triage", ..., content: "<filled triage report>" })
   → Writes to knowledge/sync/inbound/PROJ-123.md
   → Agent can then apply suggested updates to feature/flow docs via kb_write
 ```
 
 **Generate work items from KB features:**
 ```
-→ kb_issue_plan({ type: "feature", keywords: ["cart"],
-                  target: "jira", project_key: "CART" })
+→ kb_issue({ command: "plan",
+             type: "feature", keywords: ["cart"],
+             target: "jira", project_key: "CART" })
   → Phase 1: gathers cart-related KB docs, returns planning prompt
   → Agent breaks features into stories with acceptance criteria
 
-→ kb_issue_plan({ ..., content: "<YAML task breakdown>" })
+→ kb_issue({ command: "plan", ..., content: "<YAML task breakdown>" })
   → Writes to knowledge/sync/outbound/2026-03-28-feature.yaml
   → Adapter script picks up YAML and creates Jira tickets
 ```
@@ -554,7 +553,7 @@ PM: "I want to file a bug about login failing with expired tokens"
 PM Tool (Jira, Linear, GitHub Issues)
     ↕  adapter scripts (outside MCP)
 Staging files (knowledge/sync/inbound/, sync/outbound/)
-    ↕  kb_issue_triage, kb_issue_plan
+    ↕  kb_issue (triage, plan)
 KB documents (knowledge/features/, flows/, standards/)
 ```
 
@@ -629,8 +628,8 @@ Written by the server automatically, reviewed and resolved by humans via Claude.
 | `sync/kb-drift.md` | pre-push + post-merge hooks (KB changed, code may be stale) | Developer confirms code still matches |
 | `sync/review-queue.md` | git merge conflict driver (same KB file edited on two branches) | Resolve conflict markers in file, then close entry |
 | `sync/import-review.md` | `kb_import` | Classify unresolved chunks via Claude |
-| `sync/inbound/*.md` | `kb_issue_triage` | Review triage reports, apply suggested KB updates |
-| `sync/outbound/*.yaml` | `kb_issue_plan` | Review task breakdowns, push to PM tool via adapter script |
+| `sync/inbound/*.md` | `kb_issue` (command=triage) | Review triage reports, apply suggested KB updates |
+| `sync/outbound/*.yaml` | `kb_issue` (command=plan) | Review task breakdowns, push to PM tool via adapter script |
 
 Do not delete entries from Tier 3 files manually — always resolve through `kb_drift` or the relevant tool so the resolution is logged to `sync/drift-log/`.
 
