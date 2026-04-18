@@ -12,7 +12,7 @@ const KB_ROOT = 'knowledge'
 const REQUIRED_FRONTMATTER = ['id', 'app_scope', 'created']
 
 // Folders whose files are not KB content — skip linting
-const SKIP_LINT_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules', '_templates', 'drift-log', 'sync'])
+const SKIP_LINT_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules', '_templates', 'drift-log', 'sync', '.obsidian'])
 
 // Called only by kb_reindex — never directly by tools
 async function runTool({ file_path = 'all' } = {}) {
@@ -218,8 +218,65 @@ function lintPromptOverride(filePath, data, rules, violations) {
   return violations
 }
 
+function buildGitignoreChecker() {
+  const patterns = []
+
+  const sources = [
+    { filePath: '.gitignore', base: '' },
+    { filePath: path.join(KB_ROOT, '.gitignore'), base: KB_ROOT + '/' },
+  ]
+
+  for (const { filePath, base } of sources) {
+    if (!fs.existsSync(filePath)) continue
+    const lines = fs.readFileSync(filePath, 'utf8').split('\n')
+
+    for (let line of lines) {
+      line = line.trim()
+      if (!line || line.startsWith('#')) continue
+
+      const negated = line.startsWith('!')
+      if (negated) line = line.slice(1).trim()
+
+      const isDirOnly = line.endsWith('/')
+      if (isDirOnly) line = line.slice(0, -1)
+
+      const isRooted = line.startsWith('/')
+      if (isRooted) line = line.slice(1)
+
+      const hasSlash = line.includes('/')
+
+      // Convert glob to regex
+      const pat = line
+        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*\*/g, '\x00')
+        .replace(/\*/g, '[^/]*')
+        .replace(/\x00/g, '.*')
+        .replace(/\?/g, '[^/]')
+
+      let regex
+      if (hasSlash || isRooted) {
+        const escapedBase = base.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+        regex = new RegExp('^' + escapedBase + pat + '(/|$)')
+      } else {
+        regex = new RegExp('(^|/)' + pat + '(/|$)')
+      }
+
+      patterns.push({ regex, negated })
+    }
+  }
+
+  return (filePath) => {
+    let ignored = false
+    for (const { regex, negated } of patterns) {
+      if (regex.test(filePath)) ignored = !negated
+    }
+    return ignored
+  }
+}
+
 function collectKBFiles() {
   const files = []
+  const isGitignored = buildGitignoreChecker()
 
   function walk(dir) {
     if (!fs.existsSync(dir)) return
@@ -227,9 +284,9 @@ function collectKBFiles() {
     entries.forEach(entry => {
       const full = path.join(dir, entry.name)
       if (entry.isDirectory()) {
-        if (!SKIP_LINT_DIRS.has(entry.name)) walk(full)
+        if (!SKIP_LINT_DIRS.has(entry.name) && !isGitignored(full)) walk(full)
       } else if (entry.name.endsWith('.md')) {
-        files.push(full)
+        if (!isGitignored(full)) files.push(full)
       }
     })
   }

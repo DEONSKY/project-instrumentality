@@ -13,7 +13,7 @@ const matter = require('gray-matter')
 
 const KB_ROOT = 'knowledge'
 const REQUIRED_FRONTMATTER = ['id', 'app_scope', 'created']
-const SKIP_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules', '_templates', 'sync'])
+const SKIP_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules', '_templates', 'sync', '.obsidian'])
 
 // ─── Rules loading (inline — no require('../lib/rules') to stay standalone) ───
 
