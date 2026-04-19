@@ -467,7 +467,11 @@ async function resolveWithSummaries(summaries) {
 
   const closedTargets = new Set(closed.map(c => c.kb_target))
   const remaining = codeEntries.filter(e => !closedTargets.has(e.kbTarget))
-  writeCodeDriftEntries(header, remaining)
+  const resolvedShas = codeEntries
+    .filter(e => closedTargets.has(e.kbTarget))
+    .flatMap(e => e.codeFiles.map(f => f.latestCommit || f.sinceCommit))
+  const nextHeader = await advanceQueueBaseline(header, resolvedShas)
+  writeCodeDriftEntries(nextHeader, remaining)
   appendToDriftLog(logRecords)
 
   const result = { resolved: closed.length, closed, not_found: notFound }
@@ -495,10 +499,13 @@ async function resolveReverted(reverted) {
   const closed = []
   const matchedFiles = new Set()
 
+  const resolvedShas = []
   const updated = entries.map(entry => {
-    const removedHere = entry.codeFiles.filter(f => codeFiles.includes(f.path)).map(f => f.path)
+    const removedFiles = entry.codeFiles.filter(f => codeFiles.includes(f.path))
+    const removedHere = removedFiles.map(f => f.path)
     if (removedHere.length > 0) {
       removedHere.forEach(p => matchedFiles.add(p))
+      for (const f of removedFiles) resolvedShas.push(f.latestCommit || f.sinceCommit)
       closed.push({ kb_target: entry.kbTarget, code_files: removedHere })
       logRecords.push({ direction: 'code→kb', resolution: 'code-reverted', kb_target: entry.kbTarget, code_files: removedHere })
       entry.codeFiles = entry.codeFiles.filter(f => !codeFiles.includes(f.path))
@@ -510,7 +517,8 @@ async function resolveReverted(reverted) {
     .filter(f => !matchedFiles.has(f))
     .map(code_file => ({ code_file, reason: 'no open entry in sync/code-drift.md references this code_file' }))
 
-  writeCodeDriftEntries(header, updated)
+  const nextHeader = await advanceQueueBaseline(header, resolvedShas)
+  writeCodeDriftEntries(nextHeader, updated)
   appendToDriftLog(logRecords)
 
   const result = { reverted: matchedFiles.size, closed, not_found: notFound }
@@ -558,7 +566,11 @@ async function resolveKbConfirmed(kb_confirmed) {
 
   const closedFiles = new Set(closed.map(c => c.kb_file))
   const remaining = entries.filter(e => !closedFiles.has(e.kbFile))
-  writeKbDriftEntries(header, remaining)
+  const resolvedShas = entries
+    .filter(e => closedFiles.has(e.kbFile))
+    .map(e => e.latestCommit || e.sinceCommit)
+  const nextHeader = await advanceQueueBaseline(header, resolvedShas)
+  writeKbDriftEntries(nextHeader, remaining)
   appendToDriftLog(logRecords)
 
   const result = { confirmed: closed.length, closed, not_found: notFound }
@@ -591,6 +603,8 @@ async function resolveDismissed(dismiss) {
   const kbState = readKbDriftEntries()
   let codeDirty = false
   let kbDirty = false
+  const codeResolvedShas = []
+  const kbResolvedShas = []
 
   for (const item of dismiss) {
     const queue = item?.queue
@@ -616,7 +630,8 @@ async function resolveDismissed(dismiss) {
         notFound.push({ queue, queue_key, reason_missing: 'no open entry in sync/code-drift.md with this queue_key' })
         continue
       }
-      codeState.entries.splice(idx, 1)
+      const [removed] = codeState.entries.splice(idx, 1)
+      for (const f of removed.codeFiles) codeResolvedShas.push(f.latestCommit || f.sinceCommit)
       codeDirty = true
     } else {
       const idx = kbState.entries.findIndex(e => e.kbFile === queue_key)
@@ -624,7 +639,8 @@ async function resolveDismissed(dismiss) {
         notFound.push({ queue, queue_key, reason_missing: 'no open entry in sync/kb-drift.md with this queue_key' })
         continue
       }
-      kbState.entries.splice(idx, 1)
+      const [removed] = kbState.entries.splice(idx, 1)
+      kbResolvedShas.push(removed.latestCommit || removed.sinceCommit)
       kbDirty = true
     }
 
@@ -632,8 +648,14 @@ async function resolveDismissed(dismiss) {
     logRecords.push({ event_type: 'dismissed', queue, queue_key, reason })
   }
 
-  if (codeDirty) writeCodeDriftEntries(codeState.header, codeState.entries)
-  if (kbDirty) writeKbDriftEntries(kbState.header, kbState.entries)
+  if (codeDirty) {
+    const nextHeader = await advanceQueueBaseline(codeState.header, codeResolvedShas)
+    writeCodeDriftEntries(nextHeader, codeState.entries)
+  }
+  if (kbDirty) {
+    const nextHeader = await advanceQueueBaseline(kbState.header, kbResolvedShas)
+    writeKbDriftEntries(nextHeader, kbState.entries)
+  }
   appendToDriftLog(logRecords)
 
   const result = { dismissed: closed.length, closed, not_found: notFound }
@@ -702,6 +724,74 @@ async function resetBaselines({ force_baseline, purge }) {
       ? `Queue files cleared; both baselines set to ${sha ? sha.slice(0, 7) : '(unchanged)'}.`
       : `Both baselines set to ${sha ? sha.slice(0, 7) : '(unchanged)'}; queue entries preserved.`
   }
+}
+
+// True when `ancestor` is an ancestor of `descendant` (or equal). Implemented
+// via `git merge-base A B` + SHA comparison rather than `merge-base
+// --is-ancestor` because simple-git's `raw()` does not reliably surface the
+// latter's exit-code-1 "not ancestor" signal — it returns empty output in both
+// directions, which would make the check useless.
+async function isAncestor(git, ancestor, descendant) {
+  try {
+    const aFull = (await git.raw(['rev-parse', '--verify', `${ancestor}^{commit}`])).trim()
+    const mb = (await git.raw(['merge-base', ancestor, descendant])).trim()
+    return mb === aFull
+  } catch { return false }
+}
+
+// Given a list of SHAs, return the one that is a descendant of all others
+// (pairwise). Returns null if the set is empty or if any pair has diverged
+// history. Unlike dedupBaselines, this helper refuses to pick on divergence —
+// callers that must commit to a choice use their own loop; callers where
+// "don't advance" is a valid outcome (resolve flows) use this.
+async function pickDescendantSha(git, shas) {
+  const unique = [...new Set(shas.filter(Boolean))]
+  if (unique.length === 0) return null
+  if (unique.length === 1) return unique[0]
+  let winner = unique[0]
+  for (let i = 1; i < unique.length; i++) {
+    const candidate = unique[i]
+    if (candidate === winner) continue
+    if (await isAncestor(git, winner, candidate)) winner = candidate
+    else if (!(await isAncestor(git, candidate, winner))) return null
+  }
+  return winner
+}
+
+// Decide the new baseline SHA after a resolve. Filters the candidate set
+// (`currentBaseline` + the `Latest` SHA of each resolved entry) to SHAs
+// reachable from parent-repo HEAD — this naturally drops submodule SHAs that
+// can appear as entry Latest values — and then picks the descendant of the
+// survivors. Returns the current baseline unchanged when there is nothing to
+// advance to (no reachable candidates, divergence, or the current baseline is
+// already the descendant). Never rolls the baseline back.
+async function computeAdvancedBaseline(git, currentBaseline, entryShas) {
+  const candidates = [currentBaseline, ...entryShas].filter(Boolean)
+  if (candidates.length === 0) return currentBaseline || null
+  const reachable = []
+  for (const sha of [...new Set(candidates)]) {
+    if (await isAncestor(git, sha, 'HEAD')) reachable.push(sha)
+  }
+  if (reachable.length === 0) return currentBaseline || null
+  const descendant = await pickDescendantSha(git, reachable)
+  return descendant || currentBaseline || null
+}
+
+// Convenience wrapper used by resolve flows: takes a queue header and the
+// resolved entries' Latest SHAs, returns the header with baseline advanced if
+// `computeAdvancedBaseline` can confidently move it forward. No-op if the
+// resulting SHA equals the existing baseline.
+async function advanceQueueBaseline(header, entryShas) {
+  const git = simpleGit(process.cwd())
+  const currentBaseline = parseBaseline(header)
+  const next = await computeAdvancedBaseline(git, currentBaseline, entryShas)
+  if (!next || next === currentBaseline) return header
+  // Queue entries store 7-char short SHAs; scans stamp the 40-char HEAD SHA.
+  // Expand here so baseline lines stay a consistent width regardless of
+  // whether they were written by a scan or a resolve.
+  let full = next
+  try { full = (await git.revparse([next])).trim() } catch { /* keep as-is */ }
+  return setBaseline(header, full)
 }
 
 // ── Merge housekeeping: deduplicate baseline lines ───────────────────────────

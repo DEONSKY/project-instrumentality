@@ -1091,6 +1091,204 @@ test('dismiss: mixed valid + invalid batch closes valid and reports invalid', wi
   assert.ok(result.error)
 }))
 
+// ── baseline advance on resolve ──────────────────────────────────────────────
+//
+// Regression coverage for the re-detection loop: resolve flows must stamp
+// baseline forward using the resolved entries' Latest SHAs so the next scan's
+// `baseline..HEAD` window does not include commits that have already been
+// accounted for.
+
+function readBaseline(dir, queue) {
+  const file = path.join(dir, 'knowledge/sync', `${queue}.md`)
+  const content = fs.readFileSync(file, 'utf8')
+  const m = content.match(/<!-- baseline: ([a-f0-9]{40}) -->/)
+  return m ? m[1] : null
+}
+
+test('baseline advance: resolveWithSummaries moves baseline to entry Latest', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'src/features/auth.js', '// seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  const seedSha = sh(dir, 'git rev-parse HEAD')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'src/features/auth.js', '// changed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+  const editSha = sh(dir, 'git rev-parse HEAD')
+  await DRIFT.runTool({})
+
+  // Rewind baseline to simulate the bug condition (e.g. queue file restored
+  // from an older commit after rebase/reset, or stamp lost in merge).
+  await DRIFT.runTool({ force_baseline: seedSha, purge: false })
+  assert.equal(readBaseline(dir, 'code-drift'), seedSha, 'baseline rewound to seed')
+
+  const result = await DRIFT.runTool({
+    summaries: [{ kb_target: 'features/auth.md', summary: 'kb updated' }]
+  })
+  assert.equal(result.resolved, 1)
+  assert.equal(readBaseline(dir, 'code-drift'), editSha, 'resolve advanced baseline to entry Latest')
+}))
+
+test('baseline advance: resolveWithSummaries does not roll baseline back', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'src/features/auth.js', '// seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'src/features/auth.js', '// changed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+  await DRIFT.runTool({})
+
+  // Add a later unrelated commit so baseline = HEAD is already past entry Latest.
+  writeFile(dir, 'README.md', 'later\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m later')
+  await DRIFT.runTool({})
+  const beforeResolve = readBaseline(dir, 'code-drift')
+
+  const result = await DRIFT.runTool({
+    summaries: [{ kb_target: 'features/auth.md', summary: 'kb updated' }]
+  })
+  assert.equal(result.resolved, 1)
+  assert.equal(readBaseline(dir, 'code-drift'), beforeResolve, 'baseline unchanged — no roll-back')
+}))
+
+test('baseline advance: resolveReverted moves baseline to reverted file Latest', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'src/features/auth.js', '// seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  const seedSha = sh(dir, 'git rev-parse HEAD')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'src/features/auth.js', '// changed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+  const editSha = sh(dir, 'git rev-parse HEAD')
+  await DRIFT.runTool({})
+
+  await DRIFT.runTool({ force_baseline: seedSha, purge: false })
+
+  const result = await DRIFT.runTool({ reverted: [{ code_file: 'src/features/auth.js' }] })
+  assert.equal(result.reverted, 1)
+  assert.equal(readBaseline(dir, 'code-drift'), editSha, 'resolve advanced baseline to reverted file Latest')
+}))
+
+test('baseline advance: resolveKbConfirmed moves kb-drift baseline', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'knowledge/features/login.md', '# Login\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  const seedSha = sh(dir, 'git rev-parse HEAD')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'knowledge/features/login.md', '# Login v2\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+  const editSha = sh(dir, 'git rev-parse HEAD')
+  await DRIFT.runTool({})
+
+  await DRIFT.runTool({ force_baseline: seedSha, purge: false })
+  assert.equal(readBaseline(dir, 'kb-drift'), seedSha, 'baseline rewound to seed')
+
+  const result = await DRIFT.runTool({ kb_confirmed: [{ kb_file: 'features/login.md' }] })
+  assert.equal(result.confirmed, 1)
+  assert.equal(readBaseline(dir, 'kb-drift'), editSha, 'resolve advanced kb-drift baseline to entry Latest')
+}))
+
+test('baseline advance: resolveDismissed advances per-queue baseline for dismissed entry', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'src/features/auth.js', '// seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  const seedSha = sh(dir, 'git rev-parse HEAD')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'src/features/auth.js', '// changed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+  const editSha = sh(dir, 'git rev-parse HEAD')
+  await DRIFT.runTool({})
+
+  await DRIFT.runTool({ force_baseline: seedSha, purge: false })
+  const kbBefore = readBaseline(dir, 'kb-drift')
+
+  const result = await DRIFT.runTool({
+    dismiss: [{ queue: 'code-drift', queue_key: 'features/auth.md', reason: 'ghost' }]
+  })
+  assert.equal(result.dismissed, 1)
+  assert.equal(readBaseline(dir, 'code-drift'), editSha, 'code-drift baseline advanced on dismiss')
+  assert.equal(readBaseline(dir, 'kb-drift'), kbBefore, 'kb-drift baseline untouched')
+}))
+
+test('baseline advance: partial drain only uses resolved entries\' Latest', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'src/features/auth.js', '// seed\n')
+  writeFile(dir, 'src/features/billing.js', '// seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  const seedSha = sh(dir, 'git rev-parse HEAD')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'src/features/auth.js', '// auth change\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m auth-edit')
+  const authSha = sh(dir, 'git rev-parse HEAD')
+
+  writeFile(dir, 'src/features/billing.js', '// billing change\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m billing-edit')
+  // After both edits: baseline will advance past both on the next scan.
+  await DRIFT.runTool({})
+
+  // Rewind so both entries' Latest are ahead of baseline.
+  await DRIFT.runTool({ force_baseline: seedSha, purge: false })
+
+  // Resolve only the auth entry — baseline should advance to authSha,
+  // not all the way to the billing commit.
+  const result = await DRIFT.runTool({
+    summaries: [{ kb_target: 'features/auth.md', summary: 'kb updated for auth' }]
+  })
+  assert.equal(result.resolved, 1)
+  assert.equal(readBaseline(dir, 'code-drift'), authSha, 'baseline advanced only to resolved entry\'s Latest')
+}))
+
+test('baseline advance: unreachable (e.g. submodule) Latest does not advance baseline', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'src/features/auth.js', '// seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  const seedSha = sh(dir, 'git rev-parse HEAD')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'src/features/auth.js', '// changed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+  await DRIFT.runTool({})
+
+  await DRIFT.runTool({ force_baseline: seedSha, purge: false })
+
+  // Swap the entry's Latest SHA for one that isn't in this repo's history —
+  // simulates a submodule-SHA Latest value surviving into the parent queue.
+  const codeDriftPath = path.join(dir, 'knowledge/sync/code-drift.md')
+  const content = fs.readFileSync(codeDriftPath, 'utf8')
+  const fakeSha = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
+  const rewritten = content
+    .replace(/, latest `[a-f0-9]+`/g, `, latest \`${fakeSha}\``)
+    .replace(/— since `[a-f0-9]+`/g, `— since \`${fakeSha}\``)
+  fs.writeFileSync(codeDriftPath, rewritten)
+
+  const result = await DRIFT.runTool({
+    summaries: [{ kb_target: 'features/auth.md', summary: 'kb updated' }]
+  })
+  assert.equal(result.resolved, 1)
+  assert.equal(readBaseline(dir, 'code-drift'), seedSha, 'baseline unchanged when Latest is unreachable')
+}))
+
 // ── patterns.js name_regex refactor ──────────────────────────────────────────
 
 test('patterns.js: name_regex extracts capture group 1 and composes with kebab case', () => {
