@@ -435,28 +435,50 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
 // ── Phase 2a: code→kb resolved — KB updated ──────────────────────────────────
 
 async function resolveWithSummaries(summaries) {
-  const resolved = []
+  const { entries: codeEntries, header } = readCodeDriftEntries()
+  const openCodeTargets = new Set(codeEntries.map(e => e.kbTarget))
+  const openKbFiles = new Set(readKbDriftEntries().entries.map(e => e.kbFile))
+
+  const closed = []
+  const notFound = []
+  const logRecords = []
 
   for (const { kb_target, summary } of summaries) {
-    if (!summary || !kb_target) continue
-    resolved.push({ direction: 'code→kb', resolution: 'kb-updated', kb_target, summary })
+    if (!summary || !kb_target) {
+      notFound.push({ kb_target, reason: 'missing kb_target or summary' })
+      continue
+    }
+    if (openCodeTargets.has(kb_target)) {
+      closed.push({ kb_target, summary })
+      logRecords.push({ direction: 'code→kb', resolution: 'kb-updated', kb_target, summary })
+      continue
+    }
+    const entry = { kb_target, reason: 'no open entry in sync/code-drift.md for this kb_target' }
+    if (openKbFiles.has(kb_target)) {
+      entry.hint = `"${kb_target}" is open in sync/kb-drift.md (kb→code direction). Did you mean kb_drift({ kb_confirmed: [{ kb_file: "${kb_target}" }] })?`
+    }
+    notFound.push(entry)
   }
 
-  const { entries, header } = readCodeDriftEntries()
-  const kbTargets = summaries.map(s => s.kb_target)
-  const remaining = entries.filter(e => !kbTargets.includes(e.kbTarget))
+  const closedTargets = new Set(closed.map(c => c.kb_target))
+  const remaining = codeEntries.filter(e => !closedTargets.has(e.kbTarget))
   writeCodeDriftEntries(header, remaining)
+  appendToDriftLog(logRecords)
 
-  appendToDriftLog(resolved)
-
-  const kbTargetList = resolved.map(r => r.kb_target).join(', ')
-  return {
-    resolved: resolved.length,
-    _instruction: `Queue entries closed for: ${kbTargetList}. `
+  const result = { resolved: closed.length, closed, not_found: notFound }
+  if (closed.length > 0) {
+    const kbTargetList = closed.map(c => c.kb_target).join(', ')
+    result._instruction = `Queue entries closed for: ${kbTargetList}. `
       + 'Verify that each KB file above was actually updated before this call. '
       + 'If not, the drift queue is now clean but the KB is stale — '
       + 'read the KB file(s) to confirm, and use kb_write to fix any that were missed.'
   }
+  if (notFound.length > 0) {
+    result.error = closed.length === 0
+      ? `No matching entries in sync/code-drift.md. Nothing was closed.`
+      : `${notFound.length} of ${summaries.length} entries did not match sync/code-drift.md. See not_found for details.`
+  }
+  return result
 }
 
 // ── Phase 2b: code→kb resolved — code file reverted ──────────────────────────
@@ -464,20 +486,35 @@ async function resolveWithSummaries(summaries) {
 async function resolveReverted(reverted) {
   const codeFiles = reverted.map(r => r.code_file || r)
   const { entries, header } = readCodeDriftEntries()
-  const resolved = []
+  const logRecords = []
+  const closed = []
+  const matchedFiles = new Set()
 
   const updated = entries.map(entry => {
-    const before = entry.codeFiles.length
-    entry.codeFiles = entry.codeFiles.filter(f => !codeFiles.includes(f.path))
-    if (entry.codeFiles.length < before) {
-      resolved.push({ direction: 'code→kb', resolution: 'code-reverted', kb_target: entry.kbTarget, code_files: codeFiles })
+    const removedHere = entry.codeFiles.filter(f => codeFiles.includes(f.path)).map(f => f.path)
+    if (removedHere.length > 0) {
+      removedHere.forEach(p => matchedFiles.add(p))
+      closed.push({ kb_target: entry.kbTarget, code_files: removedHere })
+      logRecords.push({ direction: 'code→kb', resolution: 'code-reverted', kb_target: entry.kbTarget, code_files: removedHere })
+      entry.codeFiles = entry.codeFiles.filter(f => !codeFiles.includes(f.path))
     }
     return entry
   }).filter(entry => entry.codeFiles.length > 0)
 
+  const notFound = codeFiles
+    .filter(f => !matchedFiles.has(f))
+    .map(code_file => ({ code_file, reason: 'no open entry in sync/code-drift.md references this code_file' }))
+
   writeCodeDriftEntries(header, updated)
-  appendToDriftLog(resolved)
-  return { reverted: codeFiles.length }
+  appendToDriftLog(logRecords)
+
+  const result = { reverted: matchedFiles.size, closed, not_found: notFound }
+  if (notFound.length > 0) {
+    result.error = matchedFiles.size === 0
+      ? `No matching code files in sync/code-drift.md. Nothing was closed.`
+      : `${notFound.length} of ${codeFiles.length} code files did not match sync/code-drift.md. See not_found for details.`
+  }
+  return result
 }
 
 // ── Phase 2c: kb→code resolved ────────────────────────────────────────────────
@@ -487,24 +524,45 @@ async function resolveKbConfirmed(kb_confirmed) {
   const rules = loadRules(KB_ROOT)
   const patterns = rules.getCodePathPatterns()
 
+  const { header, entries } = readKbDriftEntries()
+  const openKbFiles = new Set(entries.map(e => e.kbFile))
+  const openCodeTargets = new Set(readCodeDriftEntries().entries.map(e => e.kbTarget))
+
+  const closed = []
+  const notFound = []
   const warnings = []
-  const resolved = kbFiles.map(kb_file => {
+  const logRecords = []
+
+  for (const kb_file of kbFiles) {
+    if (!openKbFiles.has(kb_file)) {
+      const entry = { kb_file, reason: 'no open entry in sync/kb-drift.md for this kb_file' }
+      if (openCodeTargets.has(kb_file)) {
+        entry.hint = `"${kb_file}" is open in sync/code-drift.md (code→kb direction). Did you mean kb_drift({ summaries: [{ kb_target: "${kb_file}", summary: "..." }] })?`
+      }
+      notFound.push(entry)
+      continue
+    }
     const codePaths = reverseMapKbTarget(kb_file, patterns)
     const unmapped = codePaths.length === 0
     if (unmapped) {
       warnings.push(`drift confirmed for "${kb_file}" but no code_path_patterns mapping exists in _rules.md. Future KB changes to this file will not trigger automatic drift detection. Recommended: add a code_path_patterns entry for this file.`)
     }
-    return { direction: 'kb→code', resolution: 'confirmed', kb_file, ...(unmapped && { unmapped: true }) }
-  })
+    closed.push({ kb_file, ...(unmapped && { unmapped: true }) })
+    logRecords.push({ direction: 'kb→code', resolution: 'confirmed', kb_file, ...(unmapped && { unmapped: true }) })
+  }
 
-  const { header, entries } = readKbDriftEntries()
-  const remaining = entries.filter(e => !kbFiles.includes(e.kbFile))
+  const closedFiles = new Set(closed.map(c => c.kb_file))
+  const remaining = entries.filter(e => !closedFiles.has(e.kbFile))
   writeKbDriftEntries(header, remaining)
+  appendToDriftLog(logRecords)
 
-  appendToDriftLog(resolved)
-
-  const result = { confirmed: kbFiles.length }
+  const result = { confirmed: closed.length, closed, not_found: notFound }
   if (warnings.length > 0) result.warnings = warnings
+  if (notFound.length > 0) {
+    result.error = closed.length === 0
+      ? `No matching entries in sync/kb-drift.md. Nothing was closed.`
+      : `${notFound.length} of ${kbFiles.length} entries did not match sync/kb-drift.md. See not_found for details.`
+  }
   return result
 }
 
@@ -1777,7 +1835,7 @@ module.exports = {
   runTool,
   definition: {
     name: 'kb_drift',
-    description: 'Bidirectional drift detection. Phase 1: writes entries to sync/code-drift.md (keyed by KB target, tracks all code files + since-commit) and sync/kb-drift.md (keyed by KB file). Multiple commits accumulate automatically. The response includes `_diffs` with pre-fetched unified diffs, stats, and commit subjects for every open entry — read those directly before resolving. Phase 2: summaries=KB updated, reverted=code file reverted, kb_confirmed=kb→code reviewed.',
+    description: 'Bidirectional drift detection. Phase 1: writes entries to sync/code-drift.md (keyed by KB target, tracks all code files + since-commit) and sync/kb-drift.md (keyed by KB file). Multiple commits accumulate automatically. The response includes `_diffs` with pre-fetched unified diffs, stats, and commit subjects for every open entry — read those directly before resolving. Phase 2: summaries=KB updated (closes code-drift.md), reverted=code file reverted (closes code-drift.md), kb_confirmed=kb→code reviewed (closes kb-drift.md). Phase 2 responses include `closed` (what was actually removed) and `not_found` (inputs that matched no open entry, with a `hint` when the input matches the *other* queue — i.e. you called the wrong phase). When anything lands in `not_found`, an `error` field is set; trust `closed`, not the top-level count, to know what was written.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -816,3 +816,140 @@ test('_diffs.v2: empty identifiers emit expansion-only areas', withRepo(async (d
     }
   }
 }))
+
+// ── Phase 2 validation: reject silent-success on wrong-phase calls ───────────
+
+test('phase2: summaries with unknown kb_target returns not_found + error, does not claim resolved', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'README.md', 'seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  const result = await DRIFT.runTool({ summaries: [{ kb_target: 'features/ghost.md', summary: 'nope' }] })
+  assert.equal(result.resolved, 0, 'nothing was actually closed')
+  assert.equal(result.closed.length, 0, 'closed array is empty')
+  assert.equal(result.not_found.length, 1, 'unknown target surfaces in not_found')
+  assert.equal(result.not_found[0].kb_target, 'features/ghost.md')
+  assert.ok(result.error, 'error field set when nothing matched')
+  assert.ok(!result.not_found[0].hint, 'no cross-phase hint when target is truly absent')
+}))
+
+test('phase2: summaries on a kb-drift target hints kb_confirmed is the right phase', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'knowledge/features/login.md', '# Login\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'knowledge/features/login.md', '# Login\n\nupdated\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+  await DRIFT.runTool({})
+
+  const result = await DRIFT.runTool({ summaries: [{ kb_target: 'features/login.md', summary: 'wrong phase' }] })
+  assert.equal(result.resolved, 0)
+  assert.equal(result.not_found.length, 1)
+  assert.match(result.not_found[0].hint, /kb_confirmed/, 'hint points at kb_confirmed')
+  assert.ok(result.error)
+
+  const kbDrift = fs.readFileSync(path.join(dir, 'knowledge/sync/kb-drift.md'), 'utf8')
+  assert.match(kbDrift, /## features\/login\.md/, 'kb-drift entry was NOT wrongly closed')
+}))
+
+test('phase2: summaries with mixed valid+invalid closes valid, reports invalid', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'src/features/auth.js', '// seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'src/features/auth.js', '// changed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+  await DRIFT.runTool({})
+
+  const result = await DRIFT.runTool({
+    summaries: [
+      { kb_target: 'features/auth.md', summary: 'valid update' },
+      { kb_target: 'features/ghost.md', summary: 'bogus' }
+    ]
+  })
+  assert.equal(result.resolved, 1, 'one valid entry closed')
+  assert.equal(result.closed[0].kb_target, 'features/auth.md')
+  assert.equal(result.not_found.length, 1)
+  assert.equal(result.not_found[0].kb_target, 'features/ghost.md')
+  assert.ok(result.error, 'partial failure still reports error')
+
+  const codeDrift = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
+  assert.doesNotMatch(codeDrift, /## features\/auth\.md/, 'valid entry actually removed from queue')
+}))
+
+test('phase2: kb_confirmed on a code-drift target hints summaries is the right phase', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'src/features/auth.js', '// seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'src/features/auth.js', '// changed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+  await DRIFT.runTool({})
+
+  const result = await DRIFT.runTool({ kb_confirmed: [{ kb_file: 'features/auth.md' }] })
+  assert.equal(result.confirmed, 0)
+  assert.equal(result.not_found.length, 1)
+  assert.match(result.not_found[0].hint, /summaries/, 'hint points at summaries')
+  assert.ok(result.error)
+
+  const codeDrift = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
+  assert.match(codeDrift, /## features\/auth\.md/, 'code-drift entry was NOT wrongly closed')
+}))
+
+test('phase2: reverted with unknown code_file reports not_found and does not inflate count', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'src/features/auth.js', '// seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'src/features/auth.js', '// changed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+  await DRIFT.runTool({})
+
+  const result = await DRIFT.runTool({
+    reverted: [
+      { code_file: 'src/features/auth.js' },
+      { code_file: 'src/features/does-not-exist.js' }
+    ]
+  })
+  assert.equal(result.reverted, 1, 'only the real file counts as reverted')
+  assert.equal(result.closed.length, 1)
+  assert.equal(result.not_found.length, 1)
+  assert.equal(result.not_found[0].code_file, 'src/features/does-not-exist.js')
+  assert.ok(result.error)
+}))
+
+test('phase2: kb_confirmed on valid entry still closes it and returns closed array', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'knowledge/features/login.md', '# Login\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'knowledge/features/login.md', '# Login\n\nupdated\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+  await DRIFT.runTool({})
+
+  const result = await DRIFT.runTool({ kb_confirmed: [{ kb_file: 'features/login.md' }] })
+  assert.equal(result.confirmed, 1)
+  assert.equal(result.closed[0].kb_file, 'features/login.md')
+  assert.equal(result.not_found.length, 0)
+  assert.ok(!result.error)
+
+  const kbDrift = fs.readFileSync(path.join(dir, 'knowledge/sync/kb-drift.md'), 'utf8')
+  assert.doesNotMatch(kbDrift, /## features\/login\.md/, 'entry actually removed')
+}))
