@@ -2,7 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const simpleGit = require('simple-git')
 const { loadRules } = require('../lib/rules')
-const { globMatch, matchAllPatterns, resolveKbTarget, extractName } = require('../lib/patterns')
+const { matchAllPatterns, resolveKbTarget, expandGlob } = require('../lib/patterns')
 const { loadGraph, getDependents } = require('../lib/graph')
 
 const KB_ROOT = 'knowledge'
@@ -66,6 +66,18 @@ const PER_FILE_LINE_CAP = 400
 const PER_ENTRY_LINE_CAP = 1500
 const TOTAL_LINE_CAP = 6000
 const COMMIT_CAP = 10
+
+// v2 caps for the code_areas intersection on kb-drift entries. Bounded so a
+// single wide pattern (e.g. `ms-linestop-admin-be/**`) can't starve the rest
+// of the payload. When a cap is hit, the reproducible grep_cmd is preserved
+// so the agent can rerun the scan manually.
+const IDENTIFIER_CAP = 20
+const FILES_PER_AREA_CAP = 25
+const HITS_PER_AREA_CAP = 10
+const HITS_PER_FILE_CAP = 3
+const GREP_BUDGET_TOTAL = 200
+const GREP_TIMEOUT_MS = 3000
+const SNIPPET_MAX_CHARS = 120
 
 // Baseline SHA lives inside the queue header as an HTML comment. Survives the
 // existing `indexOf('\n## ')` header/body split because it has no `##` prefix.
@@ -1261,6 +1273,81 @@ function buildCmd({ submodule, op, since, latest, relativePath }) {
   return `${prefix} diff ${since}~1..${to} -- ${relativePath}`
 }
 
+// v2: rename-aware log command for code-drift entries with `renamedFrom`.
+// Plain `git diff <since>~1..HEAD -- <newPath>` can hide the rename's content
+// when baseline predates the rename; --follow (log-only) traces across it.
+function buildFollowCmd({ submodule, since, latest, relativePath }) {
+  const prefix = submodule ? `git -C ${submodule}` : 'git'
+  const to = latest || 'HEAD'
+  return `${prefix} log --follow -p --stat ${since}~1..${to} -- ${relativePath}`
+}
+
+// v2: reproducible grep cmd for a list of files. Pathspecs are submodule-
+// relative when submodule is set (same convention as buildCmd). Pattern is
+// pre-built ERE with alternation and \b word boundaries.
+function buildGrepCmd({ submodule, pattern, files }) {
+  const prefix = submodule ? `git -C ${submodule}` : 'git'
+  const esc = (s) => `'${s.replace(/'/g, `'\\''`)}'`
+  const paths = files.map(esc).join(' ')
+  return `${prefix} grep -nE ${esc(pattern)} -- ${paths}`
+}
+
+// v2: extract likely code identifiers from a unified diff. Pure regex over
+// +/- body lines only (headers and hunk lines excluded). Returns up to
+// IDENTIFIER_CAP tokens sorted by length desc — longer identifiers anchor
+// grep better. No LLM, no AST.
+const IDENTIFIER_STOPWORDS = new Set([
+  'Required', 'Must', 'Displayed', 'Example', 'Note', 'Yes', 'No', 'None', 'True', 'False',
+  'String', 'Number', 'Boolean', 'Object', 'Array', 'Date', 'Null', 'Undefined',
+  'TODO', 'FIXME', 'XXX', 'NOTE', 'TBD', 'TBA',
+  'HTTP', 'HTTPS', 'URL', 'URI', 'API', 'JSON', 'XML', 'HTML', 'CSS', 'SQL',
+  'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'
+])
+
+function extractChangedIdentifiers(diffText) {
+  if (!diffText || typeof diffText !== 'string') return []
+  const bodyLines = []
+  for (const line of diffText.split('\n')) {
+    if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) continue
+    if (line.startsWith('+') || line.startsWith('-')) bodyLines.push(line.slice(1))
+  }
+  const text = bodyLines.join('\n').replace(/\|/g, ' ')
+
+  const out = new Set()
+  // PascalCase: TrUserRole, UserDefinition
+  for (const m of text.matchAll(/\b[A-Z][a-z0-9]+(?:[A-Z][a-zA-Z0-9]*)+\b/g)) out.add(m[0])
+  // camelCase starting lowercase: linestopMail, userId, maxLength
+  for (const m of text.matchAll(/\b[a-z][a-z0-9]*(?:[A-Z][a-zA-Z0-9]*)+\b/g)) out.add(m[0])
+  // UPPER_SNAKE_CASE: SADM_ROLE, MAX_LENGTH
+  for (const m of text.matchAll(/\b[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+\b/g)) out.add(m[0])
+  // Quoted/code-spanned field names: "roleType", `userId`, 'email'
+  for (const m of text.matchAll(/["'`]([a-zA-Z_][\w\-]{1,40})["'`]/g)) out.add(m[1])
+  // Numeric thresholds with comparator or max/min/size keyword
+  for (const m of text.matchAll(/(?:max|min|size|length|len|>=?|<=?)\s*[:=(\s]\s*(\d{1,6})/gi) || []) out.add(m[1])
+
+  const filtered = [...out].filter(x => {
+    if (!x) return false
+    if (IDENTIFIER_STOPWORDS.has(x)) return false
+    // drop pure-numeric 1-2 digit (likely noise: line numbers, small constants)
+    if (/^\d+$/.test(x) && x.length < 3) return false
+    return true
+  })
+  filtered.sort((a, b) => b.length - a.length || a.localeCompare(b))
+  return filtered.slice(0, IDENTIFIER_CAP)
+}
+
+function buildIdentifierRegex(identifiers) {
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const parts = identifiers.map(id => {
+    const e = esc(id)
+    // Word-boundary wrap when the identifier starts/ends with a word char.
+    const left = /^\w/.test(id) ? '\\b' : ''
+    const right = /\w$/.test(id) ? '\\b' : ''
+    return `${left}${e}${right}`
+  })
+  return `(${parts.join('|')})`
+}
+
 function computeStat(diffText) {
   if (!diffText) return '+0 -0 (0 hunks)'
   let adds = 0, dels = 0, hunks = 0
@@ -1353,6 +1440,155 @@ async function fetchCommitSubjects({ cwd, submodule, since, latest, relativePath
   return { commits, total: all.length, cmd }
 }
 
+// v2: run `git grep -nE` over a pre-expanded file list. Returns ranked hits
+// (per-file match counts descending, top HITS_PER_AREA_CAP total). `cmd` is
+// always preserved for manual re-run. Per-call timeout protects against a
+// pathological regex; on timeout we return empty hits + error, not throw.
+async function grepFiles({ cwd, submodule, identifiers, files, pattern }) {
+  const cmd = buildGrepCmd({ submodule, pattern, files })
+  if (!files || files.length === 0 || !identifiers || identifiers.length === 0) {
+    return { hits: [], cmd }
+  }
+  const git = simpleGit(cwd)
+
+  const run = git.raw(['grep', '-n', '-E', pattern, '--', ...files])
+    .then(raw => ({ ok: true, raw }))
+    .catch(err => {
+      // git grep exits 1 when no matches — simple-git surfaces as error.
+      const msg = err && (err.message || String(err))
+      if (msg && /exit\s*code\s*1\b/i.test(msg)) return { ok: true, raw: '' }
+      return { ok: false, err: msg || 'git grep failed' }
+    })
+  const timer = new Promise(resolve => setTimeout(() => resolve({ ok: false, err: 'grep timeout' }), GREP_TIMEOUT_MS))
+  const res = await Promise.race([run, timer])
+  if (!res.ok) return { hits: [], cmd, error: res.err }
+
+  const raw = res.raw || ''
+  if (!raw.trim()) return { hits: [], cmd }
+
+  const byFile = new Map()
+  for (const line of raw.split('\n')) {
+    if (!line) continue
+    const firstColon = line.indexOf(':')
+    if (firstColon === -1) continue
+    const secondColon = line.indexOf(':', firstColon + 1)
+    if (secondColon === -1) continue
+    const file = line.slice(0, firstColon)
+    const lineNo = parseInt(line.slice(firstColon + 1, secondColon), 10)
+    if (!Number.isFinite(lineNo)) continue
+    let snippet = line.slice(secondColon + 1)
+    if (snippet.length > SNIPPET_MAX_CHARS) snippet = snippet.slice(0, SNIPPET_MAX_CHARS) + '…'
+    // Attribute hit to the first matching identifier in the snippet (best-effort).
+    const hitIdent = identifiers.find(id => snippet.includes(id)) || identifiers[0]
+    if (!byFile.has(file)) byFile.set(file, [])
+    byFile.get(file).push({ file, line: lineNo, identifier: hitIdent, snippet: snippet.trim() })
+  }
+
+  const ranked = [...byFile.entries()]
+    .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+  const hits = []
+  for (const [, fileHits] of ranked) {
+    for (const h of fileHits.slice(0, HITS_PER_FILE_CAP)) {
+      hits.push(h)
+      if (hits.length >= HITS_PER_AREA_CAP) return { hits, cmd }
+    }
+  }
+  return { hits, cmd }
+}
+
+// v2: orchestrate identifier extraction, glob expansion, and grep intersection
+// for one kb-drift entry. Produces `code_areas[]` shape; idempotent; never
+// throws. Caller gates via budget.grep_budget_left (decremented per hit).
+async function buildCodeAreasPayload({ diffText, codeAreas, submodules, budget }) {
+  const identifiers = extractChangedIdentifiers(diffText)
+  if (!codeAreas || codeAreas.length === 0) {
+    return { identifiers: identifiers.length > 0 ? identifiers : null, areas: null }
+  }
+
+  const areas = []
+  const pattern = identifiers.length > 0 ? buildIdentifierRegex(identifiers) : null
+
+  for (const glob of codeAreas) {
+    const { files, matchedCount, truncated } = expandGlob(glob, { fileCap: FILES_PER_AREA_CAP })
+    const area = {
+      pattern: glob,
+      matched_count: matchedCount,
+      matched_sample: files.slice(0, FILES_PER_AREA_CAP),
+      truncated,
+      hits_top: [],
+      grep_cmd: null
+    }
+
+    if (files.length === 0) {
+      area.skipped_reason = 'pattern_no_match'
+      areas.push(area)
+      continue
+    }
+
+    const groups = groupFilesBySubmodule(files, submodules)
+
+    if (!pattern) {
+      // Expansion-only: scoped file list still helps the agent narrow search.
+      area.grep_cmd = null
+      area.skipped_reason = 'no_identifiers'
+      areas.push(area)
+      continue
+    }
+
+    if (budget.grep_budget_left <= 0) {
+      area.grep_cmd = groups.map(g => buildGrepCmd({ submodule: g.submodule,
+        pattern, files: g.relativeFiles })).join(' && ')
+      area.skipped_reason = 'budget'
+      areas.push(area)
+      continue
+    }
+
+    const perFileCounts = new Map()
+    const allHits = []
+    const cmds = []
+    let anyError = null
+    for (const g of groups) {
+      const { hits, cmd, error } = await grepFiles({
+        cwd: g.cwd, submodule: g.submodule, identifiers,
+        files: g.relativeFiles, pattern
+      })
+      cmds.push(cmd)
+      if (error) anyError = error
+      for (const h of hits) {
+        const parentPath = g.submodule ? `${g.submodule}/${h.file}` : h.file
+        perFileCounts.set(parentPath, (perFileCounts.get(parentPath) || 0) + 1)
+        allHits.push({ ...h, file: parentPath })
+      }
+    }
+    allHits.sort((a, b) => {
+      const cDiff = (perFileCounts.get(b.file) || 0) - (perFileCounts.get(a.file) || 0)
+      if (cDiff !== 0) return cDiff
+      if (a.file !== b.file) return a.file.localeCompare(b.file)
+      return a.line - b.line
+    })
+    area.hits_top = allHits.slice(0, HITS_PER_AREA_CAP)
+    area.grep_cmd = cmds.join(' && ')
+    if (anyError) area.skipped_reason = 'grep_failed'
+    budget.grep_budget_left -= area.hits_top.length
+    areas.push(area)
+  }
+
+  return { identifiers: identifiers.length > 0 ? identifiers : [], areas }
+}
+
+function groupFilesBySubmodule(files, submodules) {
+  const byKey = new Map()
+  for (const f of files) {
+    const tgt = resolveGitTarget(f, submodules)
+    const key = tgt.submodule || ''
+    if (!byKey.has(key)) {
+      byKey.set(key, { submodule: tgt.submodule, cwd: tgt.cwd, relativeFiles: [] })
+    }
+    byKey.get(key).relativeFiles.push(tgt.relativePath)
+  }
+  return [...byKey.values()]
+}
+
 function dedupCommits(lists) {
   const seen = new Set()
   const out = []
@@ -1410,8 +1646,14 @@ async function buildCodeDiffEntry(entry, submodules, budget) {
       fileObj.diff_lines = 0
       fileObj.truncated = true
       fileObj.binary = false
-      fileObj.cmd = buildCmd({ submodule: tgt.submodule, op: 'diff', since, latest, relativePath: tgt.relativePath })
+      fileObj.cmd = f.renamedFrom
+        ? buildFollowCmd({ submodule: tgt.submodule, since, latest, relativePath: tgt.relativePath })
+        : buildCmd({ submodule: tgt.submodule, op: 'diff', since, latest, relativePath: tgt.relativePath })
       budget.skipped.push({ kind: 'code', key: `${entry.kbTarget} :: ${f.path}`, reason: 'budget', cmd: fileObj.cmd })
+    }
+    // v2: renamed files get --follow-aware cmd so re-fetch traces the rename.
+    if (f.renamedFrom && canFetchDiff) {
+      fileObj.cmd = buildFollowCmd({ submodule: tgt.submodule, since, latest, relativePath: tgt.relativePath })
     }
 
     const subj = await fetchCommitSubjects({ cwd: tgt.cwd, submodule: tgt.submodule,
@@ -1424,7 +1666,7 @@ async function buildCodeDiffEntry(entry, submodules, budget) {
   return { kb_target: entry.kbTarget, commits, total_commits: total, files: fileList }
 }
 
-async function buildKbDiffEntry(entry, budget) {
+async function buildKbDiffEntry(entry, budget, submodules) {
   const relativePath = path.posix.join(KB_ROOT, entry.kbFile)
   const since = entry.sinceCommit
   const latest = entry.latestCommit || null
@@ -1466,11 +1708,25 @@ async function buildKbDiffEntry(entry, budget) {
     obj.commits = []
     obj.total_commits = 0
   }
+
+  // v2: identifier extraction + glob expansion + grep intersection.
+  // Skip when the KB diff is empty, binary, or missing — no signal to extract.
+  if (obj.diff && !obj.binary && entry.codeAreas && entry.codeAreas.length > 0) {
+    const { identifiers, areas } = await buildCodeAreasPayload({
+      diffText: obj.diff,
+      codeAreas: entry.codeAreas,
+      submodules: submodules || [],
+      budget
+    })
+    if (identifiers !== null) obj.changed_identifiers = identifiers
+    if (areas !== null) obj.code_areas = areas
+  }
   return obj
 }
 
 async function buildDiffsPayload({ codeState, kbState, submodules }) {
-  const budget = { used_lines: 0, cap_lines: TOTAL_LINE_CAP, skipped: [] }
+  const budget = { used_lines: 0, cap_lines: TOTAL_LINE_CAP, skipped: [],
+    grep_budget_left: GREP_BUDGET_TOTAL }
   const code = []
   for (const entry of codeState.entries) {
     budget.entryUsed = 0
@@ -1491,9 +1747,10 @@ async function buildDiffsPayload({ codeState, kbState, submodules }) {
       if (cmd) budget.skipped.push({ kind: 'kb', key: entry.kbFile, reason: 'budget', cmd })
       continue
     }
-    kb.push(await buildKbDiffEntry(entry, budget))
+    kb.push(await buildKbDiffEntry(entry, budget, submodules))
   }
   delete budget.entryUsed
+  delete budget.grep_budget_left
   return { code, kb, budget }
 }
 

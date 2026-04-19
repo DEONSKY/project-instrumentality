@@ -558,3 +558,261 @@ test('_diffs: binary file is marked binary and not counted against budget', with
   assert.ok(f.diff && /Binary files .* differ/.test(f.diff), `diff carries binary marker: ${f.diff}`)
   assert.equal(f.diff_lines, 0, 'binary files do not count against per-file budget')
 }))
+
+// ── _diffs v2: code_areas intersection ───────────────────────────────────────
+
+test('_diffs.v2: changed_identifiers extracted from KB diff', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'knowledge/validation/common.md', '# Common validation\n\n| field | rule |\n| --- | --- |\n| email | max 300 characters |\n')
+  writeFile(dir, 'src/validators/email.js', '// seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'knowledge/validation/common.md', '# Common validation\n\n| field | rule |\n| --- | --- |\n| linestopMail | max 500 characters |\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m "update validation"')
+
+  const result = await DRIFT.runTool({})
+  const entry = result._diffs.kb.find(e => e.kb_file === 'validation/common.md')
+  assert.ok(entry, 'validation/common.md entry present')
+  assert.ok(Array.isArray(entry.changed_identifiers), 'changed_identifiers is an array')
+  assert.ok(entry.changed_identifiers.includes('linestopMail'),
+    `camelCase identifier extracted: ${JSON.stringify(entry.changed_identifiers)}`)
+  assert.ok(entry.changed_identifiers.includes('500'),
+    `numeric threshold extracted: ${JSON.stringify(entry.changed_identifiers)}`)
+}))
+
+test('_diffs.v2: code_areas expansion produces matched files', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'knowledge/validation/common.md', '# v1\n\n| roleType | required |\n')
+  writeFile(dir, 'src/validators/email.js', '// roleType check\n')
+  writeFile(dir, 'src/validators/phone.js', '// phone\n')
+  writeFile(dir, 'src/validators/login/Form.jsx', '// form\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'knowledge/validation/common.md', '# v2\n\n| roleType | required, max 30 |\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+
+  const result = await DRIFT.runTool({})
+  const entry = result._diffs.kb.find(e => e.kb_file === 'validation/common.md')
+  assert.ok(entry.code_areas, 'code_areas present')
+  const area = entry.code_areas.find(a => a.pattern === 'src/validators/**')
+  assert.ok(area, 'src/validators/** area present')
+  assert.ok(area.matched_count >= 3, `matched >=3 files: ${area.matched_count}`)
+  assert.ok(area.matched_sample.includes('src/validators/email.js'))
+  assert.ok(area.matched_sample.includes('src/validators/phone.js'))
+  assert.equal(area.truncated, false)
+}))
+
+test('_diffs.v2: code_areas expansion truncates past FILES_PER_AREA_CAP', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'knowledge/validation/common.md', '# v1\n\n| roleType | required |\n')
+  for (let i = 0; i < 30; i++) {
+    writeFile(dir, `src/validators/v${i}.js`, `// v${i}\n`)
+  }
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'knowledge/validation/common.md', '# v2\n\n| roleType | required, max 30 |\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+
+  const result = await DRIFT.runTool({})
+  const entry = result._diffs.kb.find(e => e.kb_file === 'validation/common.md')
+  const area = entry.code_areas.find(a => a.pattern === 'src/validators/**')
+  assert.equal(area.truncated, true, 'truncation flagged')
+  assert.equal(area.matched_sample.length, 25, 'sample capped at FILES_PER_AREA_CAP')
+}))
+
+test('_diffs.v2: grep intersection returns ranked hits', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'knowledge/validation/common.md', '# v1\n\n| roleType | required |\n')
+  writeFile(dir, 'src/validators/high.js', '// roleType line\nfunction roleType() {}\nconst roleType = 1\n')
+  writeFile(dir, 'src/validators/low.js', '// no mention\nconst x = 1\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'knowledge/validation/common.md', '# v2\n\n| roleType | required, max 30 |\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+
+  const result = await DRIFT.runTool({})
+  const entry = result._diffs.kb.find(e => e.kb_file === 'validation/common.md')
+  const area = entry.code_areas.find(a => a.pattern === 'src/validators/**')
+  assert.ok(area.hits_top.length > 0, 'hits_top populated')
+  assert.equal(area.hits_top[0].file, 'src/validators/high.js', 'high-count file ranked first')
+  assert.equal(area.hits_top[0].identifier, 'roleType')
+  assert.ok(typeof area.hits_top[0].line === 'number' && area.hits_top[0].line > 0)
+  assert.ok(area.hits_top[0].snippet && area.hits_top[0].snippet.length <= 121)
+  assert.ok(area.grep_cmd && area.grep_cmd.startsWith('git grep'), `grep_cmd: ${area.grep_cmd}`)
+}))
+
+test('_diffs.v2: submodule pattern uses submodule grep and parent-relative hit paths', withRepo(async (parent) => {
+  const subSource = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-drift-sub-'))
+  sh(subSource, 'git init -q -b main')
+  sh(subSource, 'git config user.email "test@test"')
+  sh(subSource, 'git config user.name "test"')
+  sh(subSource, 'git config commit.gpgsign false')
+  writeFile(subSource, 'src/validators/email.js', '// seed\nfunction roleType() {}\n')
+  sh(subSource, 'git add .')
+  sh(subSource, 'git commit -q -m seed-sub')
+
+  try {
+    writeFile(parent, 'knowledge/_rules.md', RULES)
+    writeFile(parent, 'knowledge/validation/common.md', '# v1\n\n| roleType | required |\n')
+    sh(parent, 'git add .')
+    sh(parent, 'git commit -q -m seed-parent')
+    sh(parent, `git -c protocol.file.allow=always submodule add -q "${subSource}" sub`)
+    sh(parent, 'git commit -q -m "add submodule"')
+    await DRIFT.runTool({})
+
+    writeFile(parent, 'knowledge/validation/common.md', '# v2\n\n| roleType | required, max 30 |\n')
+    sh(parent, 'git add .')
+    sh(parent, 'git commit -q -m "edit kb"')
+
+    const result = await DRIFT.runTool({})
+    const entry = result._diffs.kb.find(e => e.kb_file === 'validation/common.md')
+    assert.ok(entry.code_areas, 'code_areas present')
+    const area = entry.code_areas.find(a => a.pattern === 'sub/src/validators/**')
+    assert.ok(area, 'submodule-rooted area present')
+    assert.ok(area.matched_sample.some(f => f === 'sub/src/validators/email.js'),
+      `sample contains parent-relative path: ${JSON.stringify(area.matched_sample)}`)
+    assert.ok(area.grep_cmd && area.grep_cmd.startsWith('git -C sub grep'),
+      `grep_cmd uses -C: ${area.grep_cmd}`)
+    assert.ok(area.hits_top.length > 0, 'hits present')
+    assert.equal(area.hits_top[0].file, 'sub/src/validators/email.js',
+      'hit file is parent-relative')
+  } finally {
+    rmTempRepo(subSource)
+  }
+}))
+
+test('_diffs.v2: pattern_no_match skipped_reason when no files on disk', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', `---
+version: "1.0"
+code_path_patterns:
+  - intent: feature
+    kb_target: "features/{name}.md"
+    paths:
+      - "does-not-exist/**"
+---
+`)
+  writeFile(dir, 'knowledge/features/ghost.md', '# v1\n\n| roleType | required |\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'knowledge/features/ghost.md', '# v2\n\n| roleType | required, max 10 |\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+
+  const result = await DRIFT.runTool({})
+  const entry = result._diffs.kb.find(e => e.kb_file === 'features/ghost.md')
+  assert.ok(entry.code_areas, 'code_areas present')
+  const area = entry.code_areas[0]
+  assert.equal(area.matched_count, 0)
+  assert.equal(area.skipped_reason, 'pattern_no_match')
+  assert.equal(area.grep_cmd, null)
+  assert.deepEqual(area.hits_top, [])
+}))
+
+test('_diffs.v2: renamed code-drift file uses --follow-aware cmd', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  // Content substantial enough for git's rename detection to lock on after move.
+  const body = Array.from({ length: 20 }, (_, i) => `// line ${i}`).join('\n') + '\n'
+  writeFile(dir, 'src/validators/old.js', body)
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  sh(dir, 'git mv src/validators/old.js src/validators/renamed.js')
+  // Tiny append so the diff registers but similarity stays high.
+  writeFile(dir, 'src/validators/renamed.js', body + '// added\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m "rename and tweak"')
+
+  const result = await DRIFT.runTool({})
+  const entry = result._diffs.code.find(e => e.kb_target === 'validation/common.md')
+  assert.ok(entry, 'entry present')
+  const renamed = entry.files.find(f => f.renamedFrom)
+  assert.ok(renamed, `renamed file present: ${JSON.stringify(entry.files)}`)
+  assert.equal(renamed.renamedFrom, 'src/validators/old.js')
+  assert.ok(renamed.cmd && renamed.cmd.startsWith('git log --follow'),
+    `cmd uses --follow: ${renamed.cmd}`)
+}))
+
+test('_diffs.v2: KB entry without codeAreas has no code_areas field', withRepo(async (dir) => {
+  // _rules.md that maps features/**.md to no code paths (empty paths array
+  // would be invalid; we use a pattern that matches nothing on disk so the
+  // entry ends up with codeAreas=[] after reverse-mapping).
+  writeFile(dir, 'knowledge/_rules.md', `---
+version: "1.0"
+code_path_patterns: []
+---
+`)
+  writeFile(dir, 'knowledge/notes.md', '# v1\n\nplain prose\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'knowledge/notes.md', '# v1\n\nplain prose with TrUserRole mention\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+
+  const result = await DRIFT.runTool({})
+  const entry = result._diffs.kb.find(e => e.kb_file === 'notes.md')
+  assert.ok(entry, 'entry present')
+  // No code_areas field when codeAreas list is empty on the entry.
+  assert.equal(entry.code_areas, undefined, 'no code_areas when entry has no patterns')
+}))
+
+test('_diffs.v2: include_diffs=false suppresses v2 fields too', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'knowledge/validation/common.md', '# v1\n\n| roleType | required |\n')
+  writeFile(dir, 'src/validators/email.js', '// roleType\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'knowledge/validation/common.md', '# v2\n\n| roleType | required, max 30 |\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+
+  const result = await DRIFT.runTool({ include_diffs: false })
+  assert.equal(result._diffs, undefined, '_diffs absent')
+  assert.equal(result.kb_entries, 1, 'queue still written')
+}))
+
+test('_diffs.v2: empty identifiers emit expansion-only areas', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'knowledge/validation/common.md', '# Notes\n\nplain prose without identifiers\n')
+  writeFile(dir, 'src/validators/email.js', '// seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'knowledge/validation/common.md', '# Notes\n\nplain prose without identifiers, but slightly different\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+
+  const result = await DRIFT.runTool({})
+  const entry = result._diffs.kb.find(e => e.kb_file === 'validation/common.md')
+  assert.ok(entry, 'entry present')
+  // When identifiers are empty, v2 still expands globs so the agent sees the
+  // candidate file list — but skips grep. grep_cmd should be null in that case.
+  if (entry.code_areas && entry.code_areas.length > 0) {
+    const area = entry.code_areas.find(a => a.pattern === 'src/validators/**')
+    if (area && area.matched_count > 0) {
+      assert.equal(area.skipped_reason, 'no_identifiers',
+        `no_identifiers when extraction is empty: ${JSON.stringify(area)}`)
+      assert.equal(area.grep_cmd, null)
+      assert.deepEqual(area.hits_top, [])
+    }
+  }
+}))
