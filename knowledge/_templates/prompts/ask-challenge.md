@@ -36,7 +36,8 @@ Check each KB file in scope for:
 
 3. Undefined open questions
    ## Open questions sections with unanswered items older
-   than 14 days (check ## Changelog).
+   than 14 days. Use `kb_history` on the file to check when
+   the question was introduced.
 
 4. Orphaned references
    [[wikilinks]] that point to sections that do not exist.

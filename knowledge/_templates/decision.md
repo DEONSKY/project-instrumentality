@@ -44,7 +44,3 @@ status: {{proposed|accepted|superseded}}
 >
 > **Negative / trade-offs:**
 > - {{Cost or trade-off accepted.}}
-
-## Changelog
-
-{{date}} — created

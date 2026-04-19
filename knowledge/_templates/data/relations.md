@@ -28,7 +28,3 @@ Type: {{one-to-many|many-to-many|one-to-one}}
 FK: {{entity_a}}.{{column}} → {{entity_c}}.id
 Cascade: {{delete|restrict|set_null}}
 Notes:
-
-## Changelog
-
-{{date}} — created

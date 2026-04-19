@@ -32,7 +32,3 @@ Used by: {{files}}
 | value | label | description |
 | ----- | ----- | ----------- |
 | {{VALUE}} | {{Human label}} | {{when this applies}} |
-
-## Changelog
-
-{{date}} — created

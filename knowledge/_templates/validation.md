@@ -42,7 +42,3 @@ List KB files that reference these rules via wikilink.
 
 - [[features/{{name}}#fields]]
 - [[schema/{{entity}}]]
-
-## Changelog
-
-{{date}} — created

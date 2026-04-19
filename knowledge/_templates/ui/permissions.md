@@ -36,7 +36,3 @@ Fields that appear only under certain conditions regardless of role.
 
 - {{field}} shown only when {{condition}}
 - {{field}} editable only when {{condition}}
-
-## Changelog
-
-{{date}} — created

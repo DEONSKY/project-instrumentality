@@ -59,7 +59,3 @@ Inbound events from the external service.
 > Retry strategy: {{exponential_backoff|none}}
 
 > [!question] Open questions
-
-## Changelog
-
-{{date}} — created

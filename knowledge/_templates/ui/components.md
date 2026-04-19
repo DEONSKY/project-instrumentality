@@ -49,7 +49,3 @@ Reference only. Source of truth is foundation/tech-stack.md or design system.
 | token | value | usage |
 | ----- | ----- | ----- |
 | {{token}} | {{value}} | {{where used}} |
-
-## Changelog
-
-{{date}} — created

@@ -37,7 +37,3 @@ tags: []
 
 > [!question] Open questions
 > - [ ] {{Unresolved question that needs a PM or tech-lead decision.}}
-
-## Changelog
-
-{{date}} — created

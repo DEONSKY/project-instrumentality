@@ -41,7 +41,3 @@ tags: []
 
 > [!question] Open questions
 > - [ ] {{Unresolved question that needs a decision.}}
-
-## Changelog
-
-{{date}} — created

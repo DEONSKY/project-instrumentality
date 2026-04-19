@@ -20,7 +20,8 @@ const tools = {
   kb_autotag: require('./tools/autotag'),
   kb_autorelate: require('./tools/autorelate'),
   kb_schema: require('./tools/schema'),
-  kb_upgrade: require('./tools/upgrade')
+  kb_upgrade: require('./tools/upgrade'),
+  kb_history: require('./tools/history')
 }
 
 for (const [name, tool] of Object.entries(tools)) {

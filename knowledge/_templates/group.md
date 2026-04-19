@@ -24,7 +24,3 @@ files: []
 ## Overview
 
 {{One paragraph describing what this domain covers and its boundaries.}}
-
-## Changelog
-
-{{date}} — created

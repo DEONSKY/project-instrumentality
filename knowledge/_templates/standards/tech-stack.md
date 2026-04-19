@@ -58,7 +58,3 @@ When the developer asks to add a new library:
 2. Check compatibility with the framework version listed above
 3. Prefer well-maintained libraries with active communities
 4. Never add a library just for a single utility function — write it inline or use an existing lib/ helper
-
-## Changelog
-
-{{date}} — created

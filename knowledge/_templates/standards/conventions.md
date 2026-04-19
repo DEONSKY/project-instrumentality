@@ -78,7 +78,3 @@ Within KB files, reference other files using Obsidian wikilinks:
 - Whole file: `[[schema/user]]`
 - Specific section: `[[schema/user#fields]]`
 - With display text: `[[schema/user#fields|User Fields]]`
-
-## Changelog
-
-{{date}} — created

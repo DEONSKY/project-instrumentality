@@ -43,7 +43,3 @@ tags: []
 | ------- | ----- |
 | save button | Save changes |
 | {{element}} | {{label}} |
-
-## Changelog
-
-{{date}} — created
