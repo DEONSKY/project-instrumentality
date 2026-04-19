@@ -117,6 +117,10 @@ function setBaseline(header, sha) {
  *   summaries:    [{ kb_target, summary }]  PM approved — KB updated
  *   reverted:     [{ code_file }]            PM rejected — code file reverted
  *   kb_confirmed: [{ kb_file }]              developer confirmed code matches
+ *   dismiss:      [{ queue, queue_key, reason }]  close a structurally-broken
+ *                 entry (ghost kb_target that will never exist as a KB file).
+ *                 Logged as DISMISSED in the audit trail — kept out of the
+ *                 RESOLVED stream so dismissals stay visible as a distinct signal.
  *
  * Admin escape hatch:
  *   force_baseline: 'HEAD'|<sha> — reset both queue baselines
@@ -127,12 +131,13 @@ function setBaseline(header, sha) {
  *     files (introduced by `merge=union` when two branches each wrote their
  *     own baseline). Keeps the descendant SHA; warns on diverged histories.
  */
-async function runTool({ since = 'last-sync', summaries, reverted, kb_confirmed, remote, force_baseline, purge, dedup_baselines, include_diffs = true } = {}) {
+async function runTool({ since = 'last-sync', summaries, reverted, kb_confirmed, dismiss, remote, force_baseline, purge, dedup_baselines, include_diffs = true } = {}) {
   if (dedup_baselines) return dedupBaselines()
   if (force_baseline || purge) return resetBaselines({ force_baseline, purge })
   if (summaries && Array.isArray(summaries)) return resolveWithSummaries(summaries)
   if (reverted && Array.isArray(reverted)) return resolveReverted(reverted)
   if (kb_confirmed && Array.isArray(kb_confirmed)) return resolveKbConfirmed(kb_confirmed)
+  if (dismiss && Array.isArray(dismiss)) return resolveDismissed(dismiss)
   return detectDrift(since, remote, { includeDiffs: include_diffs })
 }
 
@@ -562,6 +567,80 @@ async function resolveKbConfirmed(kb_confirmed) {
     result.error = closed.length === 0
       ? `No matching entries in sync/kb-drift.md. Nothing was closed.`
       : `${notFound.length} of ${kbFiles.length} entries did not match sync/kb-drift.md. See not_found for details.`
+  }
+  return result
+}
+
+// ── Phase 2d: dismiss structurally-broken queue entries ───────────────────────
+//
+// Escape hatch for ghost entries — a kb_target (or kb_file) that points at a
+// file that will never exist, typically because an upstream code_path_patterns
+// rule captured a versioned/timestamped basename (Flyway, Rails migrations, …)
+// as `{name}`. Removes the entry and logs a DISMISSED event distinct from the
+// RESOLVED stream so dismissals stay visible as a signal that upstream rules
+// need attention.
+
+const DISMISS_QUEUES = new Set(['code-drift', 'kb-drift'])
+
+async function resolveDismissed(dismiss) {
+  const closed = []
+  const notFound = []
+  const logRecords = []
+
+  const codeState = readCodeDriftEntries()
+  const kbState = readKbDriftEntries()
+  let codeDirty = false
+  let kbDirty = false
+
+  for (const item of dismiss) {
+    const queue = item?.queue
+    const queue_key = item?.queue_key
+    const reason = typeof item?.reason === 'string' ? item.reason.trim() : ''
+
+    if (!DISMISS_QUEUES.has(queue)) {
+      notFound.push({ queue, queue_key, reason_missing: `queue must be one of ${[...DISMISS_QUEUES].join(', ')}` })
+      continue
+    }
+    if (!queue_key || typeof queue_key !== 'string') {
+      notFound.push({ queue, queue_key, reason_missing: 'queue_key is required and must be a non-empty string' })
+      continue
+    }
+    if (!reason) {
+      notFound.push({ queue, queue_key, reason_missing: 'reason is required and must be a non-empty string' })
+      continue
+    }
+
+    if (queue === 'code-drift') {
+      const idx = codeState.entries.findIndex(e => e.kbTarget === queue_key)
+      if (idx === -1) {
+        notFound.push({ queue, queue_key, reason_missing: 'no open entry in sync/code-drift.md with this queue_key' })
+        continue
+      }
+      codeState.entries.splice(idx, 1)
+      codeDirty = true
+    } else {
+      const idx = kbState.entries.findIndex(e => e.kbFile === queue_key)
+      if (idx === -1) {
+        notFound.push({ queue, queue_key, reason_missing: 'no open entry in sync/kb-drift.md with this queue_key' })
+        continue
+      }
+      kbState.entries.splice(idx, 1)
+      kbDirty = true
+    }
+
+    closed.push({ queue, queue_key, reason })
+    logRecords.push({ event_type: 'dismissed', queue, queue_key, reason })
+  }
+
+  if (codeDirty) writeCodeDriftEntries(codeState.header, codeState.entries)
+  if (kbDirty) writeKbDriftEntries(kbState.header, kbState.entries)
+  appendToDriftLog(logRecords)
+
+  const result = { dismissed: closed.length, closed, not_found: notFound }
+  if (notFound.length > 0) {
+    result.error = closed.length === 0
+      ? 'No entries dismissed. See not_found for details.'
+      : `${notFound.length} of ${dismiss.length} dismiss inputs were invalid. See not_found for details.`
   }
   return result
 }
@@ -1059,6 +1138,12 @@ function appendToDriftLog(entries) {
       block += `\n- **Old baseline:** \`${entry.old_sha || '(unknown)'}\``
       block += `\n- **New baseline:** \`${entry.new_sha || '(none — skipped)'}\``
       block += `\n- **Resolver:** ${entry.resolver_used || '(n/a)'}\n`
+      continue
+    }
+    if (entry.event_type === 'dismissed') {
+      block += `\n## ${date} · DISMISSED · ${entry.queue}\n`
+      block += `\n- **Queue key:** \`${entry.queue_key}\``
+      block += `\n- **Reason:** ${entry.reason}\n`
       continue
     }
     block += `\n## ${date} · RESOLVED · ${entry.direction}\n`
@@ -1835,7 +1920,7 @@ module.exports = {
   runTool,
   definition: {
     name: 'kb_drift',
-    description: 'Bidirectional drift detection. Phase 1: writes entries to sync/code-drift.md (keyed by KB target, tracks all code files + since-commit) and sync/kb-drift.md (keyed by KB file). Multiple commits accumulate automatically. The response includes `_diffs` with pre-fetched unified diffs, stats, and commit subjects for every open entry — read those directly before resolving. Phase 2: summaries=KB updated (closes code-drift.md), reverted=code file reverted (closes code-drift.md), kb_confirmed=kb→code reviewed (closes kb-drift.md). Phase 2 responses include `closed` (what was actually removed) and `not_found` (inputs that matched no open entry, with a `hint` when the input matches the *other* queue — i.e. you called the wrong phase). When anything lands in `not_found`, an `error` field is set; trust `closed`, not the top-level count, to know what was written.',
+    description: 'Bidirectional drift detection. Phase 1: writes entries to sync/code-drift.md (keyed by KB target, tracks all code files + since-commit) and sync/kb-drift.md (keyed by KB file). Multiple commits accumulate automatically. The response includes `_diffs` with pre-fetched unified diffs, stats, and commit subjects for every open entry — read those directly before resolving. Phase 2: summaries=KB updated (closes code-drift.md), reverted=code file reverted (closes code-drift.md), kb_confirmed=kb→code reviewed (closes kb-drift.md), dismiss=close a structurally-broken ghost entry whose kb_target/kb_file will never exist (logged separately as DISMISSED in the audit trail — use this when an upstream code_path_patterns rule produced a garbage name rather than hand-editing the queue file). Phase 2 responses include `closed` (what was actually removed) and `not_found` (inputs that matched no open entry, with a `hint` when the input matches the *other* queue — i.e. you called the wrong phase). When anything lands in `not_found`, an `error` field is set; trust `closed`, not the top-level count, to know what was written.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1843,6 +1928,7 @@ module.exports = {
         summaries: { type: 'array', description: 'Phase 2a: code correct — write KB notes and close code-drift.md entries', items: { type: 'object', properties: { kb_target: { type: 'string' }, summary: { type: 'string' } }, required: ['kb_target', 'summary'] } },
         reverted: { type: 'array', description: 'Phase 2b: code reverted — close code-drift.md entries without writing KB notes', items: { type: 'object', properties: { code_file: { type: 'string' } }, required: ['code_file'] } },
         kb_confirmed: { type: 'array', description: 'Phase 2c: kb→code reviewed — close kb-drift.md entries', items: { type: 'object', properties: { kb_file: { type: 'string' } }, required: ['kb_file'] } },
+        dismiss: { type: 'array', description: 'Phase 2d: close a structurally-broken ghost entry (kb_target/kb_file that points at a file that will never exist, typically because an upstream code_path_patterns rule captured a versioned/timestamped basename). Use the exact entry heading as `queue_key` and a human-readable `reason`. Logged as DISMISSED separately from RESOLVED so dismissals remain visible as a signal that upstream rules need attention.', items: { type: 'object', properties: { queue: { type: 'string', enum: ['code-drift', 'kb-drift'], description: 'Which queue the entry lives in.' }, queue_key: { type: 'string', description: 'Exact entry heading as it appears in the queue file (kb_target for code-drift, kb_file for kb-drift).' }, reason: { type: 'string', description: 'Why this entry cannot be resolved the normal way.' } }, required: ['queue', 'queue_key', 'reason'] } },
         force_baseline: { type: 'string', description: 'Admin escape hatch: reset both queue baselines to this SHA (or "HEAD"). Use when the queue has gone stale and needs a manual reset.' },
         purge: { type: 'boolean', description: 'With force_baseline: also clear all queue entries. Default: false.' },
         include_diffs: { type: 'boolean', description: 'Include `_diffs` with pre-fetched git diffs, stats, and commit subjects for every open entry. Default: true. Set false for quick status scans.', default: true }

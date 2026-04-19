@@ -34,11 +34,15 @@ code_path_patterns:
       - "internal/**/entity/**"
       - "internal/**/*_entity.go"
       - "internal/**/domain/**"
-      - "db/migrations/**"
-      - "migrations/**"
     name_extraction:
       strip_suffix: [Model, Entity]
       case: kebab
+
+  - intent: migration
+    kb_target: "data/schema/migrations.md"
+    paths:
+      - "db/migrations/**"
+      - "migrations/**"
 
   - intent: service-logic
     kb_target: "flows/{name}.md"

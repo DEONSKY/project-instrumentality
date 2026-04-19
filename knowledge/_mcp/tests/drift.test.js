@@ -953,3 +953,178 @@ test('phase2: kb_confirmed on valid entry still closes it and returns closed arr
   const kbDrift = fs.readFileSync(path.join(dir, 'knowledge/sync/kb-drift.md'), 'utf8')
   assert.doesNotMatch(kbDrift, /## features\/login\.md/, 'entry actually removed')
 }))
+
+// ── Phase 2d: dismiss ghost entries ──────────────────────────────────────────
+
+test('dismiss: valid code-drift entry is removed and logged as DISMISSED', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'src/features/auth.js', '// seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'src/features/auth.js', '// changed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+  await DRIFT.runTool({})
+
+  const codeBefore = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
+  assert.match(codeBefore, /## features\/auth\.md/, 'entry seeded in code-drift')
+
+  const result = await DRIFT.runTool({
+    dismiss: [{ queue: 'code-drift', queue_key: 'features/auth.md', reason: 'ghost entry from bad pattern' }]
+  })
+  assert.equal(result.dismissed, 1)
+  assert.equal(result.closed.length, 1)
+  assert.equal(result.closed[0].queue, 'code-drift')
+  assert.equal(result.closed[0].queue_key, 'features/auth.md')
+  assert.equal(result.not_found.length, 0)
+  assert.ok(!result.error)
+
+  const codeAfter = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
+  assert.doesNotMatch(codeAfter, /## features\/auth\.md/, 'entry removed from queue')
+
+  const logDir = path.join(dir, 'knowledge/sync/drift-log')
+  const logContent = fs.readdirSync(logDir).map(f => fs.readFileSync(path.join(logDir, f), 'utf8')).join('\n')
+  assert.match(logContent, /· DISMISSED · code-drift/, 'DISMISSED heading written')
+  assert.match(logContent, /\*\*Queue key:\*\* `features\/auth\.md`/, 'queue key recorded')
+  assert.match(logContent, /\*\*Reason:\*\* ghost entry from bad pattern/, 'reason recorded')
+}))
+
+test('dismiss: valid kb-drift entry is removed and logged', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'knowledge/features/login.md', '# Login\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'knowledge/features/login.md', '# Login\n\nedit\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+  await DRIFT.runTool({})
+
+  const result = await DRIFT.runTool({
+    dismiss: [{ queue: 'kb-drift', queue_key: 'features/login.md', reason: 'test dismiss kb' }]
+  })
+  assert.equal(result.dismissed, 1)
+  const kbDrift = fs.readFileSync(path.join(dir, 'knowledge/sync/kb-drift.md'), 'utf8')
+  assert.doesNotMatch(kbDrift, /## features\/login\.md/, 'kb-drift entry removed')
+}))
+
+test('dismiss: missing reason rejects the input and does not remove the entry', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'src/features/auth.js', '// seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'src/features/auth.js', '// changed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+  await DRIFT.runTool({})
+
+  const result = await DRIFT.runTool({
+    dismiss: [{ queue: 'code-drift', queue_key: 'features/auth.md', reason: '   ' }]
+  })
+  assert.equal(result.dismissed, 0)
+  assert.equal(result.not_found.length, 1)
+  assert.match(result.not_found[0].reason_missing, /reason is required/)
+  assert.ok(result.error)
+
+  const codeAfter = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
+  assert.match(codeAfter, /## features\/auth\.md/, 'entry NOT removed')
+}))
+
+test('dismiss: unknown queue value rejects input', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'README.md', 'seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  const result = await DRIFT.runTool({
+    dismiss: [{ queue: 'not-a-queue', queue_key: 'whatever.md', reason: 'test' }]
+  })
+  assert.equal(result.dismissed, 0)
+  assert.equal(result.not_found.length, 1)
+  assert.match(result.not_found[0].reason_missing, /queue must be one of/)
+}))
+
+test('dismiss: key not in specified queue returns not_found', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'README.md', 'seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  const result = await DRIFT.runTool({
+    dismiss: [{ queue: 'code-drift', queue_key: 'features/nope.md', reason: 'test' }]
+  })
+  assert.equal(result.dismissed, 0)
+  assert.equal(result.not_found.length, 1)
+  assert.match(result.not_found[0].reason_missing, /no open entry in sync\/code-drift\.md/)
+  assert.ok(result.error)
+}))
+
+test('dismiss: mixed valid + invalid batch closes valid and reports invalid', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'src/features/auth.js', '// seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'src/features/auth.js', '// changed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m edit')
+  await DRIFT.runTool({})
+
+  const result = await DRIFT.runTool({
+    dismiss: [
+      { queue: 'code-drift', queue_key: 'features/auth.md', reason: 'real ghost' },
+      { queue: 'code-drift', queue_key: 'features/nope.md', reason: 'not there' }
+    ]
+  })
+  assert.equal(result.dismissed, 1)
+  assert.equal(result.closed[0].queue_key, 'features/auth.md')
+  assert.equal(result.not_found.length, 1)
+  assert.equal(result.not_found[0].queue_key, 'features/nope.md')
+  assert.ok(result.error)
+}))
+
+// ── patterns.js name_regex refactor ──────────────────────────────────────────
+
+test('patterns.js: name_regex extracts capture group 1 and composes with kebab case', () => {
+  const { extractName } = require('../lib/patterns')
+  const out = extractName(
+    'src/main/resources/db/migration/V0.0.20260419000000__userRoleMaxLengthUpdate.sql',
+    { name_regex: '^V?\\d+(?:\\.\\d+)*(?:__|_)(.+)$', case: 'kebab' }
+  )
+  assert.equal(out, 'user-role-max-length-update')
+})
+
+test('patterns.js: name_regex with named group `name` wins over positional', () => {
+  const { extractName } = require('../lib/patterns')
+  const out = extractName(
+    '20260419000000_add_email_column.rb',
+    { name_regex: '^\\d+_(?<name>.+)$' }
+  )
+  assert.equal(out, 'add_email_column')
+})
+
+test('patterns.js: invalid name_regex falls back to basename silently', () => {
+  const { extractName } = require('../lib/patterns')
+  const out = extractName(
+    'src/models/User.java',
+    { name_regex: '[invalid(regex', strip_suffix: [], case: 'kebab' }
+  )
+  assert.equal(out, 'user')
+})
+
+test('patterns.js: name_regex that does not match leaves basename untouched', () => {
+  const { extractName } = require('../lib/patterns')
+  const out = extractName(
+    'src/models/User.java',
+    { name_regex: '^V\\d+__(.+)$', strip_suffix: [], case: 'kebab' }
+  )
+  assert.equal(out, 'user')
+})

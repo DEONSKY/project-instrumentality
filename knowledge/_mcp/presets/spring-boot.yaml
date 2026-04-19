@@ -30,11 +30,15 @@ code_path_patterns:
       - "src/main/java/**/entity/**"
       - "src/main/java/**/model/**"
       - "src/main/java/**/domain/**"
-      - "src/main/resources/**/migration/**"
-      - "src/main/resources/db/migration/**"
     name_extraction:
       strip_suffix: [Entity, Model]
       case: kebab
+
+  - intent: migration
+    kb_target: "data/schema/migrations.md"
+    paths:
+      - "src/main/resources/**/migration/**"
+      - "src/main/resources/db/migration/**"
 
   - intent: service-logic
     kb_target: "flows/{name}.md"

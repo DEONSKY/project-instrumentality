@@ -50,9 +50,28 @@ function resolveKbTarget(pattern, codeFile) {
   return target
 }
 
-/** Extract a clean name from a file path using name_extraction rules */
+/**
+ * Extract a clean name from a file path using name_extraction rules.
+ *
+ * Supported fields on nameExtraction:
+ *   - name_regex: optional RegExp source. If it matches the basename (minus
+ *     extension), the capture group named `name` (or group 1) replaces the
+ *     name. Use this to strip versioned / timestamped prefixes like
+ *     Flyway `V0.0.20260419000000__` or Rails `20260419000000_`. Invalid
+ *     regex or non-matching input silently falls through to basename.
+ *   - strip_suffix: array of literal suffixes (endsWith-matched, first wins).
+ *   - case: 'kebab' converts CamelCase to kebab-case.
+ *
+ * Order: name_regex → strip_suffix → case. Composable.
+ */
 function extractName(filePath, nameExtraction) {
   let name = path.basename(filePath, path.extname(filePath))
+  if (nameExtraction.name_regex) {
+    try {
+      const m = name.match(new RegExp(nameExtraction.name_regex))
+      if (m) name = m.groups?.name ?? m[1] ?? name
+    } catch { /* invalid regex: fall through with unchanged basename */ }
+  }
   for (const suffix of (nameExtraction.strip_suffix || [])) {
     if (name.endsWith(suffix)) { name = name.slice(0, -suffix.length); break }
   }

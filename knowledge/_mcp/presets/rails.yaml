@@ -22,10 +22,14 @@ code_path_patterns:
     paths:
       - "app/models/**"
       - "db/schema.rb"
-      - "db/migrate/**"
     name_extraction:
       strip_suffix: []
       case: kebab
+
+  - intent: migration
+    kb_target: "data/schema/migrations.md"
+    paths:
+      - "db/migrate/**"
 
   - intent: service-logic
     kb_target: "flows/{name}.md"
