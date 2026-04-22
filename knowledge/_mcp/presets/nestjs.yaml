@@ -56,9 +56,12 @@ code_path_patterns:
       case: kebab
 
   - intent: component
-    kb_target: "ui/components.md"
+    kb_target: "components/{name}.md"
     paths:
       - "src/**/*.module.ts"
+    name_extraction:
+      strip_suffix: [Module]
+      case: kebab
 
   - intent: dependency
     kb_target: "standards/code/tech-stack.md"

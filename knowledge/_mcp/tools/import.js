@@ -374,7 +374,7 @@ async function executeImportPlan(source, dry_run) {
 // ── Cross-reference generation ──────────────────────────────────────────────
 
 // Priority order for directional depends_on links
-const TYPE_PRIORITY = { feature: 1, flow: 2, validation: 3, schema: 4, integration: 5, decision: 6, enums: 7, 'ui-permissions': 8, 'ui-copy': 9, standard: 10 }
+const TYPE_PRIORITY = { feature: 1, flow: 2, validation: 3, schema: 4, integration: 5, decision: 6, component: 7, standard: 8 }
 
 function generateCrossReferences(proposed, chunks) {
   const refs = []
@@ -523,11 +523,6 @@ async function applyImportFiles(files_to_write, dry_run) {
 function getTypeFromPath(filePath) {
   const rel = path.relative('knowledge', filePath)
   const singletons = {
-    'data/enums.md': 'enums',
-    'data/relations.md': 'relations',
-    'ui/components.md': 'components',
-    'ui/permissions.md': 'permissions',
-    'ui/copy.md': 'copy',
     'standards/code/tech-stack.md': 'tech-stack',
     'standards/code/conventions.md': 'conventions'
   }

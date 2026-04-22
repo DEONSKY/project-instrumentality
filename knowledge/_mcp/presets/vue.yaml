@@ -51,10 +51,13 @@ code_path_patterns:
       - "middleware/**"
 
   - intent: component
-    kb_target: "ui/components.md"
+    kb_target: "components/{name}.md"
     paths:
       - "src/components/**"
       - "components/**"
+    name_extraction:
+      strip_suffix: [Component]
+      case: kebab
 
   - intent: dependency
     kb_target: "standards/code/tech-stack.md"

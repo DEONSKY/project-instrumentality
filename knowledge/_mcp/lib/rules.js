@@ -59,8 +59,9 @@ function getDefaultRules() {
       },
       {
         intent: 'component',
-        kb_target: 'ui/components.md',
-        paths: ['src/components/**']
+        kb_target: 'components/{name}.md',
+        paths: ['src/components/**'],
+        name_extraction: { strip_suffix: ['Component'], case: 'kebab' }
       },
       {
         intent: 'route-guard',

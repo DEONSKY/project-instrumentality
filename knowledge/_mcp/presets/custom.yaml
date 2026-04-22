@@ -21,8 +21,9 @@
 #   route-guard    → kb_target: flows/{name}.guards.md
 #                    Matches auth middleware, guards, permissions, policies
 #
-#   component      → kb_target: ui/components.md
-#                    Matches reusable UI components (catch-all)
+#   component      → kb_target: components/{name}.md
+#                    Matches reusable technical patterns (UI, backend, or full-stack).
+#                    Each component gets its own per-file KB doc.
 #
 # name_extraction (optional — used when kb_target contains {name}):
 #   strip_suffix:  [List, of, suffixes, to, remove]
@@ -72,7 +73,10 @@ code_path_patterns:
       # Add your guard/middleware paths here
 
   - intent: component
-    kb_target: "ui/components.md"
+    kb_target: "components/{name}.md"
     paths:
       - "src/components/**"
       # Add your component paths here
+    name_extraction:
+      strip_suffix: [Component]
+      case: kebab

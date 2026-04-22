@@ -18,11 +18,7 @@ const TYPE_TO_PATH = {
   decision: 'decisions/{id}.md',
   standard: 'standards/{id}.md',
   group: '{folder}/{folder}.md',
-  enums: 'data/enums.md',
-  relations: 'data/relations.md',
-  components: 'ui/components.md',
-  permissions: 'ui/permissions.md',
-  copy: 'ui/copy.md',
+  component: 'components/{id}.md',
   'tech-stack': 'standards/code/tech-stack.md',
   conventions: 'standards/code/conventions.md'
 }
@@ -36,11 +32,7 @@ const TYPE_TO_TEMPLATE = {
   decision: 'decision.md',
   standard: 'standards/standard.md',
   group: 'group.md',
-  enums: 'data/enums.md',
-  relations: 'data/relations.md',
-  components: 'ui/components.md',
-  permissions: 'ui/permissions.md',
-  copy: 'ui/copy.md',
+  component: 'component.md',
   'tech-stack': 'standards/tech-stack.md',
   conventions: 'standards/conventions.md'
 }
@@ -55,9 +47,7 @@ const CLASSIFY_TYPE_TO_SCAFFOLD = {
   'decision': 'decision',
   'standard': 'standard',
   'process': 'standard',
-  'enums': 'enums',
-  'ui-permissions': 'permissions',
-  'ui-copy': 'copy'
+  'component': 'component'
 }
 
 function getGroupFolder(type) {

@@ -11,7 +11,7 @@ depth_policy:
   overrides:
     features: 3
     flows: 2
-    ui: 2
+    components: 2
     integrations: 2
     data: 2
     validation: 1
