@@ -584,6 +584,47 @@ These two singleton types were removed. Their content folds into the new model:
 
 `kb_scaffold type: tech-stack` and `kb_scaffold type: conventions` now return a hint pointing at the new locations.
 
+#### How standards trigger in normal usage
+
+Standards interact with the development flow at four distinct moments. Two are automatic; two are developer-initiated.
+
+**Automatic — no extra steps**
+
+| Moment | What triggers it | What happens |
+|---|---|---|
+| Writing or updating a standard file | `kb_write` on any `knowledge/standards/**/*.md` | Aspirational sweep fires synchronously inside the same `kb_write` response. Failures land in `sync/standards-backlog.md`. No separate call needed. |
+| Editing code | `kb_get({ working_paths: [...] })` (called by the agent before every code change, per CLAUDE.md) | Standards index is scanned; matching rules are injected into `rules_in_scope[]`. Backlog entries for those paths surface as `advisory: true` items. |
+
+**Developer-initiated**
+
+| Moment | What to do | Why |
+|---|---|---|
+| Before opening a PR | Run the three-phase `kb_conform` loop (detect → judge → resolve) | Enforcement gate — catches violations in the diff before review. Not run by hooks so PRs aren't blocked by noise. |
+| Periodic coverage health check | `kb_inventory({ lookback_months: 3 })` | Read-only report: stale rules, uncovered source files, pending promotions. Senior dev reviews and decides whether to extend or create standards. |
+
+**The full lifecycle in one sequence**
+
+```
+1. Standard authored
+   kb_scaffold / kb_extract → kb_write
+   → aspirational sweep auto-fires → sync/standards-backlog.md populated
+
+2. Developer edits a file
+   kb_get({ keywords: [...], working_paths: ["src/..."] })
+   → rules_in_scope[] injected automatically (active rules + advisory backlog)
+   → developer writes code aware of the constraints
+
+3. Before opening PR                              ← developer triggers
+   kb_conform() → submit_judgments → resolve
+   → sync/standards-drift.md updated; violations fixed/exempted/promoted/dismissed
+
+4. Periodic senior review                         ← senior dev triggers
+   kb_inventory() → stale_rules / uncovered_files / pending_promotions
+   → decides to write or update standards via kb_extract + kb_write
+```
+
+The key design decision: the system **surfaces** constraints automatically at write-time and opportunistically surfaces backlog items, but the **enforcement gate** (`kb_conform`) is always a deliberate act.
+
 ---
 
 ### 9. Improving KB search quality after import
