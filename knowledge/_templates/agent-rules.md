@@ -70,6 +70,15 @@ When in doubt, prefer `applied` (fix the code) over `exempted` (carve an excepti
 - Fill ALL `{{placeholders}}` before saving — especially in `always_load` files
 - Use `[[folder/file-id]]` wikilinks when referencing other KB documents
 
+## YAML frontmatter format in standard files
+
+**Do not reformat or normalize frontmatter YAML.** The KB-MCP serializer manages this automatically:
+
+- Scalar arrays (`tags`, `examples`, `paths`, `exceptions`) → intentionally flow style: `[a, b, c]`
+- Object arrays (`rules`) → intentionally block style (one item per line)
+
+This mixed style is correct by design. Attempting to convert flow arrays to block style or vice versa is a formatting error, not a fix.
+
 ## KB Tool Reference
 
 | Tool | Purpose |

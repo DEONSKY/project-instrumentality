@@ -14,6 +14,7 @@ const {
   validateStandard
 } = require('../lib/standards')
 const { preFilter } = require('../lib/rule-detect')
+const { runTool: runReindex } = require('./reindex')
 
 const KB_ROOT = 'knowledge'
 const STANDARDS_DRIFT_PATH = path.join(KB_ROOT, 'sync/standards-drift.md')
@@ -234,15 +235,51 @@ function appendToDriftLog(entries) {
 async function getChangedFiles(git, ref) {
   try {
     const result = await git.diff(['--name-status', '-M', ref, 'HEAD'])
-    return parseNameStatus(result)
+    return expandSubmoduleEntries(git, parseNameStatus(result), ref)
   } catch {
     try {
-      const result = await git.diff(['--name-status', '-M', '4b825dc642cb6eb9a060e54bf899d15f7dcb6820', 'HEAD'])
-      return parseNameStatus(result)
+      const fallback = '4b825dc642cb6eb9a060e54bf899d15f7dcb6820'
+      const result = await git.diff(['--name-status', '-M', fallback, 'HEAD'])
+      return expandSubmoduleEntries(git, parseNameStatus(result), fallback)
     } catch {
       return []
     }
   }
+}
+
+// Walk files and replace submodule pointer entries with the actual files changed
+// inside the submodule between the parent's old and new pointer SHAs.
+async function expandSubmoduleEntries(git, files, ref) {
+  const out = []
+  for (const f of files) {
+    let isSubmodule = false
+    try {
+      const tree = await git.raw(['ls-tree', 'HEAD', '--', f.path])
+      isSubmodule = tree.trim().startsWith('160000')
+    } catch { /* not a submodule or git error — treat as regular file */ }
+
+    if (!isSubmodule) { out.push(f); continue }
+
+    try {
+      const oldShaLine = (await git.raw(['ls-tree', ref, '--', f.path])).trim()
+      const newShaLine = (await git.raw(['ls-tree', 'HEAD', '--', f.path])).trim()
+      const oldSha = oldShaLine.split(/\s+/)[2]
+      const newSha = newShaLine.split(/\s+/)[2]
+      if (!oldSha || !newSha || oldSha === newSha) continue
+      if (!fs.existsSync(f.path)) { out.push(f); continue }
+      const subGit = simpleGit(f.path)
+      const result = await subGit.diff(['--name-status', '-M', oldSha, newSha])
+      const subFiles = parseNameStatus(result).map(sf => ({
+        ...sf,
+        path: `${f.path}/${sf.path}`,
+        ...(sf.oldPath ? { oldPath: `${f.path}/${sf.oldPath}` } : {})
+      }))
+      out.push(...subFiles)
+    } catch {
+      out.push(f) // fallback: include the submodule entry itself
+    }
+  }
+  return out
 }
 
 function parseNameStatus(output) {
@@ -662,7 +699,20 @@ async function submitJudgments(opts) {
   }
   const pending = readPending(mode)
   if (!pending) {
-    return { error: `No pending evaluations found for mode "${mode}". Run kb_conform Phase 1 first.` }
+    const otherMode = mode === 'current' ? 'aspirational' : 'current'
+    const otherPending = readPending(otherMode)
+    const hint = otherPending && otherPending.requested && otherPending.requested.length > 0
+      ? ` Did you mean mode: "${otherMode}"? A pending ${otherMode} session with ${otherPending.requested.length} evaluation(s) exists.`
+      : ''
+    return { error: `No pending evaluations found for mode "${mode}". Run kb_conform Phase 1 first.${hint}` }
+  }
+  if (!Array.isArray(pending.requested) || pending.requested.length === 0) {
+    const otherMode = mode === 'current' ? 'aspirational' : 'current'
+    const otherPending = readPending(otherMode)
+    const hint = otherPending && otherPending.requested && otherPending.requested.length > 0
+      ? ` Did you mean mode: "${otherMode}"? A pending ${otherMode} session with ${otherPending.requested.length} evaluation(s) exists.`
+      : ''
+    return { error: `Pending session for mode "${mode}" has no requested evaluations — nothing to judge.${hint}` }
   }
 
   // Build set of expected (file, standard_id, rule_id) triples
@@ -928,6 +978,11 @@ async function appendExceptionToRule(standardId, ruleId, paths, reason) {
   const newContent = matter.stringify(parsed.content, data)
   fs.writeFileSync(filePath, newContent, 'utf8')
 
+  // _index.yaml must reflect the new exceptions[] so the next Phase 1 run's
+  // preFilter sees them. Without this, the graph is stale and applyExceptions
+  // always returns excluded:false even though the YAML is correct.
+  await runReindex({ silent: true })
+
   return { written: true, file_path: filePath }
 }
 
@@ -1034,6 +1089,37 @@ async function runTool(args = {}) {
 
   if (force_baseline || purge) return forceBaseline({ force_baseline, purge, mode })
   if (Array.isArray(submit_judgments)) return submitJudgments({ submit_judgments, mode })
+
+  const resolutionArgs = { applied, exempted, promoted, dismissed }
+  const provided = Object.entries(resolutionArgs).filter(([, v]) => Array.isArray(v))
+  if (provided.length > 1) {
+    const keysByResolution = {}
+    for (const [name, arr] of provided) {
+      keysByResolution[name] = arr.map(it => it && it.queue_key).filter(Boolean)
+    }
+    const seen = new Map()
+    const conflicts = []
+    for (const [name, keys] of Object.entries(keysByResolution)) {
+      for (const key of keys) {
+        if (seen.has(key)) {
+          conflicts.push({ queue_key: key, resolutions: [seen.get(key), name] })
+        } else {
+          seen.set(key, name)
+        }
+      }
+    }
+    if (conflicts.length > 0) {
+      return {
+        error: `Conflicting Phase 2 resolutions on the same queue_key: ${conflicts.map(c => `${c.queue_key} → [${c.resolutions.join(', ')}]`).join('; ')}. Each queue_key may appear in only one resolution array per call.`,
+        conflicts
+      }
+    }
+    return {
+      error: `Multiple Phase 2 resolution arrays provided (${provided.map(([n]) => n).join(', ')}). Submit one resolution type per call to keep the audit log unambiguous.`,
+      provided: provided.map(([n]) => n)
+    }
+  }
+
   if (Array.isArray(applied)) return resolveApplied(applied, mode)
   if (Array.isArray(exempted)) return resolveExempted(exempted, mode)
   if (Array.isArray(promoted)) return resolvePromoted(promoted, mode)
