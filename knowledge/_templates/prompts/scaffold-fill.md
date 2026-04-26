@@ -122,3 +122,27 @@ If you find yourself writing technical implementation details, stop and ask:
 
 A good feature file answers: **What does it do and what are the rules?**
 A bad feature file answers: **How is it implemented?**
+
+### When template_type is "standard"
+
+Standards are **pure-frontmatter YAML** — no markdown body. The body sections
+(`## Purpose`, `## Why`, etc.) do not exist. Everything lives in the YAML
+frontmatter `rules:` array.
+
+Each rule entry must include:
+- `id`: kebab-case slug, unique within this standard (e.g. `decompose-by-routes`)
+- `title`: short human label
+- `severity`: `info | warn | error`
+- `description`: one paragraph explaining the rule (multi-line YAML literal `|`)
+- `applies_to.paths`: array of glob patterns where this rule fires (REQUIRED for
+  `kind: stack-local`; optional intersect filter for `kind: contract`)
+- `detect.kind`: `llm | regex | ast-grep` — how the conformance check evaluates the rule
+- `detect.hint`: one-line hint shown to the LLM judge (or regex pattern for static checks)
+
+Optional rule fields: `applies_to.min_lines`, `fix_hint`, `why`, `examples`, `exceptions`.
+
+Top-level frontmatter requires: `id`, `type: standard`, `kind`, `app_scope`, `created`,
+`tags`, `rules`. Optional: `topic`, `parties` (REQUIRED for `kind: contract`).
+
+Do NOT write any prose body. Do NOT add `## Purpose` or `## Rules` sections. The
+file ends at the closing `---` of the frontmatter.

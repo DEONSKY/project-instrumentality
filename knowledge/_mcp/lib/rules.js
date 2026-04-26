@@ -103,6 +103,9 @@ function loadRules(kbRoot = 'knowledge') {
     getCodePathPatterns: () => raw.code_path_patterns || getDefaultRules().code_path_patterns,
     getPromptOverrides: () => raw.prompt_overrides || getDefaultRules().prompt_overrides,
     getCrossAppRefConfig: () => raw.cross_app_refs || getDefaultRules().cross_app_refs,
+    getWorkingPathsCap: () => Number.isInteger(raw.working_paths_cap) ? raw.working_paths_cap : 10,
+    getStandardsThreshold: () => Number.isInteger(raw.standards_threshold) ? raw.standards_threshold : 40,
+    getAppRootPatterns: () => (raw.app_root_patterns && typeof raw.app_root_patterns === 'object') ? raw.app_root_patterns : {},
     getRaw: () => raw
   }
 }

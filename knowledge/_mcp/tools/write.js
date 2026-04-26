@@ -93,6 +93,9 @@ async function runTool({ file_path, content }) {
   if (file_path.includes('sync/code-drift.md') || file_path.includes('sync/kb-drift.md')) {
     return { error: 'Drift queue files are managed by kb_drift. Use kb_drift({ summaries/reverted/kb_confirmed }) to resolve entries.' }
   }
+  if (file_path.includes('sync/standards-drift.md') || file_path.includes('sync/standards-backlog.md')) {
+    return { error: 'Standards conformance queue files are managed by kb_conform. Use kb_conform({ submit_judgments / applied / exempted / promoted / dismissed }) to resolve entries.' }
+  }
 
   // Validate folder against _rules.md depth_policy
   const folderError = validateFolder(file_path)
@@ -133,6 +136,41 @@ async function runTool({ file_path, content }) {
     reindex_result: reindexResult
   }
 
+  // Post-write hook for standards/** — synchronous aspirational sweep so the
+  // user immediately sees what got queued. Reindex above already rebuilt
+  // _index.yaml with the new rules, so conform's standards index sees them.
+  // Skipped on lint errors: a malformed standard would produce noisy or
+  // wrong queue entries; better to fail loudly via lint and let the user fix
+  // it before the sweep runs.
+  if (isStandardFile(file_path) && reindexResult.lint_errors === 0) {
+    try {
+      const { runTool: conform } = require('./conform')
+      const sweepResult = await conform({
+        mode: 'aspirational',
+        scope: file_path.replace(/^knowledge\//, ''),
+        include_diffs: false
+      })
+      if (sweepResult && !sweepResult.error) {
+        result.aspirational_sweep = {
+          mode: 'aspirational',
+          requested_evaluations: sweepResult.requested_evaluations || [],
+          files_checked: sweepResult.files_checked || 0,
+          n_a_count: sweepResult.n_a_count || 0,
+          ...(sweepResult.sprawl_warnings && sweepResult.sprawl_warnings.length > 0 && { sprawl_warnings: sweepResult.sprawl_warnings }),
+          note: ((sweepResult.requested_evaluations || []).length > 0
+            ? 'Run kb_conform({ mode: "aspirational", submit_judgments: [...] }) to evaluate; failures land in sync/standards-backlog.md (advisory).'
+            : 'Aspirational sweep ran; no evaluations needed (deterministic rules only or no matching files).')
+        }
+      } else if (sweepResult && sweepResult.error) {
+        result.aspirational_sweep = { error: sweepResult.error }
+      }
+    } catch (e) {
+      // Non-fatal: write succeeded, sweep failed. Surface the error but don't
+      // make the write fail — the user can rerun kb_conform manually.
+      result.aspirational_sweep = { error: `sweep failed: ${e.message}` }
+    }
+  }
+
   if (guidance.length > 0) result.guidance = guidance
   if (suggestions.length > 0) {
     result.related_suggestions = suggestions
@@ -140,6 +178,12 @@ async function runTool({ file_path, content }) {
   }
 
   return result
+}
+
+function isStandardFile(filePath) {
+  // Match knowledge/standards/<group>/<id>.md (any depth allowed under group)
+  const norm = filePath.replace(/\\/g, '/')
+  return /^knowledge\/standards\/[^/]+\/.+\.md$/.test(norm)
 }
 
 module.exports = {

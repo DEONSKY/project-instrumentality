@@ -69,6 +69,13 @@ code_path_patterns:
       - "eslint.config.*"
       - ".prettierrc*"
 
+# Standards & conformance (optional). Uncomment to customise:
+# working_paths_cap: 10           # max rules surfaced by kb_get rules_in_scope per call
+# standards_threshold: 40         # warn when a standard's rule count exceeds this
+# app_root_patterns:              # path glob → app_scope (monorepos only)
+#   "ms-fe-web/**": ms-fe-web
+#   "ms-be-go/**": ms-be-go
+
 prompt_overrides:
   base_dir: "knowledge/_templates/prompts"
   override_dir: "knowledge/_prompt-overrides"
@@ -82,6 +89,8 @@ prompt_overrides:
   protected:
     - drift-summary
     - ask-sync
+    - conform-check
+    - conform-resolve
 ---
 
 # Knowledge Base Rules

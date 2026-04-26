@@ -59,6 +59,16 @@ async function runTool({ silent = false } = {}) {
 
       if (data.owner) entry.owner = data.owner
 
+      // Structured-standard frontmatter is carried into the graph so
+      // lib/standards.js can act as a thin filter rather than re-parsing
+      // every standard file on each kb_get / kb_conform call.
+      if (entry.type === 'standard') {
+        if (data.kind) entry.kind = data.kind
+        if (data.topic) entry.topic = data.topic
+        if (data.parties && typeof data.parties === 'object') entry.parties = data.parties
+        if (Array.isArray(data.rules)) entry.rules = data.rules
+      }
+
       // Detect if it's a group file (folder note: {name}/{name}.md or legacy _group.md)
       const isGroupFile = entry.type === 'group' ||
         path.basename(filePath) === '_group.md' ||

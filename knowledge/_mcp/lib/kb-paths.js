@@ -18,9 +18,7 @@ const TYPE_TO_PATH = {
   decision: 'decisions/{id}.md',
   standard: 'standards/{id}.md',
   group: '{folder}/{folder}.md',
-  component: 'components/{id}.md',
-  'tech-stack': 'standards/code/tech-stack.md',
-  conventions: 'standards/code/conventions.md'
+  component: 'components/{id}.md'
 }
 
 const TYPE_TO_TEMPLATE = {
@@ -32,9 +30,14 @@ const TYPE_TO_TEMPLATE = {
   decision: 'decision.md',
   standard: 'standards/standard.md',
   group: 'group.md',
-  component: 'component.md',
-  'tech-stack': 'standards/tech-stack.md',
-  conventions: 'standards/conventions.md'
+  component: 'component.md'
+}
+
+// Legacy types removed in favor of the structured-standards model. Surface a
+// hint to anyone still calling kb_scaffold with these so they migrate cleanly.
+const REMOVED_TYPES = {
+  'tech-stack': 'use foundation/<id>.md for stack inventory or standards/code/<id>.md for stack rules',
+  'conventions': 'use one or more standards/code/<id>.md documents with structured rules'
 }
 
 // Maps import-classify types to scaffold types
@@ -62,6 +65,11 @@ function getGroupFolder(type) {
   }
   return map[type] || 'features'
 }
+
+// Valid sub-folders under standards/<group>/<id>.md. Surfaced to scaffold/extract
+// for input validation and so the agent gets a meaningful error vs. silently
+// scaffolding into a typo'd folder.
+const VALID_STANDARD_GROUPS = new Set(['code', 'contracts', 'knowledge', 'process'])
 
 function resolveFilePath(type, id, group) {
   const template = TYPE_TO_PATH[type]
@@ -97,6 +105,8 @@ module.exports = {
   TYPE_TO_PATH,
   TYPE_TO_TEMPLATE,
   CLASSIFY_TYPE_TO_SCAFFOLD,
+  REMOVED_TYPES,
+  VALID_STANDARD_GROUPS,
   getTemplatesDir,
   getGroupFolder,
   resolveFilePath,

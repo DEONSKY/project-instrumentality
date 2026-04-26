@@ -29,9 +29,9 @@ async function runTool({ source, target_id, target_group, paths, app_scope = 'al
   if (!source) return { error: 'source is required: "code" or "knowledge"' }
   if (!['code', 'knowledge'].includes(source)) return { error: 'source must be "code" or "knowledge"' }
   if (!target_id) return { error: 'target_id is required' }
-  if (!target_group) return { error: 'target_group is required: "code", "knowledge", or "process"' }
-  if (!['code', 'knowledge', 'process'].includes(target_group)) {
-    return { error: 'target_group must be one of: code, knowledge, process' }
+  if (!target_group) return { error: 'target_group is required: "code", "contracts", "knowledge", or "process"' }
+  if (!['code', 'contracts', 'knowledge', 'process'].includes(target_group)) {
+    return { error: 'target_group must be one of: code, contracts, knowledge, process' }
   }
 
   const filePath = resolveFilePath('standard', target_id, target_group)
@@ -258,7 +258,7 @@ module.exports = {
       properties: {
         source: { type: 'string', enum: ['code', 'knowledge'], description: 'What to sample: "code" for source files, "knowledge" for KB docs' },
         target_id: { type: 'string', description: 'ID for the output standards file (kebab-case)' },
-        target_group: { type: 'string', enum: ['code', 'knowledge', 'process'], description: 'Standards subfolder to write into' },
+        target_group: { type: 'string', enum: ['code', 'contracts', 'knowledge', 'process'], description: 'Standards subfolder to write into' },
         paths: { description: 'Glob patterns to filter source files (source=code), or KB subfolder name (source=knowledge, e.g. "features")', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
         app_scope: { type: 'string', description: 'App scope for the generated standard (default: all)' },
         content: { type: 'string', description: '(Phase 2) Filled content to write to disk' }

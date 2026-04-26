@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://kb-mcp/schemas/standard.schema.json",
+  "title": "KB Standard frontmatter",
+  "description": "JSON Schema for the YAML frontmatter of pure-frontmatter standards under knowledge/standards/**.md. Editor-side validation only — MCP enforces structure via kb_lint.",
+  "type": "object",
+  "required": ["id", "type", "kind", "app_scope", "created", "rules"],
+  "additionalProperties": true,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Standard's stable handle (file slug)."
+    },
+    "type": { "const": "standard" },
+    "kind": {
+      "enum": ["stack-local", "contract", "process", "knowledge"],
+      "description": "stack-local for app-scoped code rules; contract for cross-app agreements; knowledge for KB-writing rules; process for non-code workflow rules."
+    },
+    "app_scope": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      ]
+    },
+    "topic": { "type": "string" },
+    "created": { "type": "string", "format": "date" },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "parties": {
+      "type": "object",
+      "description": "Required when kind is contract. Each party scopes its own file set and detector.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["app_scope", "applies_to", "detect"],
+        "properties": {
+          "app_scope": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+            ]
+          },
+          "applies_to": {
+            "type": "object",
+            "required": ["paths"],
+            "properties": {
+              "paths": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+            }
+          },
+          "detect": { "$ref": "#/definitions/detect" }
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/rule" }
+    }
+  },
+  "definitions": {
+    "detect": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["llm", "regex", "ast-grep"] },
+        "hint": { "type": "string" },
+        "pattern": { "type": "string" }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "required": ["id", "title", "severity", "description"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Rule's local id (unique within the standard)."
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "severity": { "enum": ["info", "warn", "error"] },
+        "applies_to": {
+          "type": "object",
+          "properties": {
+            "paths": { "type": "array", "items": { "type": "string" } },
+            "min_lines": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "detect": { "$ref": "#/definitions/detect" },
+        "fix_hint": { "type": "string" },
+        "description": { "type": "string", "minLength": 1 },
+        "why": { "type": "string" },
+        "examples": { "type": "array", "items": { "type": "string" } },
+        "exceptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["paths", "reason"],
+            "properties": {
+              "paths": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "contract" } }, "required": ["kind"] },
+      "then": {
+        "required": ["parties"],
+        "properties": {
+          "parties": { "type": "object", "minProperties": 1 }
+        }
+      }
+    }
+  ]
+}

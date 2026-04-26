@@ -10,19 +10,40 @@ This project uses a structured Knowledge Base (KB) managed by the KB-MCP server.
 
 ## Before writing or modifying code
 
-- Call `kb_get` with relevant keywords to load context about the feature/area you are working on
-- Use `task_context` to get the most relevant files:
-  - `kb_get({ keywords: [...], task_context: "creating" })` — when writing new code
-  - `kb_get({ keywords: [...], task_context: "fixing" })` — when fixing bugs
-  - `kb_get({ keywords: [...], task_context: "reviewing" })` — when reviewing code
-- Follow the standards and conventions documented in the KB
-- If a KB file specifies patterns, dependencies, or constraints, respect them
+- Call `kb_get` with relevant keywords AND `working_paths` listing the files you're about to edit. This returns:
+  - `files: [...]` — keyword-matched feature/flow/spec docs (the existing field; constrains *what* you build)
+  - `rules_in_scope: [...]` — standards rules that govern *how* you build, scoped to the files you're editing. Each entry has `standard_id`, `rule_id`, `severity`, `applies_to`, `detect_hint`, `fix_hint`, `description`, `advisory`.
+- Treat every entry in `rules_in_scope` as a constraint on the change. `severity: error` is hard; `warn` is strong default; `info` is advisory.
+- Items with `advisory: true` are aspirational backlog from `sync/standards-backlog.md` — fix opportunistically when the change naturally touches them; not required.
+- Use `task_context` for keyword scoring (independent of `working_paths`):
+  - `kb_get({ keywords: [...], working_paths: [...], task_context: "creating" })` — writing new code
+  - `kb_get({ keywords: [...], working_paths: [...], task_context: "fixing" })` — fixing bugs
+  - `kb_get({ keywords: [...], working_paths: [...], task_context: "reviewing" })` — reviewing code
+- Follow the standards and conventions surfaced in `rules_in_scope`. The cap (default 10) means full inventory may exceed what's surfaced — `kb_conform` afterwards is uncapped and may flag rules you didn't see at write-time.
 
-## After making code changes
+## After making code changes — drift detection
 
 - Run `kb_drift` to detect if your code changes diverge from KB documentation
 - If the KB needs updating to reflect your changes, use `kb_write` to keep documentation in sync
 - Do not leave code and KB in a contradictory state
+
+## After making code changes — conformance check
+
+The conformance loop is non-functional drift: did your code follow the architectural and structural decisions encoded in standards files?
+
+1. **Phase 1 — detect:** Call `kb_conform` with no resolution arguments. MCP returns:
+   - `requested_evaluations: [{file, standard_id, rule_ids[]}]` — every (file, rule) pair that survived MCP's cheap pre-filters (path glob, exceptions, min_lines, regex, ast-grep) and needs your judgment.
+   - `prompt` — the conform-check prompt you fill in. Read each rule's `detect_hint` and decide for each triple whether the file conforms.
+
+2. **Phase 1.5 — submit judgments:** Call `kb_conform({ submit_judgments: [{file, standard_id, rule_id, status: pass|fail|n/a, reason}, ...] })`. Submit one judgment per requested triple — no skipping, no merging. If MCP returns `gaps[]` listing triples without a judgment, fill those and resubmit. The queue does not advance until every requested triple has a judgment.
+
+3. **Phase 2 — resolve queue entries:** Each `fail` judgment created an entry in `sync/standards-drift.md`. Walk through them and pick a resolution per entry:
+   - `kb_conform({ applied: [{queue_key}] })` — you fixed the code (or will in this PR)
+   - `kb_conform({ exempted: [{queue_key, file_paths, reason}] })` — these specific files are justified exceptions; MCP appends to the rule's `exceptions[]` so future runs skip them
+   - `kb_conform({ promoted: [{queue_key, originating_files, note?}] })` — the code is right, the standard should change. Logged as senior-review intent; the standard file is **not** modified automatically.
+   - `kb_conform({ dismissed: [{queue_key, reason}] })` — false positive
+
+When in doubt, prefer `applied` (fix the code) over `exempted` (carve an exception) over `promoted` (revise the standard). Promotion is a senior-dev signal, not a workaround.
 
 ## After creating or updating KB files
 
@@ -56,7 +77,8 @@ This project uses a structured Knowledge Base (KB) managed by the KB-MCP server.
 | `kb_ask` | Ask questions about the project — always try this first |
 | `kb_get` | Load relevant KB files for context before coding |
 | `kb_write` | Create or update KB documentation |
-| `kb_drift` | Detect divergence between code and KB |
+| `kb_drift` | Detect functional divergence between code and KB |
+| `kb_conform` | Check code against standards rules; three phases (detect / submit / resolve) |
 | `kb_scaffold` | Create new KB files from templates |
 | `kb_reindex` | Rebuild the KB index after manual edits |
 | `kb_autotag` | Auto-extract tags from KB content for better search |

@@ -6,6 +6,8 @@ const tools = {
   kb_get: require('./tools/get'),
   kb_write: require('./tools/write'),
   kb_drift: require('./tools/drift'),
+  kb_conform: require('./tools/conform'),
+  kb_inventory: require('./tools/inventory'),
   kb_scaffold: require('./tools/scaffold'),
   kb_impact: require('./tools/impact'),
   kb_ask: require('./tools/ask'),

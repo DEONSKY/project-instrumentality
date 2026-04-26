@@ -7,6 +7,7 @@ const { validateDepth } = require('../lib/depth')
 const { inferType } = require('../lib/types')
 const { scan: scanSecrets } = require('../lib/secrets')
 const { loadGraph } = require('../lib/graph')
+const { validateStandard } = require('../lib/standards')
 
 const KB_ROOT = 'knowledge'
 const REQUIRED_FRONTMATTER = ['id', 'app_scope', 'created']
@@ -99,6 +100,22 @@ function lintFile(filePath, rules, graph) {
       severity: 'warn',
       message: `Frontmatter type '${data.type}' does not match folder-inferred type '${inferredType}' for folder '${folder}/'. Either move the file to the correct folder or update the type field.`
     })
+  }
+
+  // Structured-standard validation: enumerate every failure mode so a single
+  // lint run gives the author a complete picture rather than dribbling them
+  // out across edits. Lives behind type === 'standard' so feature/flow files
+  // don't pay the parse cost.
+  if (data.type === 'standard' || inferredType === 'standard') {
+    const stdResult = validateStandard(data)
+    for (const err of stdResult.errors) {
+      violations.push({ file: filePath, line: 1, severity: 'error', message: `[standard] ${err}` })
+    }
+    // Soft check: contract standards belong under standards/contracts/. Out-of-place
+    // files still validate, but the warning prevents accidental misfiling.
+    if (data.kind === 'contract' && !relativePath.startsWith('standards/contracts/')) {
+      violations.push({ file: filePath, line: 1, severity: 'warn', message: `[standard] kind: contract should live under standards/contracts/` })
+    }
   }
 
   // No status fields allowed

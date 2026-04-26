@@ -9,8 +9,6 @@
 #   {{feature_id}}        — id field from the feature front-matter
 #   {{target_file}}       — code file to generate or update
 #   {{change_summary}}    — from the sync note, or free-text request
-#   {{tech_stack}}        — from foundation/tech-stack.md
-#   {{conventions}}       — from foundation/conventions.md
 
 ---
 
@@ -31,9 +29,13 @@ Change required: {{change_summary}}
 
 ## Rules
 
-- Follow naming conventions in {{conventions}}
-- Use the stack and versions in {{tech_stack}}
-- Validation rules must match the ## Fields section exactly
+- Before writing, call `kb_get` with `working_paths: ["{{target_file}}"]` to load
+  the rules in scope for this file. The response includes a `rules_in_scope` field
+  listing each applicable standard rule (severity, hint, fix_hint, description).
+  Treat every entry in `rules_in_scope` as a constraint on the change.
+- Items with `advisory: true` are aspirational backlog — fix opportunistically if
+  the change naturally touches them.
+- Validation rules must match the ## Fields section of the feature exactly
 - Edge cases in ## Edge cases must be handled
 - Do not add fields, endpoints, or logic not in the KB
 - If a required KB section is missing, ask before generating

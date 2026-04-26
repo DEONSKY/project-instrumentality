@@ -5,7 +5,7 @@ const { validateDepth } = require('../lib/depth')
 const { resolvePrompt } = require('../lib/prompts')
 const { runTool: write } = require('./write')
 const { runTool: get } = require('./get')
-const { KB_ROOT, TYPE_TO_TEMPLATE, getTemplatesDir, getGroupFolder, resolveFilePath } = require('../lib/kb-paths')
+const { KB_ROOT, TYPE_TO_TEMPLATE, REMOVED_TYPES, VALID_STANDARD_GROUPS, getTemplatesDir, getGroupFolder, resolveFilePath } = require('../lib/kb-paths')
 
 const TEMPLATES_DIR = getTemplatesDir()
 
@@ -24,8 +24,19 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
     return { error: 'agent-rules moved to kb_init. Use kb_init({ regenerate_agent_rules: true, force: true }).' }
   }
 
+  if (REMOVED_TYPES[type]) {
+    return { error: `Type "${type}" was removed in the structured-standards model. ${REMOVED_TYPES[type]}.` }
+  }
+
   if (!TYPE_TO_TEMPLATE[type]) {
     return { error: `Unknown type: ${type}. Valid: ${Object.keys(TYPE_TO_TEMPLATE).join(', ')}` }
+  }
+
+  // Standards must scaffold into one of the four canonical groups so the
+  // file lands at standards/<group>/<id>.md. Reject typos early — silently
+  // creating standards/typo/ would clutter the index.
+  if (type === 'standard' && group && !VALID_STANDARD_GROUPS.has(group)) {
+    return { error: `Invalid standard group "${group}". Valid: ${[...VALID_STANDARD_GROUPS].join(', ')}` }
   }
 
   const rules = loadRules(KB_ROOT)
@@ -149,9 +160,9 @@ module.exports = {
       type: 'object',
       required: ['type'],
       properties: {
-        type: { type: 'string', description: 'Template type: feature|flow|schema|validation|integration|decision|standard|group|component|tech-stack|conventions' },
+        type: { type: 'string', description: 'Template type: feature|flow|schema|validation|integration|decision|standard|group|component' },
         id: { type: 'string', description: 'File identifier (kebab-case)' },
-        group: { type: 'string', description: 'Group/subfolder for standards: code|knowledge|process' },
+        group: { type: 'string', description: 'Group/subfolder for standards: code|contracts|knowledge|process' },
         description: { type: 'string', description: 'Description — tool returns a fill prompt for the agent to process' },
         content: { type: 'string', description: 'Agent-filled content to write (use after processing the fill prompt)' },
         app_scope: { type: 'string', description: 'App scope for this standard (e.g. frontend, backend). Default: all' }

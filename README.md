@@ -113,11 +113,13 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | Tool | What it does |
 |------|-------------|
 | `kb_init` | Bootstrap `knowledge/` folder, git hooks, merge drivers, MCP config, and agent rule files (`CLAUDE.md`, `.cursorrules`, `.windsurfrules`). Re-run to update `code_path_patterns` when stack changes. Pass `regenerate_agent_rules: true` (with optional `force: true`) to (re)generate the agent rule files only |
-| `kb_get` | Load relevant KB files into agent context (keyword + scope filtering, token budget aware). `max_tokens` overrides the budget; default reads `token_budget` from `_rules.md`. Optional `task_context` (`creating`, `fixing`, `reviewing`) adjusts relevance scoring — `creating` boosts same-type files, `fixing` boosts code standards, `reviewing` includes drift targets |
-| `kb_write` | Write a KB file and auto-reindex. Rejects paths outside `knowledge/`. Response includes the full reindex + lint result (up to 20 lint violations). Lint and reindex run automatically on every write and via git hooks — they're not exposed as separate tools |
-| `kb_scaffold` | Create a new KB file from template (types: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `group`, `enums`, `relations`, `components`, `permissions`, `copy`, `tech-stack`, `conventions`). Two-phase when `description` is given: loads related KB context, checks for overlapping entries, returns a fill prompt → agent fills → writes |
+| `kb_get` | Load relevant KB files into agent context (keyword + scope filtering, token budget aware). `max_tokens` overrides the budget; default reads `token_budget` from `_rules.md`. Optional `task_context` (`creating`, `fixing`, `reviewing`) adjusts relevance scoring — `creating` boosts same-type files, `fixing` boosts code standards, `reviewing` includes drift targets. **Pass `working_paths: [...]`** with the file paths you're about to edit and the response includes a separate `rules_in_scope` field listing applicable standards rules (capped at `working_paths_cap`, descriptions trimmed to first paragraph or 300 chars). Aspirational backlog entries surface in the same field as `advisory: true`. |
+| `kb_write` | Write a KB file and auto-reindex. Rejects paths outside `knowledge/`. Response includes the full reindex + lint result (up to 20 lint violations). Lint and reindex run automatically on every write and via git hooks — they're not exposed as separate tools. **Writes to `knowledge/standards/<group>/<id>.md` synchronously trigger an aspirational `kb_conform` sweep** (skipped on lint errors); the result lands under `aspirational_sweep` in the response, queue entries in `sync/standards-backlog.md`. |
+| `kb_scaffold` | Create a new KB file from template (types: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `group`, `component`). Two-phase when `description` is given: loads related KB context, checks for overlapping entries, returns a fill prompt → agent fills → writes. For `type: standard`, `group` must be one of `code | contracts | knowledge | process`. Legacy types `tech-stack` and `conventions` were removed; the tool returns a migration hint pointing at `foundation/<id>.md` for inventory or `standards/code/<id>.md` for rules. |
 | `kb_ask` | Ask a question about the KB. Classifies intent (query / sync / brainstorm / challenge / onboard / generate) and returns relevant context. Short tech terms (api, jwt, sql, etc.) are preserved in keyword extraction |
-| `kb_drift` | Bidirectional drift detection. Phase 1: code→kb (code changed, KB stale) and kb→code (KB changed, code may be stale). Writes to queue files in `sync/`. Handles file/folder renames as single linked operations — code renames annotate the entry with `← renamed from`, KB renames surface broken `[[wikilink]]` references with a count and file list. Stale `_rules.md` patterns (old path matched, new path doesn't) are returned as `stale_patterns[]` warnings. Phase 2: three resolution types — `summaries` (KB updated), `reverted` (code was wrong), `kb_confirmed` (kb→code reviewed). The pre-push hook passes the remote name automatically; sync baseline is resolved via graduated fallback: upstream tracking ref → `<remote>/<branch>` → closest parent branch (merge-base across all remote branches, so `main→dev→feature` correctly finds `dev`) → skip with warning. Submodules with a different remote name than the parent are detected and warned about explicitly (with a fix command), not silently skipped or compared against the wrong remote |
+| `kb_drift` | Bidirectional **functional** drift detection. Phase 1: code→kb (code changed, KB stale) and kb→code (KB changed, code may be stale). Writes to queue files in `sync/`. Handles file/folder renames as single linked operations — code renames annotate the entry with `← renamed from`, KB renames surface broken `[[wikilink]]` references with a count and file list. Stale `_rules.md` patterns (old path matched, new path doesn't) are returned as `stale_patterns[]` warnings. Phase 2: three resolution types — `summaries` (KB updated), `reverted` (code was wrong), `kb_confirmed` (kb→code reviewed). The pre-push hook passes the remote name automatically; sync baseline is resolved via graduated fallback: upstream tracking ref → `<remote>/<branch>` → closest parent branch (merge-base across all remote branches, so `main→dev→feature` correctly finds `dev`) → skip with warning. Submodules with a different remote name than the parent are detected and warned about explicitly (with a fix command), not silently skipped or compared against the wrong remote |
+| `kb_conform` | **Non-functional** conformance — does code follow the architectural decisions in standards? Three phases. **Phase 1** (no resolution args): MCP runs cheap pre-filters (path glob, exceptions, min_lines, regex, ast-grep) and returns `requested_evaluations: [{file, standard_id, rule_ids[]}]` plus a prompt for the agent to evaluate. Deterministic regex/ast-grep failures are queued without an LLM round-trip. **Phase 1.5** (`submit_judgments: [{file, standard_id, rule_id, status, reason}]`): MCP verifies completeness against the requested set and returns `gaps[]` if any triple is missing. The queue is not advanced until every requested triple has a judgment. **Phase 2** (`applied`/`exempted`/`promoted`/`dismissed`): close queue entries. `exempted` writes a per-rule `exceptions: [{paths, reason}]` entry into the standard so future runs skip those files; `promoted` records intent in the audit log without modifying the standard (senior-dev review via `kb_inventory.pending_promotions`). Queue files: `sync/standards-drift.md` (current diff) and `sync/standards-backlog.md` (aspirational sweeps). |
+| `kb_inventory` | Read-only signal report for senior devs. Returns `stale_rules` (rules whose `applies_to.paths` matches no source files), `uncovered_files` (source files matching no standard's globs), and `pending_promotions` (recent `promoted` events from the audit log). Never writes; running it twice produces zero changes. Use to inform manual `kb_extract` / `kb_write` decisions — does not auto-promote. |
 | `kb_impact` | Analyze what KB files are affected by a proposed change, using the dependency graph |
 | `kb_import` | Import documents (PDF, DOCX, MD, TXT, HTML) into KB files. **Auto-classify mode** (recommended): paginated batches with multi-label classification, cross-reference generation, and an import plan for review before writing. **Classic mode**: Phase 1 returns chunks, Phase 2 writes agent-generated files. Supports DOCX images. Rejects paths outside `knowledge/` |
 | `kb_export` | Export KB in multiple formats. `json` writes directly (no agent needed). `markdown`, `html`, `confluence`, `notion`, `docx`, `pdf` are two-phase via agent. Supports `purpose` to guide tone/structure, `type` filter (e.g. all flows), multi-scope (array of ids/domains), and automatic pagination for large KBs. PDF and DOCX output includes proper headings, lists, and inline formatting |
@@ -140,6 +142,9 @@ Key fields you can set in the YAML front-matter of `knowledge/_rules.md`:
 | `depth_policy` | see template | Max folder nesting per domain before files are grouped |
 | `secret_patterns` | see template | Patterns that block KB file writes if found in content |
 | `code_path_patterns` | stack preset | Maps source file globs to KB targets for drift detection |
+| `working_paths_cap` | `10` | Max rules `kb_get` returns in `rules_in_scope` per call (token budget at guidance time) |
+| `standards_threshold` | `40` | Soft warning when a standard's rule count exceeds this (sprawl detector) |
+| `app_root_patterns` | `{}` | Path glob → app_scope mapping for monorepos. Drives `kb_get`/`kb_conform` app-scope inference when the agent doesn't pass `app_scope` explicitly. Unset → only `app_scope: all` standards match in inferred contexts. |
 
 ### Two-phase tools
 
@@ -367,44 +372,217 @@ Each draft includes a file list, summary placeholder, and open questions. Review
 
 ---
 
-### 8. Creating standards for code and knowledge
+### 8. Creating standards & enforcing conformance
 
-Standards govern *how to work on this project* — for both code files and KB files. They live in `knowledge/standards/` and are loaded contextually when relevant.
+Standards govern *how* to work on this project — architectural patterns, layering rules, contracts between apps, naming/structure decisions. They live in `knowledge/standards/` as **pure-frontmatter YAML** documents (no markdown body) and are queryable, structurally checkable, and enforced via `kb_conform`.
 
-**Auto-scaffold on init**: when `kb_init` detects a stack (React, Go, etc.), it creates `standards/code/tech-stack.md` and `standards/code/conventions.md` as template stubs for you to fill.
+> **Boundary:** if eslint / prettier / tsc / biome can enforce it, it doesn't belong here. Standards capture decisions tooling can't make on its own.
 
-**Scaffold manually:**
-```
-"Create a component standard"
-→ kb_scaffold({ type: "standard", id: "components", group: "code",
-    description: "Components must be under 200 lines, have a story, and reuse the design system" })
-→ Agent fills the template: purpose, rules, why, examples, exceptions
-→ kb_scaffold({ type: "standard", id: "components", group: "code", content: "<filled>" })
+#### Standard file shape
+
+Every standard is a YAML file with no body. Rules are entries in the `rules:` array, each with a stable local `id` paired with the standard's `id` for unambiguous cross-tool references.
+
+```yaml
+---
+id: complex-screen-routing
+type: standard
+kind: stack-local           # stack-local | contract | process | knowledge
+app_scope: ms-fe-web
+topic: screens
+created: 2026-04-26
+tags: [react-router, screens]
+rules:
+  - id: decompose-by-routes
+    title: Decompose complex screens via nested routes
+    severity: warn          # info | warn | error
+    applies_to:
+      paths: ["src/screens/**"]
+      min_lines: 200        # cheap pre-filter — rule fires only on files larger than this
+    detect:
+      kind: llm             # llm | regex | ast-grep
+      hint: "screen uses conditional render trees instead of <Routes>"
+    fix_hint: "introduce nested <Routes>; split branches into route components"
+    description: |
+      Screens over ~200 lines handling multiple distinct sub-views should be
+      broken into nested routes rather than conditional rendering trees.
+    why: |
+      Tab-state mega-screens (2023) caused testing surface to explode.
+    examples: ["[[features/checkout]]"]
+    exceptions: []          # filled by kb_conform exempted resolution
+---
 ```
 
-**Derive from existing code** (best for existing projects):
-```
-"Derive a components standard from our source code"
-→ kb_extract({ source: "code", target_id: "components", target_group: "code" })
-→ Returns prompt with sampled code files — agent observes actual patterns and fills the template
-→ kb_extract({ source: "code", target_id: "components", target_group: "code", content: "<filled>" })
+**Cross-app contracts** use `kind: contract` and scope each side via `parties[].applies_to.paths`:
+
+```yaml
+---
+id: i18n-translation-keys
+type: standard
+kind: contract
+app_scope: [ms-be-go, ms-fe-web]
+parties:
+  backend:
+    app_scope: [ms-be-go]
+    applies_to: { paths: ["ms-be-go/handlers/**"] }
+    detect: { kind: ast-grep, hint: "no literal user-facing strings in API responses" }
+  frontend:
+    app_scope: [ms-fe-web]
+    applies_to: { paths: ["ms-fe-web/src/**"] }
+    detect: { kind: llm, hint: "must call t(key); never render BE strings raw" }
+rules:
+  - id: keys-only
+    title: BE sends translation keys; FE renders via t()
+    severity: error
+    description: |
+      Backend responses contain translation keys, never user-facing strings.
+      Frontend always passes received keys through t() before rendering.
+    exceptions: []
+---
 ```
 
-**Derive from existing KB files:**
-```
-"Derive a feature-writing standard from our existing feature docs"
-→ kb_extract({ source: "knowledge", target_id: "feature-writing",
-    target_group: "knowledge", paths: "features" })
+#### Editor support — JSON Schema
+
+`knowledge/_mcp/schemas/standard.schema.json` ships with the project. Wire it into VSCode's YAML extension for live validation and autocomplete while editing standards directly:
+
+```jsonc
+// .vscode/settings.json
+{
+  "yaml.schemas": {
+    "knowledge/_mcp/schemas/standard.schema.json": "knowledge/standards/**/*.md"
+  }
+}
 ```
 
-**Multi-stack** (monorepos with different backend/frontend stacks):
-```
-kb_scaffold({ type: "standard", id: "go-conventions", group: "code", app_scope: "backend" })
-kb_scaffold({ type: "standard", id: "ts-conventions", group: "code", app_scope: "frontend" })
-```
-`kb_get({ app_scope: "frontend" })` loads only the frontend standard; `app_scope: "backend"` loads only the Go one.
+The schema is editor-only — MCP enforces structure at runtime via `kb_lint`'s enumerated checks (missing `id`/`title`/`severity`/`description`, duplicate rule ids, bad `severity`/`detect.kind`, contracts requiring `parties[].applies_to.paths`, overlapping party `app_scope`, etc.).
 
-Standards are loaded via `kb_get` based on context — `task_context: "creating"` boosts `standards/knowledge/` files, `task_context: "fixing"` boosts `standards/code/` files. Any file can opt into unconditional loading by setting `always_load: true` in its frontmatter.
+#### Authoring — three on-ramps
+
+**Manually:** copy [`_templates/standards/standard.md`](knowledge/_templates/standards/standard.md), fill the YAML, save.
+
+**Via `kb_scaffold`:** template + description → LLM produces a draft → review and save. `group` selects the subfolder:
+
+```
+kb_scaffold({ type: "standard", id: "complex-screen-routing", group: "code",
+              app_scope: "ms-fe-web",
+              description: "screens over 200 lines should split via routes" })
+```
+
+**Via `kb_extract`** (best for existing projects — derive from observed code patterns):
+
+```
+kb_extract({ source: "code", target_id: "screen-routing",
+             target_group: "code", paths: ["src/screens/**"] })
+→ Phase 1: samples representative files, returns a prompt for the agent
+→ Agent observes actual patterns and fills the YAML rules array (no body)
+→ kb_extract({ ..., content: "<filled YAML>" })
+```
+
+`target_group` is one of `code | contracts | knowledge | process`. Knowledge-writing standards (rules about how to write KB files themselves) live under `standards/knowledge/`.
+
+#### The conformance loop
+
+After making code changes, run the three-phase `kb_conform` workflow:
+
+```
+# Phase 1 — detect
+→ kb_conform()
+← { requested_evaluations: [{file, standard_id, rule_ids[]}], prompt }
+
+# Phase 1.5 — submit per-rule judgments (one per requested triple)
+→ kb_conform({ submit_judgments: [
+    { file, standard_id, rule_id, status: "fail", reason: "..." },
+    { file, standard_id, rule_id, status: "pass", reason: "..." }
+  ]})
+← { entries_new, queue_advanced: true }
+  // Or: { gaps: [...], queue_advanced: false }  — fill gaps and resubmit
+
+# Phase 2 — resolve queue entries
+→ kb_conform({ applied: [{ queue_key: "complex-screen-routing.decompose-by-routes" }] })
+→ kb_conform({ exempted: [{ queue_key, file_paths: [...], reason: "..." }] })
+→ kb_conform({ promoted: [{ queue_key, originating_files: [...], note: "..." }] })
+→ kb_conform({ dismissed: [{ queue_key, reason: "..." }] })
+```
+
+**Skip-prevention** is structural: MCP knows which (file, rule) triples it requested in Phase 1; if Phase 1.5 omits any, MCP returns `gaps[]` and refuses to advance the queue. The agent re-evaluates only the gaps — no rule is silently skipped.
+
+**Resolutions:**
+- **`applied`** — the code was fixed. Queue entry removed; logged as `RESOLVED · applied`.
+- **`exempted`** — these specific files are justified exceptions. MCP appends a `{paths, reason}` entry to the rule's `exceptions[]` so future Phase 1 runs skip them deterministically (the exception filter sits between path-glob and min_lines in the cascade).
+- **`promoted`** — *the code is right; the standard should change.* Recorded as senior-review intent in the audit log; the standard file is **not** modified automatically. Surfaced via `kb_inventory.pending_promotions` for a senior dev to review and act on manually with `kb_extract` + `kb_write`.
+- **`dismissed`** — false positive. Logged as `DISMISSED-CONFORM` (distinct from `RESOLVED`) so dismissals stay visible as a separate signal.
+
+#### Aspirational retroactive sweeps
+
+When you write or modify a standard via `kb_write`, MCP synchronously runs `kb_conform({ mode: "aspirational", scope: <standard-file> })` against the entire codebase scoped to the standard's `applies_to.paths`. Results land in `sync/standards-backlog.md` (separate from the current-diff queue). The sweep is included in the `kb_write` response under `aspirational_sweep`.
+
+Backlog entries surface in `kb_get`'s `rules_in_scope` field with `advisory: true` — the next time someone edits an affected file, they see the entry as advisory backlog they may opt to fix as part of their natural change. No PR is blocked by aspirational entries; they're a "tech debt is queued" signal, not a gate.
+
+#### Pre-write guidance — `working_paths`
+
+Before writing code, pass the file paths you're about to edit to `kb_get` so applicable rules are auto-injected:
+
+```
+kb_get({
+  keywords: ["orders"],
+  working_paths: ["ms-fe-web/src/screens/orders/list.tsx"]
+})
+→ { files: [...],
+    rules_in_scope: [
+      { standard_id, rule_id, severity, applies_to, detect_hint, fix_hint, description, advisory: false },
+      ...
+    ] }
+```
+
+The cap (default `working_paths_cap: 10`) bounds token cost at guidance time. `kb_conform` detection is uncapped — a file may be flagged for a rule that wasn't surfaced at write-time. This is intentional: cheap pre-filters keep conform's cost bounded even across many rules.
+
+#### Monorepo support — `app_root_patterns`
+
+In a polyglot repo, `kb_get` and `kb_conform` infer a file's app from `_rules.md`:
+
+```yaml
+app_root_patterns:
+  "ms-fe-web/**": ms-fe-web
+  "ms-be-go/**":  ms-be-go
+```
+
+A file under `ms-fe-web/src/...` is automatically scoped to `ms-fe-web`, so only standards with `app_scope: ms-fe-web` (or `app_scope: all`, or contracts where the FE party includes `ms-fe-web`) are surfaced. Agents can override per-call with an explicit `app_scope` argument.
+
+If `app_root_patterns` is unset, inference returns `null` silently and only `app_scope: all` standards match (conservative default).
+
+#### Reading a standard
+
+Standards are pure YAML. Editors render them with the JSON Schema (autocomplete, validation). For terminal reading, `cat knowledge/standards/code/<id>.md` is a flat file with all the rules. Tools that need the rules (lint, conform, get) read them from `knowledge/_index.yaml` — `kb_reindex` carries the `rules`, `kind`, `topic`, and `parties` frontmatter into per-file entries.
+
+#### Bottom-up signal — `kb_inventory`
+
+Senior developers run `kb_inventory` periodically to surface signal without auto-promoting anything:
+
+```
+→ kb_inventory({ lookback_months: 3 })
+← {
+    stale_rules: [...],         // rules whose applies_to.paths matches no source file
+    uncovered_files: { files, count, truncated },  // source files matching no standard
+    pending_promotions: [...],  // recent `promoted` events awaiting senior review
+    summary: { standards_count, rules_count, source_files_scanned }
+  }
+```
+
+Read-only — running it twice produces zero file changes. Outputs are deterministic; no heuristic shape detection in v1.
+
+#### Operational note — single MCP per project
+
+`kb_conform` (and `kb_drift`) inherit a single-writer-per-process assumption. Cross-branch concurrency is handled via `merge=union` in `.gitattributes`, but two MCP instances writing to the same project's queue files simultaneously can corrupt them via last-writer-wins on `fs.writeFileSync`. **Deploy one MCP per project.**
+
+#### Migration from legacy `tech-stack` and `conventions` types
+
+These two singleton types were removed. Their content folds into the new model:
+
+| Legacy | New home |
+|---|---|
+| `standards/code/tech-stack.md` (inventory of what we use) | `foundation/<id>.md` — normal reference doc, no rules |
+| `standards/code/conventions.md` (rules about naming, structure) | One or more `standards/code/<id>.md` documents with structured `rules:` arrays |
+
+`kb_scaffold type: tech-stack` and `kb_scaffold type: conventions` now return a hint pointing at the new locations.
 
 ---
 

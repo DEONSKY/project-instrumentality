@@ -8,7 +8,7 @@ const PROJECT_PROMPTS_DIR = 'knowledge/_templates/prompts'
 const BUNDLED_PROMPTS_DIR = path.join(__dirname, '../../_templates/prompts')
 const OVERRIDE_DIR = 'knowledge/_prompt-overrides'
 
-const PROTECTED = ['drift-summary', 'ask-sync']
+const PROTECTED = ['drift-summary', 'ask-sync', 'conform-check', 'conform-resolve']
 
 function resolveBaseDir() {
   if (fs.existsSync(PROJECT_PROMPTS_DIR)) return PROJECT_PROMPTS_DIR
