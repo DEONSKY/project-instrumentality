@@ -3,6 +3,7 @@ const path = require('path')
 const { loadGraph } = require('../lib/graph')
 const { loadStandardsIndex } = require('../lib/standards')
 const { globMatch } = require('../lib/patterns')
+const { readLedger } = require('../lib/promotion-ledger')
 
 const KB_ROOT = 'knowledge'
 
@@ -21,7 +22,6 @@ const SOURCE_EXTENSIONS = new Set([
   '.php', '.ex', '.exs', '.clj', '.scala'
 ])
 
-const DEFAULT_LOOKBACK_MONTHS = 3
 const DEFAULT_DEPTH = 6
 
 /**
@@ -30,18 +30,17 @@ const DEFAULT_DEPTH = 6
  *
  *   stale_rules         standards/rules whose applies_to.paths matches no actual files
  *   uncovered_files     source files matching no standard's applies_to globs
- *   pending_promotions  recent `promoted` entries from drift-log/<YYYY-MM>.md
+ *   pending_promotions  open entries from sync/standards-promotions.md (the ledger)
  *
  * Never writes. Running it twice produces zero changes anywhere. The senior
  * dev consumes the report and decides whether to run kb_extract / kb_write to
- * extend a standard or create a new one.
+ * extend a standard, or close the promotion via kb_conform's closed_promotion.
  *
  * @param {object} opts
- * @param {number} opts.depth          — directory depth for source-file walk (default 6)
- * @param {number} opts.lookback_months — months of drift-log to scan for promotions (default 3)
- * @param {string} opts.scope          — optional glob to restrict the source-file walk
+ * @param {number} opts.depth — directory depth for source-file walk (default 6)
+ * @param {string} opts.scope — optional glob to restrict the source-file walk
  */
-async function runTool({ depth = DEFAULT_DEPTH, lookback_months = DEFAULT_LOOKBACK_MONTHS, scope } = {}) {
+async function runTool({ depth = DEFAULT_DEPTH, scope } = {}) {
   const graph = loadGraph(KB_ROOT)
   const index = loadStandardsIndex(graph)
 
@@ -51,7 +50,7 @@ async function runTool({ depth = DEFAULT_DEPTH, lookback_months = DEFAULT_LOOKBA
   return {
     stale_rules: findStaleRules(index, sourceFiles),
     uncovered_files: findUncoveredFiles(index, filteredFiles),
-    pending_promotions: collectPendingPromotions(lookback_months),
+    pending_promotions: collectPendingPromotions(),
     summary: {
       standards_count: index.length,
       rules_count: index.reduce((n, s) => n + (s.rules || []).length, 0),
@@ -155,71 +154,32 @@ function findUncoveredFiles(index, sourceFiles, cap = 50) {
 // ── Pending promotions ──────────────────────────────────────────────────────
 
 /**
- * Walk the recent drift-log files and pull every entry where conform's
- * resolution was `promoted`. These are senior-review candidates: a developer
- * decided the standard should change, recorded the intent, and is waiting for
- * a senior dev to draft the revision via kb_extract + kb_write.
+ * Read the promotions ledger (sync/standards-promotions.md) — the source of
+ * truth for (file, rule) pairs awaiting senior review. Entries here are
+ * suppressed from kb_conform's Phase 1 sweeps; they auto-close when the rule's
+ * fingerprint changes (i.e. a senior dev updated the standard) or when
+ * kb_conform is called with closed_promotion[].
  *
- * The audit-log format is fixed by conform.js's appendToDriftLog:
- *
- *   ## <date> · CONFORMED · promoted
- *
- *   - **Queue key:** `<standard-id>.<rule-id>`
- *   - **Originating files:** `path/a`, `path/b`
- *   - **Note:** ...
+ * One ledger entry produces one report row per (queue_key, file) pair so the
+ * senior dev sees granularity matching what's actually suppressed.
  */
-function collectPendingPromotions(lookbackMonths) {
-  const driftLogDir = path.join(KB_ROOT, 'sync/drift-log')
-  if (!fs.existsSync(driftLogDir)) return []
-
-  const monthFiles = listRecentMonthFiles(driftLogDir, lookbackMonths)
+function collectPendingPromotions() {
+  const { entries } = readLedger()
   const promotions = []
-
-  for (const monthFile of monthFiles) {
-    const content = fs.readFileSync(monthFile, 'utf8')
-    // Each event block starts with `## <date> · ...`. Split on the heading.
-    const blocks = content.split(/\n(?=## )/).filter(b => b.trim())
-    for (const block of blocks) {
-      const heading = block.match(/^## (\S+) · CONFORMED · promoted/)
-      if (!heading) continue
-      const date = heading[1]
-      const queueKey = (block.match(/\*\*Queue key:\*\*\s*`([^`]+)`/) || [])[1]
-      const filesLine = block.match(/\*\*Originating files:\*\*\s*(.+?)(?:\n|$)/)
-      const note = (block.match(/\*\*Note:\*\*\s*(.+?)(?:\n|$)/) || [])[1] || null
-      const originatingFiles = filesLine
-        ? [...filesLine[1].matchAll(/`([^`]+)`/g)].map(m => m[1])
-        : []
-      const [standardId, ruleId] = queueKey ? queueKey.split('.') : [null, null]
+  for (const entry of entries) {
+    for (const f of entry.files) {
       promotions.push({
-        date,
-        queue_key: queueKey || null,
-        standard_id: standardId,
-        rule_id: ruleId,
-        originating_files: originatingFiles,
-        ...(note && { note }),
-        log_file: monthFile
+        date: f.promotedAt,
+        queue_key: entry.queueKey,
+        standard_id: entry.standardId,
+        rule_id: entry.ruleId,
+        originating_files: [f.path],
+        ...(f.note && { note: f.note })
       })
     }
   }
-
-  // Most-recent-first
   promotions.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
   return promotions
-}
-
-function listRecentMonthFiles(dir, lookbackMonths) {
-  const now = new Date()
-  const months = []
-  for (let i = 0; i < lookbackMonths; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}.md`)
-  }
-  const out = []
-  for (const name of months) {
-    const full = path.join(dir, name)
-    if (fs.existsSync(full)) out.push(full)
-  }
-  return out
 }
 
 // ── Source-file walk ─────────────────────────────────────────────────────────
@@ -253,12 +213,11 @@ module.exports = {
   collectPendingPromotions,
   definition: {
     name: 'kb_inventory',
-    description: 'Read-only signal report for senior devs. Surfaces stale_rules (standards rules matching no source files), uncovered_files (source files matching no rule), and pending_promotions (recent `promoted` resolutions from kb_conform). Never writes. Use to inform manual kb_extract / kb_write decisions; does not auto-promote.',
+    description: 'Read-only signal report for senior devs. Surfaces stale_rules (standards rules matching no source files), uncovered_files (source files matching no rule), and pending_promotions (open entries from the suppression ledger awaiting senior review). Never writes. Use to inform manual kb_extract / kb_write decisions, or to close promotions via kb_conform.',
     inputSchema: {
       type: 'object',
       properties: {
         depth: { type: 'number', description: 'Directory depth for source-file walk (default 6)' },
-        lookback_months: { type: 'number', description: 'Months of drift-log to scan for pending promotions (default 3)' },
         scope: { type: 'string', description: 'Optional glob to restrict the source-file walk (e.g. "ms-fe-web/**")' }
       }
     }

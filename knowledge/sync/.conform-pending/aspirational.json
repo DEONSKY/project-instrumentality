@@ -1,0 +1,15 @@
+{
+  "mode": "aspirational",
+  "scope": "knowledge/foundation/_test-suppression/fake-std.md",
+  "requested": [
+    {
+      "file": "README.md",
+      "standard_id": "fake-std",
+      "rule_ids": [
+        "fake-rule"
+      ]
+    }
+  ],
+  "head_sha_short": "04bf607",
+  "head_date": "2026-04-27"
+}

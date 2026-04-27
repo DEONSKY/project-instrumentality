@@ -14,6 +14,15 @@ const {
   validateStandard
 } = require('../lib/standards')
 const { preFilter } = require('../lib/rule-detect')
+const {
+  readLedger,
+  writeLedger,
+  addPromotions,
+  removePromotions,
+  getSuppressedPairs,
+  applyFileChangesToLedger,
+  computeRuleFingerprint
+} = require('../lib/promotion-ledger')
 const { runTool: runReindex } = require('./reindex')
 
 const KB_ROOT = 'knowledge'
@@ -226,6 +235,25 @@ function appendToDriftLog(entries) {
       block += `\n- **Reason:** ${entry.reason}\n`
       continue
     }
+    if (entry.event_type === 'closed-promotion') {
+      block += `\n## ${date} · CLOSED-PROMOTION\n`
+      block += `\n- **Queue key:** \`${entry.queue_key}\``
+      if (entry.file_paths) block += `\n- **Files:** ${entry.file_paths.map(f => `\`${f}\``).join(', ')}`
+      block += `\n- **Reason:** ${entry.reason}\n`
+      continue
+    }
+    if (entry.event_type === 'auto-closed-promotion-rule-changed') {
+      block += `\n## ${date} · AUTO-CLOSED-PROMOTION · rule changed\n`
+      block += `\n- **Queue key:** \`${entry.queue_key}\``
+      block += `\n- **Reason:** ${entry.reason}\n`
+      continue
+    }
+    if (entry.event_type === 'auto-closed-promotion-standard-removed') {
+      block += `\n## ${date} · AUTO-CLOSED-PROMOTION · standard removed\n`
+      block += `\n- **Queue key:** \`${entry.queue_key}\``
+      block += `\n- **Reason:** ${entry.reason}\n`
+      continue
+    }
   }
   if (block) fs.appendFileSync(logPath, block)
 }
@@ -330,6 +358,7 @@ async function detect(opts) {
   const standardsIndex = loadStandardsIndex(graph)
 
   const queueState = readQueue(queuePath, queueHeader)
+  const ledgerState = readLedger()
   let baseline = since && since !== 'last-sync' ? since : parseBaseline(queueState.header)
   if (baseline && !(await baselineReachable(git, baseline))) {
     process.stderr.write(`[kb-conform] warning: baseline ${baseline} unreachable; re-bootstrapping\n`)
@@ -397,6 +426,7 @@ async function detect(opts) {
   }
   if (renamed.length || deleted.length) {
     applyFileChangesToQueue(queueState, renamed, deleted)
+    applyFileChangesToLedger(ledgerState, renamed, deleted)
   }
 
   // Handle deleted standards — auto-dismiss entries whose standard no longer
@@ -413,6 +443,57 @@ async function detect(opts) {
     return true
   })
   if (autoDismissed.length) appendToDriftLog(autoDismissed)
+
+  // Auto-close promotion ledger entries whose standard is gone or whose rule
+  // fingerprint has changed (i.e. a senior reviewer updated the standard).
+  // Both events drop the entry from suppression so the rule re-evaluates
+  // normally on this run.
+  const autoClosedPromotions = []
+  const survivingLedger = []
+  for (const entry of ledgerState.entries) {
+    if (!liveStandardIds.has(entry.standardId)) {
+      autoClosedPromotions.push({
+        event_type: 'auto-closed-promotion-standard-removed',
+        queue_key: entry.queueKey,
+        reason: `standard "${entry.standardId}" removed`
+      })
+      continue
+    }
+    const std = standardsIndex.find(s => s.id === entry.standardId)
+    const rule = std && (std.rules || []).find(r => r.id === entry.ruleId)
+    if (!rule) {
+      autoClosedPromotions.push({
+        event_type: 'auto-closed-promotion-standard-removed',
+        queue_key: entry.queueKey,
+        reason: `rule "${entry.ruleId}" removed from standard "${entry.standardId}"`
+      })
+      continue
+    }
+    const currentFingerprint = computeRuleFingerprint(rule, std)
+    if (entry.ruleFingerprint && entry.ruleFingerprint !== currentFingerprint) {
+      autoClosedPromotions.push({
+        event_type: 'auto-closed-promotion-rule-changed',
+        queue_key: entry.queueKey,
+        reason: `rule fingerprint changed (${entry.ruleFingerprint} → ${currentFingerprint})`
+      })
+      continue
+    }
+    survivingLedger.push(entry)
+  }
+  if (autoClosedPromotions.length) {
+    ledgerState.entries = survivingLedger
+    writeLedger(ledgerState)
+    appendToDriftLog(autoClosedPromotions)
+  }
+
+  // Build suppression set: (queueKey → Set<filePath>) of pairs awaiting senior
+  // review. Applied to llm-survivors below so promoted (file, rule) pairs don't
+  // re-fire until the standard changes or closed_promotion is called.
+  const suppressedPairs = getSuppressedPairs(ledgerState)
+  const isSuppressed = (standardId, ruleId, filePath) => {
+    const files = suppressedPairs.get(`${standardId}.${ruleId}`)
+    return files ? files.has(filePath) : false
+  }
 
   // Pre-filter every (file, rule) pair; survivors go into requested_evaluations
   const requestedEvaluations = []
@@ -484,6 +565,7 @@ async function detect(opts) {
             }], 'static detector matched (regex/ast-grep)')
             continue
           }
+          if (isSuppressed(std.id, rule.id, filePath)) { naCount.count++; continue }
           surviving.push(rule.id)
         }
         if (surviving.length > 0) {
@@ -512,6 +594,7 @@ async function detect(opts) {
             }], 'static detector matched (regex/ast-grep)')
             continue
           }
+          if (isSuppressed(std.id, rule.id, filePath)) { naCount.count++; continue }
           surviving.push(rule.id)
         }
         if (surviving.length > 0) {
@@ -523,6 +606,9 @@ async function detect(opts) {
 
   // Persist any auto-flagged (deterministic fail) entries
   writeQueue(queuePath, queueState.header, queueState.entries)
+  // Persist ledger too — applyFileChangesToLedger may have rewritten paths or
+  // dropped rows for deleted files; writing unconditionally keeps disk in sync.
+  writeLedger(ledgerState)
 
   // Build prompt for surviving triples that need LLM judgment
   let prompt = null
@@ -991,15 +1077,34 @@ async function resolvePromoted(items, mode = 'current') {
   const queuePath = mode === 'aspirational' ? STANDARDS_BACKLOG_PATH : STANDARDS_DRIFT_PATH
   const queueHeader = mode === 'aspirational' ? STANDARDS_BACKLOG_HEADER : STANDARDS_DRIFT_HEADER
   const state = readQueue(queuePath, queueHeader)
+  const ledgerState = readLedger()
+  const standardsIndex = loadStandardsIndex(loadGraph(KB_ROOT))
   const logEntries = []
+  const ledgerItems = []
   const removed = []
   const missing = []
+  const promotedAt = new Date().toISOString().split('T')[0]
   for (const it of items) {
     if (!it.queue_key || !Array.isArray(it.originating_files)) {
       return { error: `promoted item requires queue_key and originating_files[]: ${JSON.stringify(it)}` }
     }
     const e = findEntryByKey(state, it.queue_key)
     if (!e) { missing.push(it.queue_key); continue }
+
+    const std = standardsIndex.find(s => s.id === e.standardId)
+    const rule = std && (std.rules || []).find(r => r.id === e.ruleId)
+    const ruleFingerprint = rule ? computeRuleFingerprint(rule, std) : null
+
+    ledgerItems.push({
+      queueKey: e.queueKey,
+      standardId: e.standardId,
+      standardKind: e.standardKind || (std && std.kind) || null,
+      ruleId: e.ruleId,
+      severity: e.severity,
+      ruleFingerprint,
+      files: it.originating_files.map(p => ({ path: p, promotedAt, ...(it.note && { note: it.note }) }))
+    })
+
     removeEntry(state, it.queue_key)
     removed.push(it.queue_key)
     logEntries.push({
@@ -1010,14 +1115,69 @@ async function resolvePromoted(items, mode = 'current') {
       ...(it.note && { note: it.note })
     })
   }
+  addPromotions(ledgerState, ledgerItems)
   writeQueue(queuePath, state.header, state.entries)
+  writeLedger(ledgerState)
   if (logEntries.length) appendToDriftLog(logEntries)
   return {
     resolved: removed.length,
     removed,
     missing,
-    note: 'Promotions logged. Run kb_inventory to see pending_promotions; use kb_extract to draft a revised standard manually.'
+    note: 'Promoted (file, rule) pairs are now suppressed from Phase 1 sweeps until the standard is updated (auto-close) or kb_conform is called with closed_promotion[]. Run kb_inventory to see pending_promotions; use kb_extract to draft a revised standard.'
   }
+}
+
+/**
+ * Senior-reviewer close-out: the reviewer decided NOT to update the standard
+ * for these files. Removes the ledger entry and writes an exception into the
+ * rule so the file is permanently fine — same writeback path as `exempted`.
+ *
+ * Items shape: [{ queue_key, file_paths, reason }]. Mode is intentionally
+ * ignored because the ledger is shared across modes (the same (file, rule)
+ * pair shouldn't be suppressed in one mode and active in another).
+ */
+async function resolveClosedPromotion(items) {
+  if (!Array.isArray(items)) return { error: 'closed_promotion must be an array of {queue_key, file_paths, reason}' }
+  const ledgerState = readLedger()
+  const logEntries = []
+  const removed = []
+  const missing = []
+  const exceptionWritebacks = []
+
+  for (const it of items) {
+    if (!it.queue_key || !Array.isArray(it.file_paths) || it.file_paths.length === 0 || !it.reason) {
+      return { error: `closed_promotion item requires queue_key, file_paths[] (non-empty), reason: ${JSON.stringify(it)}` }
+    }
+    const entry = ledgerState.entries.find(e => e.queueKey === it.queue_key)
+    if (!entry) { missing.push(it.queue_key); continue }
+    exceptionWritebacks.push({
+      standardId: entry.standardId,
+      ruleId: entry.ruleId,
+      paths: it.file_paths,
+      reason: it.reason
+    })
+    removed.push(it.queue_key)
+    logEntries.push({
+      event_type: 'closed-promotion',
+      queue_key: it.queue_key,
+      file_paths: it.file_paths,
+      reason: it.reason
+    })
+  }
+
+  removePromotions(ledgerState, items.map(it => ({ queueKey: it.queue_key, file_paths: it.file_paths })))
+  writeLedger(ledgerState)
+  if (logEntries.length) appendToDriftLog(logEntries)
+
+  // Writeback exceptions AFTER ledger persistence so a failed writeback doesn't
+  // leave the ledger half-updated. Mirrors the order in resolveExempted.
+  const writebackResults = []
+  for (const wb of exceptionWritebacks) {
+    const r = await appendExceptionToRule(wb.standardId, wb.ruleId, wb.paths, wb.reason)
+    writebackResults.push({ ...wb, ...r })
+  }
+
+  return { resolved: removed.length, removed, missing, exceptions_written: writebackResults }
 }
 
 async function resolveDismissed(items, mode = 'current') {
@@ -1082,6 +1242,7 @@ async function runTool(args = {}) {
     exempted,
     promoted,
     dismissed,
+    closed_promotion,
     force_baseline,
     purge,
     include_diffs = true
@@ -1090,7 +1251,7 @@ async function runTool(args = {}) {
   if (force_baseline || purge) return forceBaseline({ force_baseline, purge, mode })
   if (Array.isArray(submit_judgments)) return submitJudgments({ submit_judgments, mode })
 
-  const resolutionArgs = { applied, exempted, promoted, dismissed }
+  const resolutionArgs = { applied, exempted, promoted, dismissed, closed_promotion }
   const provided = Object.entries(resolutionArgs).filter(([, v]) => Array.isArray(v))
   if (provided.length > 1) {
     const keysByResolution = {}
@@ -1124,6 +1285,7 @@ async function runTool(args = {}) {
   if (Array.isArray(exempted)) return resolveExempted(exempted, mode)
   if (Array.isArray(promoted)) return resolvePromoted(promoted, mode)
   if (Array.isArray(dismissed)) return resolveDismissed(dismissed, mode)
+  if (Array.isArray(closed_promotion)) return resolveClosedPromotion(closed_promotion)
   return detect({ since, mode, scope, includeDiffs: include_diffs })
 }
 
@@ -1139,7 +1301,7 @@ module.exports = {
   upsertQueueEntry,
   definition: {
     name: 'kb_conform',
-    description: 'Three-phase non-functional conformance check. Phase 1 (no resolution args): MCP runs cheap pre-filters and returns requested_evaluations + a prompt for the agent to evaluate. Phase 1.5 (submit_judgments): agent submits per-rule judgments; MCP verifies completeness and queues failures. Phase 2 (applied/exempted/promoted/dismissed): close queue entries. Aspirational mode (mode: aspirational, scope: <standard-file>): retroactive sweep into a separate backlog queue.',
+    description: 'Three-phase non-functional conformance check. Phase 1 (no resolution args): MCP runs cheap pre-filters and returns requested_evaluations + a prompt for the agent to evaluate. Phase 1.5 (submit_judgments): agent submits per-rule judgments; MCP verifies completeness and queues failures. Phase 2 (applied/exempted/promoted/dismissed): close queue entries. Promoted (file, rule) pairs are suppressed from re-detection until the standard is updated (auto-close on rule fingerprint change) or a senior reviewer calls closed_promotion. Aspirational mode (mode: aspirational, scope: <standard-file>): retroactive sweep into a separate backlog queue.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1165,6 +1327,7 @@ module.exports = {
         exempted: { type: 'array', description: 'Phase 2: justified exception, written into rule.exceptions[]', items: { type: 'object', required: ['queue_key', 'file_paths', 'reason'], properties: { queue_key: { type: 'string' }, file_paths: { type: 'array', items: { type: 'string' } }, reason: { type: 'string' } } } },
         promoted: { type: 'array', description: 'Phase 2: standard should change (logged; no automatic edit)', items: { type: 'object', required: ['queue_key', 'originating_files'], properties: { queue_key: { type: 'string' }, originating_files: { type: 'array', items: { type: 'string' } }, note: { type: 'string' } } } },
         dismissed: { type: 'array', description: 'Phase 2: false positive', items: { type: 'object', required: ['queue_key', 'reason'], properties: { queue_key: { type: 'string' }, reason: { type: 'string' } } } },
+        closed_promotion: { type: 'array', description: 'Senior reviewer close-out: removes a previously-promoted (file, rule) from the suppression ledger AND writes an exception into the rule (so the file is permanently fine). Use when reviewer decided NOT to update the standard. If the reviewer DID update the standard, no call is needed — the next sweep auto-closes via fingerprint change.', items: { type: 'object', required: ['queue_key', 'file_paths', 'reason'], properties: { queue_key: { type: 'string' }, file_paths: { type: 'array', items: { type: 'string' } }, reason: { type: 'string' } } } },
         force_baseline: { type: 'string', description: 'Admin: reset baseline to a SHA or "HEAD"' },
         purge: { type: 'boolean', description: 'Admin: with force_baseline, also clear all entries' },
         include_diffs: { type: 'boolean', description: 'Phase 1: pre-fetch diffs into result._diffs (default: true)' }
