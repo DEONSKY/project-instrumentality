@@ -22,26 +22,44 @@ Phase 1 re-detection until either:
 
 // ── Fingerprint ──────────────────────────────────────────────────────────────
 
+// Recursive key-sort so JSON.stringify produces deterministic output regardless
+// of insertion order in the source YAML. Arrays preserve order (semantically
+// meaningful for things like detect.pattern lists); objects don't.
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize)
+  if (value && typeof value === 'object') {
+    const sorted = {}
+    for (const k of Object.keys(value).sort()) sorted[k] = canonicalize(value[k])
+    return sorted
+  }
+  return value
+}
+
 /**
  * Stable hash of the rule's enforcement-relevant fields. Changes when a senior
- * reviewer meaningfully edits the rule (description, severity, detect, or — for
- * contracts — any party's applies_to.paths). A fingerprint mismatch on a
- * subsequent sweep means "the standard has been updated" → auto-close.
+ * reviewer meaningfully edits the rule: description, severity, the full detect
+ * config, the rule's applies_to, or — for contracts — any party's
+ * applies_to.paths. A fingerprint mismatch on a subsequent sweep means
+ * "the standard has been updated" → auto-close.
  *
  * Deliberately excludes rule.title and rule.exceptions: title edits are cosmetic
  * and exception writebacks are how `closed_promotion` clears suppression
  * already.
  *
+ * Note: changing the inputs to this function invalidates every existing
+ * promotion entry (their stored fingerprint won't match the new computation),
+ * which causes auto-close on the next sweep. That is a recovery path, not data
+ * loss — re-promoting brings them back at the new fingerprint.
+ *
  * @param {object} rule       - rule object from standardsIndex
  * @param {object} [standard] - parent standard (required if kind === 'contract')
  */
 function computeRuleFingerprint(rule, standard) {
-  const detect = rule.detect || {}
   const parts = {
     description: rule.description || '',
     severity: rule.severity || '',
-    detect_kind: detect.kind || '',
-    detect_body: detect.pattern || detect.hint || ''
+    detect: canonicalize(rule.detect || null),
+    applies_to: canonicalize(rule.applies_to || null)
   }
   if (standard && standard.kind === 'contract') {
     const partyPaths = []

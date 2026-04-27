@@ -481,7 +481,40 @@ kb_extract({ source: "code", target_id: "screen-routing",
 
 #### The conformance loop
 
-After making code changes, run the three-phase `kb_conform` workflow:
+`kb_conform` answers one question: **"does the code I just wrote follow the standards?"** It runs in three phases because the work splits naturally between code (cheap, deterministic) and judgment (LLM, expensive).
+
+```
+   Phase 1  detect                       (MCP, deterministic)
+   ────────────────────────────────────────────────────────────────
+   Walks the diff (or the whole codebase, in aspirational mode).
+   Applies cheap pre-filters: path globs, min-lines, party scope,
+   already-exempted, already-promoted. Returns a small list of
+   (file, rule) pairs to judge — plus the file contents.
+                              │
+                              ▼
+   Phase 1.5  judge                      (you / the agent)
+   ────────────────────────────────────────────────────────────────
+   Read each (file, rule) pair, decide pass / fail / n/a. Submit
+   ALL judgments in one call (partial submissions return gaps[]
+   and don't advance the queue). Failures land in a queue file.
+                              │
+                              ▼
+   Phase 2  resolve queue entries        (you / the agent)
+   ────────────────────────────────────────────────────────────────
+   For each queued failure, pick exactly one outcome:
+     applied   — code was fixed
+     exempted  — justified exception, written into rule.exceptions[]
+     promoted  — code is right, standard should change (suppress + log)
+     dismissed — false positive
+```
+
+**Why three phases?** Phase 1 is cheap, so it runs every time and bounds the work. Phase 1.5 is where the LLM actually thinks — keeping it separate means the MCP can verify completeness (no rule silently skipped). Phase 2 is the deliberate decision per violation; nothing is auto-resolved.
+
+**Two queue files** capture results, depending on which mode produced them:
+- [`sync/standards-drift.md`](knowledge/sync/standards-drift.md) — current-mode sweep against the diff between a baseline SHA and HEAD. This is the PR gate.
+- [`sync/standards-backlog.md`](knowledge/sync/standards-backlog.md) — aspirational sweep across the whole codebase against a (possibly new) standard. Advisory only; doesn't gate PRs.
+
+The full API:
 
 ```
 # Phase 1 — detect

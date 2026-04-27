@@ -348,7 +348,14 @@ async function resolveBootstrapRef(git) {
 // ── Phase 1 detect ────────────────────────────────────────────────────────────
 
 async function detect(opts) {
-  const { mode = 'current', scope, since, includeDiffs = true } = opts
+  const { mode = 'current', scope, since, includeDiffs = true, path_filter } = opts
+  // Forbid path_filter in current mode: current-mode Phase 1 advances baseline
+  // to HEAD on success, so a filtered sweep would silently skip files that fall
+  // outside the filter on the next run.
+  if (path_filter && mode !== 'aspirational') {
+    return { error: 'path_filter is only valid in aspirational mode (current mode advances baseline based on the full diff and would skip filtered files on subsequent sweeps)' }
+  }
+  const filterGlobs = normalizePathFilter(path_filter)
   const queuePath = mode === 'aspirational' ? STANDARDS_BACKLOG_PATH : STANDARDS_DRIFT_PATH
   const queueHeader = mode === 'aspirational' ? STANDARDS_BACKLOG_HEADER : STANDARDS_DRIFT_HEADER
 
@@ -383,30 +390,30 @@ async function detect(opts) {
   let candidateFiles = []
   if (mode === 'aspirational' && scope) {
     // Aspirational: scope is the standard's file path. Find rules in that
-    // standard and walk the codebase for files matching their applies_to.paths.
+    // standard and intersect the tracked-file set with their applies_to.paths.
     const stdEntry = standardsIndex.find(s => s.path === scope.replace(/^knowledge\//, '') || s.path === scope)
     if (!stdEntry) {
       return { error: `Standard not found in index: ${scope}. Run kb_reindex first.` }
     }
-    const collected = new Set()
-    const collectGlob = (glob) => {
-      // Walk filesystem from the literal prefix (cheap; reuses pattern matcher)
-      const segments = glob.split('/')
-      const firstWild = segments.findIndex(s => /[*?]/.test(s))
-      const prefixSegs = firstWild === -1 ? segments.slice(0, -1) : segments.slice(0, firstWild)
-      const prefix = prefixSegs.join('/') || '.'
-      walkDirectory(prefix, (rel) => {
-        if (globMatch(rel, glob)) collected.add(rel)
-      })
-    }
+    const ruleGlobs = []
     if (stdEntry.kind === 'contract') {
       for (const party of Object.values(stdEntry.parties || {})) {
-        for (const p of (party.applies_to && party.applies_to.paths) || []) collectGlob(p)
+        for (const p of (party.applies_to && party.applies_to.paths) || []) ruleGlobs.push(p)
       }
     } else {
       for (const rule of stdEntry.rules) {
-        for (const p of (rule.applies_to && rule.applies_to.paths) || []) collectGlob(p)
+        for (const p of (rule.applies_to && rule.applies_to.paths) || []) ruleGlobs.push(p)
       }
+    }
+    const tracked = await listTrackedFiles(git)
+    const collected = new Set()
+    for (const rel of tracked) {
+      if (!ruleGlobs.some(g => globMatch(rel, g))) continue
+      if (filterGlobs && !filterGlobs.some(g => globMatch(rel, g))) continue
+      collected.add(rel)
+    }
+    if (filterGlobs && collected.size === 0) {
+      return { error: `path_filter ${JSON.stringify(path_filter)} produced no candidates inside standard "${stdEntry.id}" (intersection with applies_to.paths is empty)` }
     }
     candidateFiles = [...collected].map(p => ({ status: 'A', path: p }))
   } else {
@@ -624,6 +631,9 @@ async function detect(opts) {
     } catch (e) {
       prompt = `Error building prompt: ${e.message}`
     }
+    if (mode === 'aspirational' && !filterGlobs && requestedEvaluations.length > 200) {
+      prompt = `> NOTE: ${requestedEvaluations.length} evaluations in this sweep — if that exceeds what you can judge in one response, abort and re-run with \`path_filter\` to chunk by subtree (e.g. \`path_filter: "src/admin"\`). Submit_judgments must cover every requested triple in a single call.\n\n` + prompt
+    }
   }
 
   // Stash pending evaluations on disk so Phase 1.5 can verify completeness.
@@ -734,25 +744,38 @@ function appScopeMatches(scope, appScope) {
   return false
 }
 
-// Walk a directory recursively, calling cb(relativePath) for every file.
-// Skips standard build/dep dirs; doesn't follow symlinks.
-function walkDirectory(start, cb) {
-  const SKIP = new Set(['.git', 'node_modules', 'dist', 'build', '.next', 'coverage', 'target', '.gradle', 'knowledge'])
-  if (!fs.existsSync(start)) return
-  const stack = [start]
-  while (stack.length) {
-    const dir = stack.pop()
-    let entries
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { continue }
-    for (const ent of entries) {
-      if (ent.name.startsWith('.') && ent.name !== '.') continue
-      if (SKIP.has(ent.name)) continue
-      const abs = path.join(dir, ent.name)
-      const rel = path.relative(process.cwd(), abs).split(path.sep).join('/')
-      if (ent.isDirectory()) stack.push(abs)
-      else if (ent.isFile()) cb(rel)
+// Tracked-file enumeration via git. Honors .gitignore and submodule boundaries
+// for free, and avoids the N-walks-per-rule cost of the prior fs-based approach.
+// --recurse-submodules pulls in submodule-internal paths so aspirational sweeps
+// don't lose coverage relative to the prior fs.walk; falls back to the parent
+// repo if the flag isn't supported or a submodule isn't initialized.
+async function listTrackedFiles(git) {
+  try {
+    const out = await git.raw(['ls-files', '--recurse-submodules'])
+    return out.split('\n').filter(Boolean)
+  } catch {
+    try {
+      const out = await git.raw(['ls-files'])
+      return out.split('\n').filter(Boolean)
+    } catch {
+      return []
     }
   }
+}
+
+// Accept string or array; auto-expand directory-shaped inputs to recursive
+// globs ("src/admin" → "src/admin/**") so the most natural caller input
+// matches files under that subtree instead of returning nothing.
+function normalizePathFilter(input) {
+  if (input == null) return null
+  const arr = Array.isArray(input) ? input : [input]
+  const out = []
+  for (const p of arr) {
+    if (typeof p !== 'string' || !p) continue
+    if (/[*?]/.test(p)) { out.push(p); continue }
+    out.push(p.endsWith('/') ? p + '**' : p + '/**')
+  }
+  return out.length ? out : null
 }
 
 // ── Pending evaluations cache ────────────────────────────────────────────────
@@ -1237,6 +1260,7 @@ async function runTool(args = {}) {
     since,
     mode = 'current',
     scope,
+    path_filter,
     submit_judgments,
     applied,
     exempted,
@@ -1286,7 +1310,7 @@ async function runTool(args = {}) {
   if (Array.isArray(promoted)) return resolvePromoted(promoted, mode)
   if (Array.isArray(dismissed)) return resolveDismissed(dismissed, mode)
   if (Array.isArray(closed_promotion)) return resolveClosedPromotion(closed_promotion)
-  return detect({ since, mode, scope, includeDiffs: include_diffs })
+  return detect({ since, mode, scope, path_filter, includeDiffs: include_diffs })
 }
 
 module.exports = {
@@ -1301,16 +1325,17 @@ module.exports = {
   upsertQueueEntry,
   definition: {
     name: 'kb_conform',
-    description: 'Three-phase non-functional conformance check. Phase 1 (no resolution args): MCP runs cheap pre-filters and returns requested_evaluations + a prompt for the agent to evaluate. Phase 1.5 (submit_judgments): agent submits per-rule judgments; MCP verifies completeness and queues failures. Phase 2 (applied/exempted/promoted/dismissed): close queue entries. Promoted (file, rule) pairs are suppressed from re-detection until the standard is updated (auto-close on rule fingerprint change) or a senior reviewer calls closed_promotion. Aspirational mode (mode: aspirational, scope: <standard-file>): retroactive sweep into a separate backlog queue.',
+    description: 'Three-phase non-functional conformance check. Phase 1 (no resolution args): MCP runs cheap pre-filters and returns requested_evaluations + a prompt for the agent to evaluate. Phase 1.5 (submit_judgments): agent submits per-rule judgments — must cover every requested triple in a single call (partial submissions return gaps[] and are not persisted across calls). Phase 2 (applied/exempted/promoted/dismissed): close queue entries. Promoted (file, rule) pairs are suppressed from re-detection until the standard is updated (auto-close on rule fingerprint change) or a senior reviewer calls closed_promotion. Aspirational mode (mode: aspirational, scope: <standard-file>): retroactive sweep into a separate backlog queue; pass path_filter to chunk a large sweep by subtree.',
     inputSchema: {
       type: 'object',
       properties: {
         since: { type: 'string', description: 'Override baseline SHA (default: read from queue header)' },
         mode: { type: 'string', enum: ['current', 'aspirational'], description: 'Detection mode (default: current)' },
-        scope: { type: 'string', description: 'Glob filter on Phase 1 file set; or standard file path in aspirational mode' },
+        scope: { type: 'string', description: 'Glob filter on Phase 1 file set (current mode); or standard file path in aspirational mode' },
+        path_filter: { type: ['string', 'array'], items: { type: 'string' }, description: 'Aspirational mode only: chunk a large sweep by intersecting with one or more path globs (e.g. "src/admin" or ["src/admin", "src/customer"]). Bare directory inputs auto-expand to "<dir>/**". Errors if used in current mode, or if the intersection with the standard\'s applies_to.paths is empty.' },
         submit_judgments: {
           type: 'array',
-          description: 'Phase 1.5: per-(file, standard, rule) judgments',
+          description: 'Phase 1.5: per-(file, standard, rule) judgments. Must include every triple from the pending session in one call — partial submissions return gaps[] and are not persisted across calls.',
           items: {
             type: 'object',
             required: ['file', 'standard_id', 'rule_id', 'status'],
