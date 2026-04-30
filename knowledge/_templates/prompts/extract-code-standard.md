@@ -7,6 +7,26 @@ You are deriving a coding standards document from existing source code files.
 - Standards group: {{target_group}}
 - App scope: {{app_scope}}
 
+## Scope — what belongs here
+
+This system captures **semantic, architectural, and cross-cutting decisions** that
+require human or LLM judgment. It is **not** an ESLint replacement.
+
+Before writing any rule, ask: *can ESLint, Prettier, tsc, biome, or any existing
+linter in this stack enforce this?* If yes — **do not write a rule for it**. The
+project's lint config is the right home for that constraint.
+
+Good rules: layering boundaries, naming conventions tied to architecture, when to
+split components, contract shapes between services, error-handling philosophy,
+where business logic must live, decomposition heuristics for oversized modules.
+
+Bad rules (skip these — let the linter handle them): unused imports, indentation,
+quote style, semicolons, `console.log` in production, `any` usage, line length,
+trailing commas, prefer-const, no-var, simple naming-pattern checks.
+
+Lean toward **fewer, higher-leverage rules**. If a rule could be expressed as a
+one-line lint config, it does not belong here.
+
 ## Instructions
 
 Review the sampled code files below. Observe the **actual patterns present** — how files are
@@ -29,8 +49,12 @@ For each rule also specify:
 - `severity`: `warn` by default; `error` only for hard architectural rules; `info` for advisory
 - `applies_to.paths`: glob patterns matching where this rule fires (required for stack-local)
 - `applies_to.min_lines` (optional): cheap pre-filter for size-dependent rules
-- `detect.kind`: `regex` or `ast-grep` if mechanically detectable; `llm` when judgment is needed
-- `detect.hint`: a regex pattern (for `kind: regex`) or a one-line hint for the LLM judge
+- `detect.kind`: **default to `llm`** — these are semantic rules, not lint rules.
+  Use `regex`/`ast-grep` only when the entire decision is mechanical *and* no
+  existing linter covers it (rare). If you reach for regex, reconsider whether
+  the rule belongs in this system at all.
+- `detect.hint`: one-line hint that tells the LLM judge what to look for
+  (or, for `kind: regex`/`ast-grep`, the pattern itself)
 - `fix_hint`: one line on how a developer would fix a violation
 
 **Do NOT invent rules that are not evidenced.** If you see inconsistency, write the

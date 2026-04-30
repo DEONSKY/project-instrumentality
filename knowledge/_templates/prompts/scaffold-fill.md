@@ -125,6 +125,19 @@ A bad feature file answers: **How is it implemented?**
 
 ### When template_type is "standard"
 
+Standards capture **semantic and architectural decisions that require human or
+LLM judgment** — they are not a linter replacement. Before drafting any rule,
+check that an existing tool isn't already the right home:
+
+- If ESLint / Prettier / tsc / biome / `kb_lint` can express the rule in one
+  line of config, it does not belong in a standard.
+- Standards are for cross-cutting decisions: layering, contracts between apps,
+  decomposition heuristics, when-to-split rules, naming tied to architecture,
+  conventions tooling can't infer on its own.
+- `detect.kind` should default to `llm`. Reach for `regex`/`ast-grep` only when
+  the check is genuinely mechanical AND no existing linter covers it. If a rule
+  is regex-shaped, reconsider whether it belongs here at all.
+
 Standards are **pure-frontmatter YAML** — no markdown body. The body sections
 (`## Purpose`, `## Why`, etc.) do not exist. Everything lives in the YAML
 frontmatter `rules:` array.

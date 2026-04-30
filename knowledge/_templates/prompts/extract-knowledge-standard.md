@@ -7,6 +7,23 @@ You are deriving a knowledge-writing standards document from existing KB files.
 - Standards group: {{target_group}}
 - App scope: {{app_scope}}
 
+## Scope — what belongs here
+
+This standard captures **how KB authors should write content** — voice,
+structure, what level of detail belongs where, when to split documents, how to
+cross-reference. It is **not** a structural validator.
+
+If a constraint is purely structural (frontmatter field present, headings in a
+fixed order, file in a specific folder), `kb_lint` already enforces it — do not
+duplicate it as a rule here.
+
+Good rules: when a feature doc should split into a flow doc, how technical vs.
+business detail is partitioned across feature/standard/decision files, what
+makes a "good" rule description, when to add cross-references.
+
+Bad rules: "must have an `id` field", "must be in features/", "frontmatter must
+parse" — these are kb_lint's job.
+
 ## Instructions
 
 Review the sampled KB documents below. Observe the **actual writing patterns** — which sections are
@@ -32,8 +49,10 @@ For each rule also specify:
 - `title`: short human label
 - `severity`: `warn` by default; `error` only for hard structural rules
 - `applies_to.paths`: glob patterns over `knowledge/**.md` (e.g. `["knowledge/features/**.md"]`)
-- `detect.kind`: `regex` if mechanically detectable; `llm` when judgment is needed
-- `detect.hint`: regex pattern or one-line hint for the LLM judge
+- `detect.kind`: **default to `llm`** — these rules are about writing quality
+  and require judgment. `regex` is reserved for the rare case where the
+  decision is purely textual and `kb_lint` doesn't already cover it.
+- `detect.hint`: one-line hint for the LLM judge (or regex pattern if `kind: regex`)
 - `fix_hint`: one line on how an author would fix a violation
 
 **Do NOT invent conventions that are not evidenced.**

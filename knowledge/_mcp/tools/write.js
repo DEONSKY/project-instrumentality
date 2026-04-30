@@ -142,32 +142,42 @@ async function runTool({ file_path, content }) {
   // Skipped on lint errors: a malformed standard would produce noisy or
   // wrong queue entries; better to fail loudly via lint and let the user fix
   // it before the sweep runs.
-  if (isStandardFile(file_path) && reindexResult.lint_errors === 0) {
-    try {
-      const { runTool: conform } = require('./conform')
-      const sweepResult = await conform({
-        mode: 'aspirational',
-        scope: file_path.replace(/^knowledge\//, ''),
-        include_diffs: false
-      })
-      if (sweepResult && !sweepResult.error) {
-        result.aspirational_sweep = {
-          mode: 'aspirational',
-          requested_evaluations: sweepResult.requested_evaluations || [],
-          files_checked: sweepResult.files_checked || 0,
-          n_a_count: sweepResult.n_a_count || 0,
-          ...(sweepResult.sprawl_warnings && sweepResult.sprawl_warnings.length > 0 && { sprawl_warnings: sweepResult.sprawl_warnings }),
-          note: ((sweepResult.requested_evaluations || []).length > 0
-            ? 'Run kb_conform({ mode: "aspirational", submit_judgments: [...] }) to evaluate; failures land in sync/standards-backlog.md (advisory).'
-            : 'Aspirational sweep ran; no evaluations needed (deterministic rules only or no matching files).')
-        }
-      } else if (sweepResult && sweepResult.error) {
-        result.aspirational_sweep = { error: sweepResult.error }
+  if (isStandardFile(file_path)) {
+    if (reindexResult.lint_errors > 0) {
+      // Surface the skip explicitly so the user isn't left guessing why
+      // the field is missing or empty.
+      result.aspirational_sweep = {
+        skipped: 'lint_errors',
+        lint_errors: reindexResult.lint_errors,
+        note: 'Aspirational sweep skipped because the standard has lint errors. Fix them and rewrite to trigger the sweep.'
       }
-    } catch (e) {
-      // Non-fatal: write succeeded, sweep failed. Surface the error but don't
-      // make the write fail — the user can rerun kb_conform manually.
-      result.aspirational_sweep = { error: `sweep failed: ${e.message}` }
+    } else {
+      try {
+        const { runTool: conform } = require('./conform')
+        const sweepResult = await conform({
+          mode: 'aspirational',
+          scope: file_path.replace(/^knowledge\//, ''),
+          include_diffs: false
+        })
+        if (sweepResult && !sweepResult.error) {
+          result.aspirational_sweep = {
+            mode: 'aspirational',
+            requested_evaluations: sweepResult.requested_evaluations || [],
+            files_checked: sweepResult.files_checked || 0,
+            n_a_count: sweepResult.n_a_count || 0,
+            ...(sweepResult.sprawl_warnings && sweepResult.sprawl_warnings.length > 0 && { sprawl_warnings: sweepResult.sprawl_warnings }),
+            note: ((sweepResult.requested_evaluations || []).length > 0
+              ? 'Run kb_conform({ mode: "aspirational", submit_judgments: [...] }) to evaluate; failures land in sync/standards-backlog.md (advisory).'
+              : 'Aspirational sweep ran; no evaluations needed (deterministic rules only or no matching files).')
+          }
+        } else if (sweepResult && sweepResult.error) {
+          result.aspirational_sweep = { error: sweepResult.error }
+        }
+      } catch (e) {
+        // Non-fatal: write succeeded, sweep failed. Surface the error but don't
+        // make the write fail — the user can rerun kb_conform manually.
+        result.aspirational_sweep = { error: `sweep failed: ${e.message}` }
+      }
     }
   }
 
