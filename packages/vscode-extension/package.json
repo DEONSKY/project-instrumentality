@@ -1,0 +1,68 @@
+{
+  "name": "kb-sync-vscode",
+  "displayName": "KB Sync",
+  "description": "Surfaces knowledge-base drift, conform-pending, promotions, and lint state from the kb-mcp server.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "instrumentality",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "kbSync",
+          "title": "KB Sync",
+          "icon": "media/kb-sync.svg"
+        }
+      ]
+    },
+    "views": {
+      "kbSync": [
+        {
+          "id": "kbSync.tree",
+          "name": "Sync State",
+          "icon": "media/kb-sync.svg",
+          "contextualTitle": "KB Sync"
+        }
+      ]
+    },
+    "commands": [
+      { "command": "kbSync.refresh", "title": "KB Sync: Refresh", "icon": "$(refresh)" },
+      { "command": "kbSync.copyPrompt", "title": "KB Sync: Copy Prompt", "icon": "$(clippy)" },
+      { "command": "kbSync.openSource", "title": "KB Sync: Open Source File", "icon": "$(go-to-file)" },
+      { "command": "kbSync.openDashboard", "title": "KB Sync: Open Dashboard", "icon": "$(dashboard)" }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "kbSync.refresh", "when": "view == kbSync.tree", "group": "navigation" },
+        { "command": "kbSync.openDashboard", "when": "view == kbSync.tree", "group": "navigation" }
+      ],
+      "view/item/context": [
+        { "command": "kbSync.copyPrompt", "when": "view == kbSync.tree && viewItem == kbSync.entry", "group": "inline" },
+        { "command": "kbSync.openSource", "when": "view == kbSync.tree && viewItem == kbSync.entry", "group": "inline" }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.config.js",
+    "watch": "node esbuild.config.js --watch",
+    "vscode:prepublish": "node esbuild.config.js --production",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "@instrumentality/shared": "file:../shared"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.4.0"
+  }
+}
