@@ -544,11 +544,38 @@ The full API:
 - **`promoted`** — *the code is right; the standard should change.* Recorded as senior-review intent in the audit log; the standard file is **not** modified automatically. Surfaced via `kb_inventory.pending_promotions` for a senior dev to review and act on manually with `kb_extract` + `kb_write`.
 - **`dismissed`** — false positive. Logged as `DISMISSED-CONFORM` (distinct from `RESOLVED`) so dismissals stay visible as a separate signal.
 
+#### Promotions ledger — suppression with an escape hatch
+
+`promoted` needs more explanation than the others because it's the one resolution that doesn't end the conversation: the code is fine, but the standard hasn't been updated yet. To prevent the same `(file, rule)` pair from re-firing on every sweep until a senior reviewer acts, MCP records it in [`sync/standards-promotions.md`](knowledge/sync/standards-promotions.md) as a **suppression entry**. Phase 1 honors the ledger and skips suppressed pairs.
+
+Suppression auto-clears in one of two ways:
+
+- **Rule changes.** The promotion entry stores a fingerprint of the rule's enforcement-relevant fields (`description`, `severity`, the full `detect` config, `applies_to`, plus party paths for contracts). When a senior reviewer edits the rule, the fingerprint mismatches on the next sweep and the entry auto-closes — the rule re-evaluates against all originally-promoted files. A `AUTO-CLOSED-PROMOTION` block lands in the drift log so the change is auditable.
+- **Reviewer decides not to change the rule.** They call `kb_conform({ closed_promotion: [{ queue_key, file_paths, reason }] })`. MCP removes the suppression and writes the file paths into the rule's `exceptions[]` — the same writeback path as `exempted` — so the files are permanently exempted instead of suppressed.
+
+Run `kb_inventory` to see everything currently in the ledger under `pending_promotions`.
+
 #### Aspirational retroactive sweeps
 
 When you write or modify a standard via `kb_write`, MCP synchronously runs `kb_conform({ mode: "aspirational", scope: <standard-file> })` against the entire codebase scoped to the standard's `applies_to.paths`. Results land in `sync/standards-backlog.md` (separate from the current-diff queue). The sweep is included in the `kb_write` response under `aspirational_sweep`.
 
 Backlog entries surface in `kb_get`'s `rules_in_scope` field with `advisory: true` — the next time someone edits an affected file, they see the entry as advisory backlog they may opt to fix as part of their natural change. No PR is blocked by aspirational entries; they're a "tech debt is queued" signal, not a gate.
+
+**Chunking large sweeps with `path_filter`.** A new standard against a big codebase can produce hundreds of evaluations — too many to judge in one response. Pass `path_filter` to limit a sweep to a subtree:
+
+```
+kb_conform({
+  mode: "aspirational",
+  scope: "knowledge/standards/code/screen-routing.md",
+  path_filter: "src/admin"            // or ["src/admin", "src/checkout"]
+})
+```
+
+Bare directory inputs auto-expand to `<dir>/**`. The filter intersects with the standard's `applies_to.paths`; an empty intersection returns an error. Run a series of scoped sweeps (admin → customer → legacy) until coverage is done — the backlog accumulates across them naturally because queue writes upsert by `(standard_id.rule_id, file)`.
+
+`path_filter` is aspirational-only. Current-mode sweeps always cover the full diff so baseline tracking stays consistent; trying to use it there returns an error.
+
+Phase 1 also nudges you toward `path_filter` automatically: if an unscoped aspirational sweep returns more than 200 evaluations, the prompt prepends a one-line suggestion to abort and re-run with a filter.
 
 #### Pre-write guidance — `working_paths`
 
