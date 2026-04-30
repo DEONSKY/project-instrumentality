@@ -143,12 +143,19 @@ async function runTool({ file_path, content }) {
   // wrong queue entries; better to fail loudly via lint and let the user fix
   // it before the sweep runs.
   if (isStandardFile(file_path)) {
-    if (reindexResult.lint_errors > 0) {
+    // Skip-decision is scoped to THIS file's lint errors, not the global KB
+    // count — a pre-existing broken file elsewhere must not block sweeps for
+    // a clean write here.
+    const { runTool: lint } = require('./lint')
+    const fileLint = await lint({ file_path })
+    const fileLintErrors = fileLint.error_count
+
+    if (fileLintErrors > 0) {
       // Surface the skip explicitly so the user isn't left guessing why
       // the field is missing or empty.
       result.aspirational_sweep = {
         skipped: 'lint_errors',
-        lint_errors: reindexResult.lint_errors,
+        lint_errors: fileLintErrors,
         note: 'Aspirational sweep skipped because the standard has lint errors. Fix them and rewrite to trigger the sweep.'
       }
     } else {
