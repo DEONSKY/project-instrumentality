@@ -19,23 +19,70 @@ export function parseLintStderr(stderr: string): LintViolation[] {
   return out;
 }
 
+export interface RunLintOptions {
+  /**
+   * Override command to run instead of the bundled standalone script.
+   * Useful when the MCP source isn't in tree (consumer projects). Example:
+   *   "npx kb-lint" or "/abs/path/to/lint-standalone.js"
+   * The command is split on whitespace; cwd is set to kbRoot; stderr is
+   * parsed the same way.
+   */
+  commandOverride?: string;
+}
+
 /**
- * Spawn the standalone lint script with cwd set to kbRoot. The script is
- * hardcoded to look for ./knowledge — the cwd is what makes it work.
- * Always exits 0; violations are on stderr.
+ * Run lint and parse violations from stderr. Default behavior:
+ *   - look for `<kbRoot>/knowledge/_mcp/scripts/lint-standalone.js`;
+ *   - if missing, return `{ ran: false }` (consumer projects don't ship it).
+ * With `commandOverride`, run that command instead.
+ *
+ * Always exits 0 on the lint side; violations are on stderr.
  */
 export function runLint(
-  kbRoot: string
+  kbRoot: string,
+  opts: RunLintOptions = {}
 ): Promise<{ violations: LintViolation[]; ran: boolean; error?: string }> {
+  if (opts.commandOverride && opts.commandOverride.trim().length > 0) {
+    return runShell(opts.commandOverride.trim(), kbRoot);
+  }
   const script = path.join(kbRoot, "knowledge", "_mcp", "scripts", "lint-standalone.js");
   if (!fs.existsSync(script)) {
-    // Consumer repos won't have the MCP source in tree. Treat as "unavailable",
-    // not an error — the user runs lint via their installed kb-mcp command.
     return Promise.resolve({ violations: [], ran: false });
   }
+  return runProcess(process.execPath, [script], kbRoot);
+}
+
+function runShell(
+  command: string,
+  cwd: string
+): Promise<{ violations: LintViolation[]; ran: boolean; error?: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [script], {
-      cwd: kbRoot,
+    const child = spawn(command, {
+      cwd,
+      shell: true,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", (err) => {
+      resolve({ violations: [], ran: false, error: err.message });
+    });
+    child.on("close", () => {
+      resolve({ violations: parseLintStderr(stderr), ran: true });
+    });
+  });
+}
+
+function runProcess(
+  bin: string,
+  args: string[],
+  cwd: string
+): Promise<{ violations: LintViolation[]; ran: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(bin, args, {
+      cwd,
       stdio: ["ignore", "ignore", "pipe"],
     });
     let stderr = "";

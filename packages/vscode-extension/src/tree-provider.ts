@@ -1,17 +1,17 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
+import { stableEntryId } from "@instrumentality/shared";
 import type {
   StatusSummary,
   CodeDriftEntry,
   KbDriftEntry,
   StandardsDriftEntry,
   PromotionEntry,
-  ConformPending,
   LintViolation,
+  PromptInput,
 } from "@instrumentality/shared";
-import type { PromptInput } from "@instrumentality/shared";
 
-type SectionKind =
+export type SectionKind =
   | "code-drift"
   | "kb-drift"
   | "standards-drift"
@@ -19,7 +19,15 @@ type SectionKind =
   | "promotions"
   | "lint";
 
-interface SectionNode {
+export type SortMode = "default" | "severity" | "recency" | "path";
+
+export interface FilterState {
+  hiddenSections: Set<SectionKind>;
+  hideInfoLint: boolean;
+  textPattern: string;
+}
+
+export interface SectionNode {
   type: "section";
   kind: SectionKind;
   label: string;
@@ -27,18 +35,26 @@ interface SectionNode {
   warning?: string;
 }
 
-interface EntryNode {
+export interface EntryNode {
   type: "entry";
+  parentKind: SectionKind;
+  /** Stable id matching the dashboard's id for the same entry. */
+  entryId: string;
   promptInput: PromptInput;
   label: string;
   description: string;
   tooltip: string;
   sourceFile?: string;
+  standardFile?: string | null;
   iconId: string;
+  iconColorId?: string;
+  severityRank: number;
+  recencyKey: string;
 }
 
-interface MessageNode {
+export interface MessageNode {
   type: "message";
+  parentKind?: SectionKind;
   label: string;
   iconId?: string;
 }
@@ -63,6 +79,26 @@ const SECTION_LABEL: Record<SectionKind, string> = {
   lint: "Lint Issues",
 };
 
+function severityRank(s: string | null | undefined): number {
+  if (s === "error") return 0;
+  if (s === "warn") return 1;
+  if (s === "info") return 2;
+  return 3;
+}
+
+function severityColorId(s: string | null | undefined): string | undefined {
+  if (s === "error") return "problemsErrorIcon.foreground";
+  if (s === "warn") return "problemsWarningIcon.foreground";
+  if (s === "info") return "problemsInfoIcon.foreground";
+  return undefined;
+}
+
+export const DEFAULT_FILTER: FilterState = {
+  hiddenSections: new Set(),
+  hideInfoLint: false,
+  textPattern: "",
+};
+
 export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private _onDidChangeTreeData = new vscode.EventEmitter<TreeNode | undefined | void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
@@ -70,6 +106,14 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private status: StatusSummary | null = null;
   private kbRoot: string | null = null;
   private loadError: string | null = null;
+  private sectionByKind: Map<SectionKind, SectionNode> = new Map();
+  private parentByEntry: WeakMap<EntryNode, SectionNode> = new WeakMap();
+
+  constructor(
+    private getSort: () => SortMode,
+    private getFilter: () => FilterState,
+    private resolveStandardForEntry: (e: EntryNode) => string | null
+  ) {}
 
   setStatus(status: StatusSummary, kbRoot: string) {
     this.status = status;
@@ -90,6 +134,14 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     this._onDidChangeTreeData.fire();
   }
 
+  refreshTree() {
+    this._onDidChangeTreeData.fire();
+  }
+
+  getCurrentKbRoot(): string | null {
+    return this.kbRoot;
+  }
+
   getTreeItem(node: TreeNode): vscode.TreeItem {
     if (node.type === "section") {
       const item = new vscode.TreeItem(
@@ -99,7 +151,7 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
           : vscode.TreeItemCollapsibleState.Collapsed
       );
       item.iconPath = new vscode.ThemeIcon(ICON[node.kind]);
-      item.contextValue = "kbSync.section";
+      item.contextValue = "instrumentality.section";
       if (node.warning) {
         item.tooltip = node.warning;
         item.description = "⚠";
@@ -110,8 +162,10 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
       item.description = node.description;
       item.tooltip = node.tooltip;
-      item.iconPath = new vscode.ThemeIcon(node.iconId);
-      item.contextValue = "kbSync.entry";
+      item.iconPath = node.iconColorId
+        ? new vscode.ThemeIcon(node.iconId, new vscode.ThemeColor(node.iconColorId))
+        : new vscode.ThemeIcon(node.iconId);
+      item.contextValue = node.standardFile ? "instrumentality.entry.standard" : "instrumentality.entry";
       if (node.sourceFile && this.kbRoot) {
         const abs = path.isAbsolute(node.sourceFile)
           ? node.sourceFile
@@ -126,87 +180,144 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     }
     const msg = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
     if (node.iconId) msg.iconPath = new vscode.ThemeIcon(node.iconId);
-    msg.contextValue = "kbSync.message";
+    msg.contextValue = "instrumentality.message";
     return msg;
   }
 
+  /** Required for TreeView.reveal() — bidirectional navigation in Phase B. */
+  getParent(node: TreeNode): TreeNode | null {
+    if (node.type === "section") return null;
+    if (node.type === "message") {
+      return node.parentKind ? this.sectionByKind.get(node.parentKind) ?? null : null;
+    }
+    return this.parentByEntry.get(node) ?? this.sectionByKind.get(node.parentKind) ?? null;
+  }
+
   getChildren(node?: TreeNode): TreeNode[] {
+    // Welcome-view contribution covers the no-kb / no-status case; return [].
     if (this.loadError) {
       return [{ type: "message", label: this.loadError, iconId: "error" }];
     }
-    if (!this.status) {
-      return [
-        {
-          type: "message",
-          label: "knowledge base not detected — open a workspace containing knowledge/_mcp/",
-          iconId: "info",
-        },
-      ];
-    }
+    if (!this.status) return [];
 
     if (!node) {
-      const s = this.status;
-      const sections: SectionNode[] = [
-        { type: "section", kind: "code-drift", label: SECTION_LABEL["code-drift"], count: s.codeDrift.entries.length },
-        { type: "section", kind: "kb-drift", label: SECTION_LABEL["kb-drift"], count: s.kbDrift.entries.length },
-        { type: "section", kind: "standards-drift", label: SECTION_LABEL["standards-drift"], count: s.standardsDrift.entries.length },
-        {
-          type: "section",
-          kind: "conform-pending",
-          label: SECTION_LABEL["conform-pending"],
-          count:
-            (s.conformPending.current?.requested.length ?? 0) +
-            (s.conformPending.aspirational?.requested.length ?? 0),
-          warning: this.conformWarning(s),
-        },
-        { type: "section", kind: "promotions", label: SECTION_LABEL.promotions, count: s.promotions.length },
-        {
-          type: "section",
-          kind: "lint",
-          label: SECTION_LABEL.lint,
-          count: s.lint.violations.length,
-          warning: s.lint.error,
-        },
-      ];
-      return sections;
+      const sections = this.buildSections(this.status);
+      this.sectionByKind = new Map(sections.map((s) => [s.kind, s]));
+      const filter = this.getFilter();
+      return sections.filter((s) => !filter.hiddenSections.has(s.kind));
     }
 
     if (node.type !== "section") return [];
+    const entries = this.entriesForSection(this.status, node);
+    for (const e of entries) {
+      if (e.type === "entry") this.parentByEntry.set(e, node);
+    }
+    return entries;
+  }
 
-    const s = this.status;
-    switch (node.kind) {
+  private buildSections(s: StatusSummary): SectionNode[] {
+    return [
+      { type: "section", kind: "code-drift", label: SECTION_LABEL["code-drift"], count: s.codeDrift.entries.length },
+      { type: "section", kind: "kb-drift", label: SECTION_LABEL["kb-drift"], count: s.kbDrift.entries.length },
+      { type: "section", kind: "standards-drift", label: SECTION_LABEL["standards-drift"], count: s.standardsDrift.entries.length },
+      {
+        type: "section",
+        kind: "conform-pending",
+        label: SECTION_LABEL["conform-pending"],
+        count:
+          (s.conformPending.current?.requested.length ?? 0) +
+          (s.conformPending.aspirational?.requested.length ?? 0),
+        warning: this.conformWarning(s),
+      },
+      { type: "section", kind: "promotions", label: SECTION_LABEL.promotions, count: s.promotions.length },
+      {
+        type: "section",
+        kind: "lint",
+        label: SECTION_LABEL.lint,
+        count: s.lint.violations.length,
+        warning: s.lint.error,
+      },
+    ];
+  }
+
+  private entriesForSection(s: StatusSummary, section: SectionNode): TreeNode[] {
+    let raw: EntryNode[] = [];
+    let emptyMessage = "No entries";
+    let emptyIcon = "check";
+
+    switch (section.kind) {
       case "code-drift":
-        return s.codeDrift.entries.length
-          ? s.codeDrift.entries.map((e) => this.codeDriftNode(e))
-          : [{ type: "message", label: "No code drift", iconId: "check" }];
+        raw = s.codeDrift.entries.map((e, i) => this.codeDriftNode(e, i, section));
+        emptyMessage = "No code drift";
+        break;
       case "kb-drift":
-        return s.kbDrift.entries.length
-          ? s.kbDrift.entries.map((e) => this.kbDriftNode(e))
-          : [{ type: "message", label: "No KB drift", iconId: "check" }];
+        raw = s.kbDrift.entries.map((e, i) => this.kbDriftNode(e, i, section));
+        emptyMessage = "No KB drift";
+        break;
       case "standards-drift":
-        return s.standardsDrift.entries.length
-          ? s.standardsDrift.entries.map((e) => this.standardsDriftNode(e))
-          : [{ type: "message", label: "No standards drift", iconId: "check" }];
+        raw = s.standardsDrift.entries.map((e, i) => this.standardsDriftNode(e, i, section));
+        emptyMessage = "No standards drift";
+        break;
       case "conform-pending":
-        return this.conformChildren(s);
+        raw = this.conformEntries(s, section);
+        emptyMessage = "No conform pending";
+        break;
       case "promotions":
-        return s.promotions.length
-          ? s.promotions.map((e) => this.promotionNode(e))
-          : [{ type: "message", label: "No pending promotions", iconId: "check" }];
+        raw = s.promotions.map((e, i) => this.promotionNode(e, i, section));
+        emptyMessage = "No pending promotions";
+        break;
       case "lint":
         if (!s.lint.ran) {
           return [
             {
               type: "message",
+              parentKind: section.kind,
               label: s.lint.error || "lint subprocess unavailable in this workspace",
               iconId: "info",
             },
           ];
         }
-        return s.lint.violations.length
-          ? s.lint.violations.map((v) => this.lintNode(v))
-          : [{ type: "message", label: "No lint issues", iconId: "check" }];
+        raw = s.lint.violations.map((v, i) => this.lintNode(v, i, section));
+        emptyMessage = "No lint issues";
+        break;
     }
+
+    const filter = this.getFilter();
+    const filtered = raw.filter((e) => {
+      if (section.kind === "lint" && filter.hideInfoLint && e.severityRank > 1) return false;
+      if (filter.textPattern) {
+        const hay = (e.label + " " + e.description).toLowerCase();
+        if (!hay.includes(filter.textPattern.toLowerCase())) return false;
+      }
+      return true;
+    });
+
+    const sorted = this.sortEntries(filtered);
+    if (sorted.length === 0) {
+      return [{ type: "message", parentKind: section.kind, label: emptyMessage, iconId: emptyIcon }];
+    }
+    return sorted;
+  }
+
+  private sortEntries(entries: EntryNode[]): EntryNode[] {
+    const mode = this.getSort();
+    const cp = [...entries];
+    switch (mode) {
+      case "severity":
+        cp.sort((a, b) => a.severityRank - b.severityRank || a.label.localeCompare(b.label));
+        break;
+      case "recency":
+        cp.sort((a, b) => b.recencyKey.localeCompare(a.recencyKey) || a.label.localeCompare(b.label));
+        break;
+      case "path":
+        cp.sort((a, b) => (a.sourceFile || a.label).localeCompare(b.sourceFile || b.label));
+        break;
+      case "default":
+      default:
+        // preserve underlying queue order
+        break;
+    }
+    return cp;
   }
 
   private conformWarning(s: StatusSummary): string | undefined {
@@ -219,90 +330,140 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     return undefined;
   }
 
-  private conformChildren(s: StatusSummary): TreeNode[] {
-    const out: TreeNode[] = [];
+  private conformEntries(s: StatusSummary, section: SectionNode): EntryNode[] {
+    const out: EntryNode[] = [];
     for (const p of [s.conformPending.current, s.conformPending.aspirational]) {
       if (!p || p.requested.length === 0) continue;
-      for (const r of p.requested) {
-        out.push({
+      p.requested.forEach((r, i) => {
+        const node: EntryNode = {
           type: "entry",
+          parentKind: section.kind,
+          entryId: stableEntryId(`${p.mode}:${r.file}:${r.standard_id}`, i),
           label: r.file,
           description: `${r.standard_id}: ${r.rule_ids.join(", ")} (${p.mode} @ ${p.head_sha_short})`,
           tooltip: `Pending evaluation against ${r.standard_id} for rules ${r.rule_ids.join(", ")}.\nMode: ${p.mode}\nBaseline: ${p.head_sha_short} (${p.head_date})${p.staleAgainstHead ? "\n⚠ baseline differs from current HEAD" : ""}`,
           sourceFile: r.file,
           iconId: ICON["conform-pending"],
+          severityRank: p.staleAgainstHead ? 1 : 2,
+          recencyKey: p.head_date || "",
           promptInput: { kind: "conform", entry: p },
-        });
-      }
-    }
-    if (out.length === 0) {
-      return [{ type: "message", label: "No conform pending", iconId: "check" }];
+        };
+        node.standardFile = this.resolveStandardForEntry(node);
+        out.push(node);
+      });
     }
     return out;
   }
 
-  private codeDriftNode(e: CodeDriftEntry): EntryNode {
+  private codeDriftNode(e: CodeDriftEntry, index: number, section: SectionNode): EntryNode {
     const filesPreview = e.codeFiles.slice(0, 3).map((f) => f.path).join(", ");
     const more = e.codeFiles.length > 3 ? ` (+${e.codeFiles.length - 3} more)` : "";
+    const recency = e.codeFiles.reduce((acc, f) => {
+      const d = f.latestDate || f.sinceDate || "";
+      return d > acc ? d : acc;
+    }, "");
     return {
       type: "entry",
+      parentKind: section.kind,
+      entryId: stableEntryId(e.kbTarget, index),
       label: e.kbTarget,
       description: `${e.codeFiles.length} file(s)${e.hasShared ? " · shared" : ""}`,
       tooltip: `KB target: ${e.kbTarget}\nFiles: ${filesPreview}${more}`,
       sourceFile: path.join("knowledge", e.kbTarget),
       iconId: ICON["code-drift"],
+      severityRank: e.hasShared ? 1 : 2,
+      recencyKey: recency,
       promptInput: { kind: "code-drift", entry: e },
     };
   }
 
-  private kbDriftNode(e: KbDriftEntry): EntryNode {
+  private kbDriftNode(e: KbDriftEntry, index: number, section: SectionNode): EntryNode {
     return {
       type: "entry",
+      parentKind: section.kind,
+      entryId: stableEntryId(e.kbFile, index),
       label: e.kbFile,
       description: e.unmapped ? "unmapped" : `${e.codeAreas.length} area(s)`,
       tooltip: `KB file: ${e.kbFile}\n${e.unmapped ? "Unmapped — verify manually" : `Code areas: ${e.codeAreas.slice(0, 3).join(", ")}`}`,
       sourceFile: path.join("knowledge", e.kbFile),
       iconId: ICON["kb-drift"],
+      severityRank: e.unmapped ? 1 : 2,
+      recencyKey: e.latestDate || e.sinceDate || "",
       promptInput: { kind: "kb-drift", entry: e },
     };
   }
 
-  private standardsDriftNode(e: StandardsDriftEntry): EntryNode {
+  private standardsDriftNode(e: StandardsDriftEntry, index: number, section: SectionNode): EntryNode {
     const fileCount = Object.values(e.filesByParty).reduce((sum, files) => sum + files.length, 0);
-    const firstFile =
-      Object.values(e.filesByParty).flat()[0]?.path ?? undefined;
+    const firstFile = Object.values(e.filesByParty).flat()[0]?.path ?? undefined;
+    const recency = Object.values(e.filesByParty)
+      .flat()
+      .reduce((acc, f) => {
+        const d = f.latestDate || f.sinceDate || "";
+        return d > acc ? d : acc;
+      }, "");
     return {
       type: "entry",
+      parentKind: section.kind,
+      entryId: stableEntryId(e.queueKey, index),
       label: e.queueKey,
       description: `${e.severity ?? "warn"} · ${fileCount} file(s)`,
       tooltip: `${e.standardId} (${e.standardKind ?? "?"}) · ${e.ruleId}\n${e.reason ?? ""}`,
       sourceFile: firstFile,
       iconId: ICON["standards-drift"],
+      iconColorId: severityColorId(e.severity),
+      severityRank: severityRank(e.severity),
+      recencyKey: recency,
       promptInput: { kind: "standards-drift", entry: e },
     };
   }
 
-  private promotionNode(e: PromotionEntry): EntryNode {
+  private promotionNode(e: PromotionEntry, index: number, section: SectionNode): EntryNode {
     return {
       type: "entry",
+      parentKind: section.kind,
+      entryId: stableEntryId(e.queueKey, index),
       label: e.queueKey,
       description: `${e.files.length} file(s)`,
       tooltip: `${e.standardId ?? "?"} · ${e.ruleId ?? "?"}\nFingerprint: ${e.ruleFingerprint ?? "?"}`,
       sourceFile: e.files[0]?.path,
       iconId: ICON.promotions,
+      iconColorId: severityColorId(e.severity),
+      severityRank: severityRank(e.severity),
+      recencyKey: e.files.reduce((acc, f) => (f.promotedAt > acc ? f.promotedAt : acc), ""),
       promptInput: { kind: "promotion", entry: e },
     };
   }
 
-  private lintNode(v: LintViolation): EntryNode {
+  private lintNode(v: LintViolation, index: number, section: SectionNode): EntryNode {
     return {
       type: "entry",
+      parentKind: section.kind,
+      entryId: stableEntryId(`${v.file}:${v.message.slice(0, 40)}`, index),
       label: v.file,
       description: `${v.severity}: ${v.message.length > 60 ? v.message.slice(0, 60) + "…" : v.message}`,
       tooltip: `${v.severity.toUpperCase()} · ${v.file}\n${v.message}`,
       sourceFile: v.file,
       iconId: v.severity === "error" ? "error" : "warning",
+      iconColorId: severityColorId(v.severity),
+      severityRank: severityRank(v.severity),
+      recencyKey: "",
       promptInput: { kind: "lint", entry: v },
     };
+  }
+
+  /**
+   * Locate an entry node by section + stable id. Used by the dashboard to
+   * reveal a tree leaf for a clicked card. Re-runs the section's getChildren
+   * because nodes are recreated on each render.
+   */
+  findEntryByRef(section: SectionKind, entryId: string): EntryNode | null {
+    const sectionNode = this.sectionByKind.get(section);
+    if (!sectionNode) return null;
+    const children = this.getChildren(sectionNode);
+    for (const c of children) {
+      if (c.type === "entry" && c.entryId === entryId) return c;
+    }
+    return null;
   }
 }

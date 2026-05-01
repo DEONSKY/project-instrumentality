@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+  <!-- outer ring -->
+  <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+  <!-- inscribed diamond -->
+  <polygon points="12,3 21,12 12,21 3,12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+  <!-- three nodes at triangle vertices -->
+  <circle cx="12" cy="6.5" r="1.7"/>
+  <circle cx="6.5" cy="15.5" r="1.7"/>
+  <circle cx="17.5" cy="15.5" r="1.7"/>
+  <!-- center eye -->
+  <circle cx="12" cy="12" r="1.6"/>
+</svg>

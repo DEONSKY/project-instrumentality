@@ -1,0 +1,9 @@
+{
+  "id": "instrumentality",
+  "name": "Instrumentality",
+  "version": "0.2.0",
+  "minAppVersion": "1.4.0",
+  "description": "Surfaces knowledge-base drift, conform-pending, promotions, and lint state from the kb-mcp server.",
+  "author": "instrumentality",
+  "isDesktopOnly": true
+}

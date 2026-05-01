@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run KB Sync Extension",
+      "name": "Run Instrumentality Extension",
       "type": "extensionHost",
       "request": "launch",
       "args": [
@@ -14,7 +14,7 @@
       "preLaunchTask": "npm: build"
     },
     {
-      "name": "Run KB Sync Extension (with this repo)",
+      "name": "Run Instrumentality Extension (with this repo)",
       "type": "extensionHost",
       "request": "launch",
       "args": [

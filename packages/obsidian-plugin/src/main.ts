@@ -1,0 +1,76 @@
+import { Plugin, WorkspaceLeaf, addIcon } from "obsidian";
+import { findKbRoot } from "@instrumentality/shared";
+import { InstrumentalityView, VIEW_TYPE_INSTRUMENTALITY, ICON_ID } from "./view";
+
+// Same SVG as the VSCode activity-bar icon. Obsidian renders it with
+// currentColor at various sizes (ribbon, view header, tabs).
+const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+  <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+  <polygon points="12,3 21,12 12,21 3,12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+  <circle cx="12" cy="6.5" r="1.7"/>
+  <circle cx="6.5" cy="15.5" r="1.7"/>
+  <circle cx="17.5" cy="15.5" r="1.7"/>
+  <circle cx="12" cy="12" r="1.6"/>
+</svg>`;
+
+export default class InstrumentalityPlugin extends Plugin {
+  async onload(): Promise<void> {
+    addIcon(ICON_ID, ICON_SVG);
+
+    this.registerView(
+      VIEW_TYPE_INSTRUMENTALITY,
+      (leaf) => new InstrumentalityView(leaf, () => this.detectKbRoot())
+    );
+
+    this.addRibbonIcon(ICON_ID, "Instrumentality", () => void this.activateView());
+
+    this.addCommand({
+      id: "open-pane",
+      name: "Open Instrumentality pane",
+      callback: () => void this.activateView(),
+    });
+
+    this.addCommand({
+      id: "refresh",
+      name: "Refresh Instrumentality",
+      callback: () => {
+        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_INSTRUMENTALITY)) {
+          const view = leaf.view as InstrumentalityView;
+          void view.refresh();
+        }
+      },
+    });
+  }
+
+  onunload(): void {
+    // Per Obsidian guidance, do NOT detachLeavesOfType in onunload — the user
+    // may want their layout preserved across plugin reloads.
+  }
+
+  private async activateView(): Promise<void> {
+    const { workspace } = this.app;
+    let leaf: WorkspaceLeaf | null =
+      workspace.getLeavesOfType(VIEW_TYPE_INSTRUMENTALITY)[0] ?? null;
+    if (!leaf) {
+      leaf = workspace.getRightLeaf(false);
+      if (!leaf) leaf = workspace.getLeaf(true);
+      await leaf.setViewState({ type: VIEW_TYPE_INSTRUMENTALITY, active: true });
+    }
+    workspace.revealLeaf(leaf);
+  }
+
+  /**
+   * Resolve the KB root by walking up from the vault's filesystem path.
+   * Returns null if the vault adapter doesn't expose a base path (mobile
+   * sandboxed installs) or no KB indicator is found in tree.
+   */
+  private detectKbRoot(): string | null {
+    const adapter = this.app.vault.adapter as unknown as {
+      basePath?: string;
+      getBasePath?: () => string;
+    };
+    const basePath = adapter.basePath ?? adapter.getBasePath?.();
+    if (!basePath) return null;
+    return findKbRoot([basePath]);
+  }
+}

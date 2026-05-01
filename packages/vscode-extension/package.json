@@ -1,8 +1,8 @@
 {
-  "name": "kb-sync-vscode",
-  "displayName": "KB Sync",
+  "name": "instrumentality-vscode",
+  "displayName": "Instrumentality",
   "description": "Surfaces knowledge-base drift, conform-pending, promotions, and lint state from the kb-mcp server.",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "publisher": "instrumentality",
   "engines": {
@@ -11,43 +11,93 @@
   "categories": ["Other"],
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onStartupFinished"
+    "workspaceContains:knowledge/_rules.md",
+    "workspaceContains:knowledge/sync",
+    "workspaceContains:knowledge/_index.yaml"
   ],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "kbSync",
-          "title": "KB Sync",
-          "icon": "media/kb-sync.svg"
+          "id": "instrumentality",
+          "title": "Instrumentality",
+          "icon": "media/mcp-logo-small.svg"
         }
       ]
     },
     "views": {
-      "kbSync": [
+      "instrumentality": [
         {
-          "id": "kbSync.tree",
+          "id": "instrumentality.tree",
           "name": "Sync State",
-          "icon": "media/kb-sync.svg",
-          "contextualTitle": "KB Sync"
+          "icon": "media/mcp-logo-small.svg",
+          "contextualTitle": "Instrumentality"
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "instrumentality.tree",
+        "contents": "No knowledge base detected in the open workspace.\n\nInstrumentality looks for `knowledge/_rules.md`, `knowledge/sync/`, `knowledge/_index.yaml`, or `knowledge/_mcp/server.js` in the workspace folders.\n\n[Open Folder](command:vscode.openFolder)\n[Refresh](command:instrumentality.refresh)\n\nTo bootstrap a new project, run `kb_init` via your agent."
+      }
+    ],
     "commands": [
-      { "command": "kbSync.refresh", "title": "KB Sync: Refresh", "icon": "$(refresh)" },
-      { "command": "kbSync.copyPrompt", "title": "KB Sync: Copy Prompt", "icon": "$(clippy)" },
-      { "command": "kbSync.openSource", "title": "KB Sync: Open Source File", "icon": "$(go-to-file)" },
-      { "command": "kbSync.openDashboard", "title": "KB Sync: Open Dashboard", "icon": "$(dashboard)" }
+      { "command": "instrumentality.refresh", "title": "Instrumentality: Refresh", "icon": "$(refresh)" },
+      { "command": "instrumentality.copyPrompt", "title": "Instrumentality: Copy Prompt", "icon": "$(clippy)" },
+      { "command": "instrumentality.sendPrompt", "title": "Instrumentality: Send Prompt to Active Agent", "icon": "$(send)" },
+      { "command": "instrumentality.openSource", "title": "Instrumentality: Open Source File", "icon": "$(go-to-file)" },
+      { "command": "instrumentality.openStandard", "title": "Instrumentality: Open Standard Definition", "icon": "$(law)" },
+      { "command": "instrumentality.openDashboard", "title": "Instrumentality: Open Dashboard", "icon": "$(dashboard)" },
+      { "command": "instrumentality.sortBy", "title": "Instrumentality: Sort By...", "icon": "$(sort-precedence)" },
+      { "command": "instrumentality.filter", "title": "Instrumentality: Filter...", "icon": "$(filter)" },
+      { "command": "instrumentality.clearFilter", "title": "Instrumentality: Clear Filter", "icon": "$(clear-all)" }
     ],
     "menus": {
       "view/title": [
-        { "command": "kbSync.refresh", "when": "view == kbSync.tree", "group": "navigation" },
-        { "command": "kbSync.openDashboard", "when": "view == kbSync.tree", "group": "navigation" }
+        { "command": "instrumentality.refresh", "when": "view == instrumentality.tree", "group": "navigation@1" },
+        { "command": "instrumentality.openDashboard", "when": "view == instrumentality.tree", "group": "navigation@2" },
+        { "command": "instrumentality.sortBy", "when": "view == instrumentality.tree", "group": "1_view@1" },
+        { "command": "instrumentality.filter", "when": "view == instrumentality.tree", "group": "1_view@2" },
+        { "command": "instrumentality.clearFilter", "when": "view == instrumentality.tree && instrumentality.filterActive", "group": "1_view@3" }
       ],
       "view/item/context": [
-        { "command": "kbSync.copyPrompt", "when": "view == kbSync.tree && viewItem == kbSync.entry", "group": "inline" },
-        { "command": "kbSync.openSource", "when": "view == kbSync.tree && viewItem == kbSync.entry", "group": "inline" }
+        { "command": "instrumentality.sendPrompt", "when": "view == instrumentality.tree && viewItem == instrumentality.entry", "group": "inline@1" },
+        { "command": "instrumentality.copyPrompt", "when": "view == instrumentality.tree && viewItem == instrumentality.entry", "group": "inline@2" },
+        { "command": "instrumentality.openSource", "when": "view == instrumentality.tree && viewItem == instrumentality.entry", "group": "inline@3" },
+        { "command": "instrumentality.openStandard", "when": "view == instrumentality.tree && viewItem == instrumentality.entry.standard", "group": "1_actions" }
       ]
+    },
+    "configuration": {
+      "title": "Instrumentality",
+      "properties": {
+        "instrumentality.agent.backend": {
+          "type": "string",
+          "enum": ["clipboard", "terminal", "command"],
+          "default": "clipboard",
+          "description": "How 'Send Prompt' delivers the generated prompt. 'clipboard' copies it (you paste into the agent). 'terminal' types it into the active terminal. 'command' invokes a VS Code command id (set instrumentality.agent.commandId)."
+        },
+        "instrumentality.agent.commandId": {
+          "type": "string",
+          "default": "",
+          "description": "VS Code command id to invoke when instrumentality.agent.backend is 'command'. The command receives the prompt string as its first argument. Example: 'workbench.action.terminal.sendSequence'."
+        },
+        "instrumentality.notifications.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show toast notifications when sync state worsens (new errors, large delta, baseline change). Off by default — enable after you've tuned the rest."
+        },
+        "instrumentality.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Auto-refresh interval in seconds. 0 = file-watch only (default). Set to 30+ for unreliable network filesystems."
+        },
+        "instrumentality.lint.command": {
+          "type": "string",
+          "default": "",
+          "description": "Override the lint command. Default tries '<kbRoot>/knowledge/_mcp/scripts/lint-standalone.js'. Set to e.g. 'npx kb-lint' or '/abs/path/to/lint-standalone.js' if your project uses an installed kb-mcp."
+        }
+      }
     }
   },
   "scripts": {

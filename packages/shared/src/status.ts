@@ -24,6 +24,8 @@ async function getCurrentHeadShort(kbRoot: string): Promise<string | null> {
 export interface GetStatusOptions {
   /** Skip the lint subprocess (faster; useful when callers already have it). */
   skipLint?: boolean;
+  /** Override lint command (e.g. "npx kb-lint") for consumer projects. */
+  lintCommand?: string;
 }
 
 export async function getStatus(
@@ -40,7 +42,7 @@ export async function getStatus(
       Promise.resolve(readPromotions(kbRoot)),
       opts.skipLint
         ? Promise.resolve({ violations: [], ran: false })
-        : runLint(kbRoot),
+        : runLint(kbRoot, { commandOverride: opts.lintCommand }),
       getCurrentHeadShort(kbRoot),
     ]);
 

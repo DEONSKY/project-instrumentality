@@ -1,0 +1,21 @@
+{
+  "name": "instrumentality-obsidian",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Obsidian sidebar pane that mirrors the VSCode Instrumentality dashboard.",
+  "main": "main.js",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@instrumentality/shared": "file:../shared"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.20.0",
+    "obsidian": "^1.5.7",
+    "typescript": "^5.4.0"
+  }
+}

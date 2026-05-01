@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "test": "node --test --import tsx test/contract.test.ts",
+    "test": "node --test --import tsx test/contract.test.ts test/prompts.test.ts",
     "clean": "rm -rf dist"
   },
   "devDependencies": {

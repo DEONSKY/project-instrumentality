@@ -1,0 +1,231 @@
+/* Instrumentality — Obsidian sidebar styles. Uses Obsidian CSS vars so
+   light/dark themes and user theme overrides are honored. */
+
+.instrumentality-view {
+  padding: 12px;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+}
+
+.instrumentality-view .instrumentality-empty {
+  padding: 24px 8px;
+  color: var(--text-muted);
+  text-align: center;
+  font-style: italic;
+}
+
+.instrumentality-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 8px;
+}
+.instrumentality-header h2 {
+  margin: 0;
+  font-size: 1.1em;
+  font-weight: 600;
+}
+.instrumentality-head-meta {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  margin-top: 2px;
+}
+.instrumentality-head-meta code {
+  font-family: var(--font-monospace);
+  background: var(--code-background);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.instrumentality-tools button {
+  cursor: pointer;
+}
+
+.instrumentality-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.instrumentality-total-card {
+  padding: 8px 10px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+}
+.instrumentality-total-card .n {
+  font-size: 1.3em;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.instrumentality-total-card .l {
+  font-size: 0.78em;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.instrumentality-total-card.error .n { color: var(--text-error, #e51400); }
+.instrumentality-total-card.warn  .n { color: var(--text-warning, #b58900); }
+.instrumentality-total-card.ok    .n { color: var(--interactive-accent); }
+
+.instrumentality-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  margin-bottom: 12px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+}
+.instrumentality-filter-bar input[type="search"] {
+  flex: 1 1 140px;
+  min-width: 120px;
+  padding: 3px 6px;
+}
+.instrumentality-chip-group {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.instrumentality-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 0.78em;
+  background: var(--code-background);
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid transparent;
+}
+.instrumentality-chip:hover { border-color: var(--background-modifier-border); }
+.instrumentality-chip.on {
+  color: var(--text-on-accent, #fff);
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+}
+.instrumentality-chip.sev-error.on { background: var(--text-error, #e51400); border-color: var(--text-error, #e51400); }
+.instrumentality-chip.sev-warn.on  { background: var(--text-warning, #b58900); border-color: var(--text-warning, #b58900); color: #000; }
+.instrumentality-chip.sev-info.on  { background: var(--interactive-accent); border-color: var(--interactive-accent); }
+
+.instrumentality-link {
+  background: transparent;
+  color: var(--interactive-accent);
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 2px 4px;
+  font-size: 0.85em;
+}
+
+.instrumentality-section-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.instrumentality-section-card {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.instrumentality-section-card.hidden { display: none; }
+.instrumentality-section-card > header {
+  padding: 6px 10px;
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.instrumentality-section-card h2 {
+  margin: 0;
+  font-size: 0.95em;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.instrumentality-section-card h2 .count {
+  display: inline-block;
+  font-weight: 500;
+  font-size: 0.8em;
+  background: var(--code-background);
+  color: var(--text-muted);
+  padding: 0 6px;
+  border-radius: 8px;
+}
+.instrumentality-section-card .body {
+  padding: 0 10px;
+}
+.instrumentality-placeholder {
+  padding: 14px 4px;
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+}
+
+.instrumentality-entry {
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding: 6px 0;
+}
+.instrumentality-entry:last-child { border-bottom: none; }
+.instrumentality-entry.hidden { display: none; }
+.instrumentality-entry .entry-summary { cursor: pointer; }
+.instrumentality-entry .entry-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-monospace);
+  font-size: 0.92em;
+}
+.instrumentality-entry .entry-title-row .title { word-break: break-all; }
+.instrumentality-entry .entry-meta {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.instrumentality-entry .entry-detail {
+  display: none;
+  padding: 6px 0 0 8px;
+  border-left: 2px solid var(--background-modifier-border);
+  margin-top: 6px;
+}
+.instrumentality-entry.open .entry-detail { display: block; }
+.instrumentality-entry .detail-meta {
+  font-size: 0.85em;
+}
+.instrumentality-entry .detail-meta > div { margin-bottom: 3px; }
+.instrumentality-entry .detail-meta ul { margin: 3px 0 6px 18px; padding: 0; }
+.instrumentality-entry .detail-meta li { margin: 1px 0; }
+.instrumentality-entry .entry-prompt {
+  font-family: var(--font-monospace);
+  background: var(--code-background);
+  padding: 8px 10px;
+  border-radius: 3px;
+  white-space: pre-wrap;
+  font-size: 0.82em;
+  max-height: 280px;
+  overflow: auto;
+  margin: 6px 0;
+}
+.instrumentality-entry .entry-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 9px;
+  font-size: 0.72em;
+  background: var(--code-background);
+  color: var(--text-muted);
+  font-weight: 500;
+  vertical-align: middle;
+}
+.badge.shared { background: var(--interactive-accent); color: var(--text-on-accent, #fff); }
+.badge.sev-error { background: var(--text-error, #e51400); color: #fff; }
+.badge.sev-warn  { background: var(--text-warning, #b58900); color: #000; }
+.badge.sev-info  { background: var(--interactive-accent); color: var(--text-on-accent, #fff); }

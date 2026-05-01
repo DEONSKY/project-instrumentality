@@ -1,10 +1,11 @@
 export * from "./types.js";
 export * from "./kb-root.js";
 export * from "./status.js";
+export { stableEntryId } from "./entry-id.js";
 export { parseCodeDrift, readCodeDrift } from "./parsers/code-drift.js";
 export { parseKbDrift, readKbDrift } from "./parsers/kb-drift.js";
 export { parseStandardsDrift, readStandardsDrift } from "./parsers/standards-drift.js";
-export { parseConformPending, readConformPending } from "./parsers/conform-pending.js";
+export { parseConformPending, readConformPending, resolveStandardPath } from "./parsers/conform-pending.js";
 export { parsePromotions, readPromotions } from "./parsers/promotions.js";
 export { parseLintStderr, runLint } from "./parsers/lint.js";
 export { getActionPrompt } from "./prompts/index.js";
