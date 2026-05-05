@@ -88,16 +88,8 @@ describe("prompt snapshots", () => {
     const out = getActionPrompt({ kind: "code-drift", entry: CODE });
     assert.equal(
       out,
-      `Code drift: KB target \`features/auth.md\` is out of sync.
-
-The following code files changed without a matching KB update:
-
-- \`src/auth/login.ts\` since \`abc1234\`
-- \`src/auth/session.ts\` (renamed from \`src/auth/sess.ts\`) since \`abc1234\`, latest \`def5678\`
-
-Note: at least one of these files is a shared module — make sure the KB update reflects cross-cutting impact.
-
-Please use the \`kb_drift\` tool to inspect the drift, decide whether the KB target needs updating, and resolve the entry. If the KB needs an update, draft it; if the code change is intentional and the KB already covers it, dismiss the entry with a reason.`
+      `Resolve code drift for \`features/auth.md\` via kb_drift.
+Files: \`src/auth/login.ts\`, \`src/auth/session.ts\`, shared module`
     );
   });
 
@@ -105,18 +97,9 @@ Please use the \`kb_drift\` tool to inspect the drift, decide whether the KB tar
     const out = getActionPrompt({ kind: "kb-drift", entry: KB });
     assert.equal(
       out,
-      `KB drift: \`features/checkout.md\` was edited; code may be stale.
-
-Code areas to review:
-
-- \`src/checkout/cart.ts\`
-- \`src/checkout/payment.ts\`
-
-2 other KB file(s) reference this one via \`[[features/checkout]]\`. They may need updating too.
-
-Drift baseline: \`abc1234\`
-
-Please use \`kb_drift\` to inspect the entry. Decide whether the implementation needs to catch up to the new KB spec. If yes, draft the code change; if no, dismiss with a reason.`
+      `Resolve KB drift for \`features/checkout.md\` via kb_drift.
+Code areas: \`src/checkout/cart.ts\`, \`src/checkout/payment.ts\`
+Since: \`abc1234\``
     );
   });
 
@@ -124,27 +107,9 @@ Please use \`kb_drift\` to inspect the entry. Decide whether the implementation 
     const out = getActionPrompt({ kind: "standards-drift", entry: STD });
     assert.equal(
       out,
-      `Standards drift: rule \`api-versioning.deprecation-window\` is failing.
-
-- Standard: \`api-versioning\` (contract)
-- Rule: \`deprecation-window\` — error
-
-Affected files:
-
-**Files (party: backend):**
-  - \`src/api/v1/users.ts\`
-
-**Files (party: client):**
-  - \`web/api-client.ts\`
-
-Reason recorded: missing 6-month deprecation banner
-
-Please use \`kb_conform\` to resolve this entry. Pick one of:
-
-- \`applied\` — code was fixed to satisfy the rule
-- \`exempted\` — write an exception into the rule for these files
-- \`promoted\` — escalate to senior review (suppresses re-detection until the rule changes)
-- \`dismissed\` — false positive`
+      `Resolve \`api-versioning.deprecation-window\` via kb_conform.
+Files: backend: \`src/api/v1/users.ts\`; client: \`web/api-client.ts\`
+Reason: missing 6-month deprecation banner`
     );
   });
 
@@ -152,16 +117,8 @@ Please use \`kb_conform\` to resolve this entry. Pick one of:
     const out = getActionPrompt({ kind: "promotion", entry: PROMO });
     assert.equal(
       out,
-      `Pending promotion: \`naming.snake-case\` is awaiting senior review.
-
-- Standard: \`naming\` (code)
-- Rule: \`snake-case\` — warn
-
-Promoted files:
-
-- \`src/legacy/X.ts\` (promoted 2026-04-20) — note: "legacy module"
-
-A senior reviewer should decide whether to update the rule itself or close the promotion. Use \`kb_conform\` with \`closed_promotion: [...]\` to close (writes an exception to the rule and removes the entry); update the rule definition directly to auto-close on fingerprint mismatch.`
+      `Review promotion \`naming.snake-case\` via kb_conform.
+Files: \`src/legacy/X.ts\` (promoted 2026-04-20)`
     );
   });
 
@@ -169,13 +126,8 @@ A senior reviewer should decide whether to update the rule itself or close the p
     const out = getActionPrompt({ kind: "conform", entry: CONFORM });
     assert.equal(
       out,
-      `Conform pending (mode: current) at baseline \`abc1234\` (2026-04-15).
-
-The agent owes back judgments for these (file, standard, rule) triples:
-
-- \`src/api.ts\` against \`naming\` (rules: \`snake-case\`, \`no-abbrev\`)
-
-Please call \`kb_conform\` with \`submit_judgments\` covering ALL of the requested triples in a single call (the tool validates completeness). For each triple, pick \`pass\`, \`fail\`, or \`n/a\` and supply a short reason for fails.`
+      `Submit judgments via kb_conform (mode: current, baseline \`abc1234\`):
+- \`src/api.ts\` against \`naming\` (rules: \`snake-case\`, \`no-abbrev\`)`
     );
   });
 
@@ -183,11 +135,7 @@ Please call \`kb_conform\` with \`submit_judgments\` covering ALL of the request
     const out = getActionPrompt({ kind: "lint", entry: LINT });
     assert.equal(
       out,
-      `Lint error: \`knowledge/features/x.md\`
-
-> Missing front-matter: id
-
-Please open the file, fix the issue, and re-run lint. Common fixes: add the missing front-matter field, resolve the wikilink target, remove the conflict markers, or move misplaced fields to \`_index.yaml\`.`
+      `Fix lint error in \`knowledge/features/x.md\`: Missing front-matter: id`
     );
   });
 });

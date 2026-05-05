@@ -43,7 +43,7 @@ export interface EntryNode {
   promptInput: PromptInput;
   label: string;
   description: string;
-  tooltip: string;
+  tooltip: vscode.MarkdownString;
   sourceFile?: string;
   standardFile?: string | null;
   iconId: string;
@@ -91,6 +91,19 @@ function severityColorId(s: string | null | undefined): string | undefined {
   if (s === "warn") return "problemsWarningIcon.foreground";
   if (s === "info") return "problemsInfoIcon.foreground";
   return undefined;
+}
+
+function truncate(s: string, max = 60): string {
+  if (!s) return s;
+  return s.length > max ? s.slice(0, max) + "…" : s;
+}
+
+const TOOLTIP_FOOTER = "\n\n→ Click Send Prompt to ask the agent to resolve this.";
+
+function makeTooltip(body: string): vscode.MarkdownString {
+  const md = new vscode.MarkdownString(body + TOOLTIP_FOOTER);
+  md.isTrusted = false;
+  return md;
 }
 
 export const DEFAULT_FILTER: FilterState = {
@@ -335,13 +348,23 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     for (const p of [s.conformPending.current, s.conformPending.aspirational]) {
       if (!p || p.requested.length === 0) continue;
       p.requested.forEach((r, i) => {
+        const firstRule = r.rule_ids[0] ?? "?";
+        const allRules = r.rule_ids.map((x) => `\`${x}\``).join(", ");
+        const staleNote = p.staleAgainstHead
+          ? "\n\n⚠ Recorded baseline differs from current HEAD — re-run `kb_conform`."
+          : "";
+        const tooltipBody =
+          `**Conform pending** (mode: \`${p.mode}\`)\n\n` +
+          `Standard: \`${r.standard_id}\`\n\n` +
+          `Rules: ${allRules}\n\n` +
+          `Baseline: \`${p.head_sha_short}\` (${p.head_date})${staleNote}`;
         const node: EntryNode = {
           type: "entry",
           parentKind: section.kind,
           entryId: stableEntryId(`${p.mode}:${r.file}:${r.standard_id}`, i),
           label: r.file,
-          description: `${r.standard_id}: ${r.rule_ids.join(", ")} (${p.mode} @ ${p.head_sha_short})`,
-          tooltip: `Pending evaluation against ${r.standard_id} for rules ${r.rule_ids.join(", ")}.\nMode: ${p.mode}\nBaseline: ${p.head_sha_short} (${p.head_date})${p.staleAgainstHead ? "\n⚠ baseline differs from current HEAD" : ""}`,
+          description: `${r.standard_id}.${firstRule} @ ${p.head_sha_short}`,
+          tooltip: makeTooltip(tooltipBody),
           sourceFile: r.file,
           iconId: ICON["conform-pending"],
           severityRank: p.staleAgainstHead ? 1 : 2,
@@ -356,19 +379,28 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   }
 
   private codeDriftNode(e: CodeDriftEntry, index: number, section: SectionNode): EntryNode {
-    const filesPreview = e.codeFiles.slice(0, 3).map((f) => f.path).join(", ");
-    const more = e.codeFiles.length > 3 ? ` (+${e.codeFiles.length - 3} more)` : "";
+    const filesPreview = e.codeFiles.slice(0, 5).map((f) => `- \`${f.path}\``).join("\n");
+    const more = e.codeFiles.length > 5 ? `\n- _(+${e.codeFiles.length - 5} more)_` : "";
     const recency = e.codeFiles.reduce((acc, f) => {
       const d = f.latestDate || f.sinceDate || "";
       return d > acc ? d : acc;
     }, "");
+    const sharedNote = e.hasShared
+      ? "\n\n⚠ Shared module touched — KB update should reflect cross-cutting impact."
+      : "";
+    const description = e.hasShared
+      ? `${e.codeFiles.length} file(s) · shared module touched`
+      : `${e.codeFiles.length} file(s)`;
+    const tooltipBody =
+      `**Code drift** — KB target \`${e.kbTarget}\`\n\n` +
+      `Changed files:\n${filesPreview}${more}${sharedNote}`;
     return {
       type: "entry",
       parentKind: section.kind,
       entryId: stableEntryId(e.kbTarget, index),
       label: e.kbTarget,
-      description: `${e.codeFiles.length} file(s)${e.hasShared ? " · shared" : ""}`,
-      tooltip: `KB target: ${e.kbTarget}\nFiles: ${filesPreview}${more}`,
+      description,
+      tooltip: makeTooltip(tooltipBody),
       sourceFile: path.join("knowledge", e.kbTarget),
       iconId: ICON["code-drift"],
       severityRank: e.hasShared ? 1 : 2,
@@ -378,13 +410,32 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   }
 
   private kbDriftNode(e: KbDriftEntry, index: number, section: SectionNode): EntryNode {
+    const description = e.unmapped
+      ? truncate("unmapped — verify manually")
+      : e.renamedFrom
+      ? truncate(`${e.codeAreas.length} area(s) · renamed from ${e.renamedFrom}`)
+      : `${e.codeAreas.length} area(s)`;
+    const areasMd =
+      e.codeAreas.length > 0
+        ? e.codeAreas.slice(0, 5).map((a) => `- \`${a}\``).join("\n")
+        : "- _(no mapped code paths)_";
+    const moreAreas = e.codeAreas.length > 5 ? `\n- _(+${e.codeAreas.length - 5} more)_` : "";
+    const renamedNote = e.renamedFrom
+      ? `\n\nRenamed from \`${e.renamedFrom}\`.`
+      : "";
+    const unmappedNote = e.unmapped
+      ? "\n\n⚠ Unmapped — no `code_path_patterns` for this KB file. Verify implementation manually."
+      : "";
+    const tooltipBody =
+      `**KB drift** — \`${e.kbFile}\`${renamedNote}\n\n` +
+      `Code areas to review:\n${areasMd}${moreAreas}${unmappedNote}`;
     return {
       type: "entry",
       parentKind: section.kind,
       entryId: stableEntryId(e.kbFile, index),
       label: e.kbFile,
-      description: e.unmapped ? "unmapped" : `${e.codeAreas.length} area(s)`,
-      tooltip: `KB file: ${e.kbFile}\n${e.unmapped ? "Unmapped — verify manually" : `Code areas: ${e.codeAreas.slice(0, 3).join(", ")}`}`,
+      description,
+      tooltip: makeTooltip(tooltipBody),
       sourceFile: path.join("knowledge", e.kbFile),
       iconId: ICON["kb-drift"],
       severityRank: e.unmapped ? 1 : 2,
@@ -402,13 +453,37 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
         const d = f.latestDate || f.sinceDate || "";
         return d > acc ? d : acc;
       }, "");
+    const severity = e.severity ?? "warn";
+    const description = e.reason
+      ? `${severity} · ${truncate(e.reason)}`
+      : `${severity} · ${fileCount} file(s)`;
+    const partyKeys = Object.keys(e.filesByParty);
+    let filesMd: string;
+    if (partyKeys.length === 1 && partyKeys[0] === "_") {
+      filesMd = e.filesByParty["_"].map((f) => `- \`${f.path}\``).join("\n");
+    } else {
+      filesMd = partyKeys
+        .sort()
+        .map((party) => {
+          const label = party === "_" ? "Files" : `${party}`;
+          const lines = e.filesByParty[party].map((f) => `  - \`${f.path}\``).join("\n");
+          return `**${label}:**\n${lines}`;
+        })
+        .join("\n\n");
+    }
+    const reasonMd = e.reason ? `\n\n**Reason:** ${e.reason}` : "";
+    const tooltipBody =
+      `**Standards drift** — \`${e.queueKey}\` (${severity})\n\n` +
+      `Standard: \`${e.standardId ?? "?"}\`${e.standardKind ? ` (${e.standardKind})` : ""}\n\n` +
+      `Rule: \`${e.ruleId ?? "?"}\`${reasonMd}\n\n` +
+      `${filesMd}`;
     return {
       type: "entry",
       parentKind: section.kind,
       entryId: stableEntryId(e.queueKey, index),
       label: e.queueKey,
-      description: `${e.severity ?? "warn"} · ${fileCount} file(s)`,
-      tooltip: `${e.standardId} (${e.standardKind ?? "?"}) · ${e.ruleId}\n${e.reason ?? ""}`,
+      description,
+      tooltip: makeTooltip(tooltipBody),
       sourceFile: firstFile,
       iconId: ICON["standards-drift"],
       iconColorId: severityColorId(e.severity),
@@ -419,13 +494,27 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   }
 
   private promotionNode(e: PromotionEntry, index: number, section: SectionNode): EntryNode {
+    const filesMd = e.files
+      .slice(0, 5)
+      .map((f) => {
+        const note = f.note ? ` — _${f.note}_` : "";
+        return `- \`${f.path}\` (promoted ${f.promotedAt})${note}`;
+      })
+      .join("\n");
+    const moreFiles = e.files.length > 5 ? `\n- _(+${e.files.length - 5} more)_` : "";
+    const tooltipBody =
+      `**Pending promotion** — \`${e.queueKey}\` (${e.severity ?? "warn"})\n\n` +
+      `Standard: \`${e.standardId ?? "?"}\`${e.standardKind ? ` (${e.standardKind})` : ""}\n\n` +
+      `Rule: \`${e.ruleId ?? "?"}\`\n\n` +
+      `Fingerprint: \`${e.ruleFingerprint ?? "?"}\`\n\n` +
+      `Promoted files:\n${filesMd}${moreFiles}`;
     return {
       type: "entry",
       parentKind: section.kind,
       entryId: stableEntryId(e.queueKey, index),
       label: e.queueKey,
       description: `${e.files.length} file(s)`,
-      tooltip: `${e.standardId ?? "?"} · ${e.ruleId ?? "?"}\nFingerprint: ${e.ruleFingerprint ?? "?"}`,
+      tooltip: makeTooltip(tooltipBody),
       sourceFile: e.files[0]?.path,
       iconId: ICON.promotions,
       iconColorId: severityColorId(e.severity),
@@ -436,13 +525,16 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   }
 
   private lintNode(v: LintViolation, index: number, section: SectionNode): EntryNode {
+    const tooltipBody =
+      `**Lint ${v.severity}** — \`${v.file}\`\n\n` +
+      `> ${v.message}`;
     return {
       type: "entry",
       parentKind: section.kind,
       entryId: stableEntryId(`${v.file}:${v.message.slice(0, 40)}`, index),
       label: v.file,
-      description: `${v.severity}: ${v.message.length > 60 ? v.message.slice(0, 60) + "…" : v.message}`,
-      tooltip: `${v.severity.toUpperCase()} · ${v.file}\n${v.message}`,
+      description: `${v.severity} · ${truncate(v.message)}`,
+      tooltip: makeTooltip(tooltipBody),
       sourceFile: v.file,
       iconId: v.severity === "error" ? "error" : "warning",
       iconColorId: severityColorId(v.severity),
