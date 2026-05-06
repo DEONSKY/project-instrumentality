@@ -1,18 +1,30 @@
 import { ItemView, WorkspaceLeaf, Notice, TFile } from "obsidian";
 import * as path from "node:path";
+import { execFile } from "node:child_process";
 import {
   getStatus,
   getActionPrompt,
   stableEntryId,
   resolveStandardPath,
+  findRuleLineRange,
+  primaryActionLabel,
+  copyActionLabel,
+  pipelineSegments,
+  buildEntryHandles,
+  groupEntries,
+  SECTION_GUIDE,
   type StatusSummary,
   type CodeDriftEntry,
   type KbDriftEntry,
   type StandardsDriftEntry,
   type PromotionEntry,
   type ConformPending,
+  type ConformRequest,
   type LintViolation,
   type PromptInput,
+  type StandardRule,
+  type GroupBy,
+  type EntryHandle,
 } from "@instrumentality/shared";
 import { SyncWatcher } from "./watcher";
 
@@ -44,6 +56,7 @@ export class InstrumentalityView extends ItemView {
   private filterSearch = "";
   private hiddenSections: Set<SectionKind> = new Set();
   private severityFilter: Set<"error" | "warn" | "info"> = new Set();
+  private groupBy: GroupBy = "section";
 
   constructor(leaf: WorkspaceLeaf, private getKbRoot: () => string | null) {
     super(leaf);
@@ -117,9 +130,31 @@ export class InstrumentalityView extends ItemView {
     }
 
     this.renderHeader(root);
-    this.renderTotals(root);
+    this.renderPipelineStrip(root);
     this.renderFilterBar(root);
     this.renderSections(root);
+  }
+
+  /**
+   * Workflow at-a-glance: drift → conform → promotion → lint with counts.
+   * Replaces the older five-tile totals row; the lifecycle ordering tells
+   * users where their backlog actually sits.
+   */
+  private renderPipelineStrip(parent: HTMLElement): void {
+    if (!this.status) return;
+    const strip = parent.createDiv({ cls: "instrumentality-pipeline-strip" });
+    const segs = pipelineSegments(this.status);
+    segs.forEach((s, i) => {
+      const cell = strip.createDiv({
+        cls: `instrumentality-pipeline-cell ${s.count > 0 ? "active" : "dim"}`,
+        attr: { "data-pipeline-stage": s.stage },
+      });
+      cell.createDiv({ cls: "pipeline-count", text: String(s.count) });
+      cell.createDiv({ cls: "pipeline-label", text: s.label });
+      if (i < segs.length - 1) {
+        strip.createSpan({ cls: "pipeline-arrow", text: "→" });
+      }
+    });
   }
 
   private renderHeader(parent: HTMLElement): void {
@@ -133,37 +168,6 @@ export class InstrumentalityView extends ItemView {
     const tools = header.createDiv({ cls: "instrumentality-tools" });
     const refresh = tools.createEl("button", { text: "Refresh", cls: "mod-cta" });
     refresh.addEventListener("click", () => void this.refresh());
-  }
-
-  private renderTotals(parent: HTMLElement): void {
-    const totals = this.status!.totals;
-    const grid = parent.createDiv({ cls: "instrumentality-totals" });
-    this.totalCard(grid, "Drifts", totals.drifts, totals.drifts > 0 ? "warn" : "ok");
-    this.totalCard(
-      grid,
-      "Conform Pending",
-      totals.conformPending,
-      totals.conformPending > 0 ? "warn" : "ok"
-    );
-    this.totalCard(grid, "Promotions", totals.promotions, "");
-    this.totalCard(
-      grid,
-      "Lint Errors",
-      totals.lintErrors,
-      totals.lintErrors > 0 ? "error" : "ok"
-    );
-    this.totalCard(
-      grid,
-      "Lint Warnings",
-      totals.lintWarnings,
-      totals.lintWarnings > 0 ? "warn" : "ok"
-    );
-  }
-
-  private totalCard(parent: HTMLElement, label: string, n: number, cls: string): void {
-    const card = parent.createDiv({ cls: `instrumentality-total-card ${cls}` });
-    card.createDiv({ cls: "n", text: String(n) });
-    card.createDiv({ cls: "l", text: label });
   }
 
   private renderFilterBar(parent: HTMLElement): void {
@@ -193,26 +197,25 @@ export class InstrumentalityView extends ItemView {
       });
     }
 
-    const sectionGroup = bar.createDiv({ cls: "instrumentality-chip-group" });
-    const sections: { key: SectionKind; label: string }[] = [
-      { key: "code-drift", label: "Code" },
-      { key: "kb-drift", label: "KB" },
-      { key: "standards-drift", label: "Standards" },
-      { key: "conform-pending", label: "Conform" },
-      { key: "promotions", label: "Promotions" },
-      { key: "lint", label: "Lint" },
+    // Group-by chip group — switching the axis triggers a full re-render
+    // because section structure changes.
+    const groupBox = bar.createDiv({ cls: "instrumentality-chip-group" });
+    groupBox.createSpan({ cls: "group-by-label", text: "Group:" });
+    const modes: { key: GroupBy; label: string }[] = [
+      { key: "section", label: "Section" },
+      { key: "file", label: "File" },
+      { key: "standard", label: "Standard" },
+      { key: "lifecycle", label: "Lifecycle" },
     ];
-    for (const s of sections) {
-      const visible = !this.hiddenSections.has(s.key);
-      const chip = sectionGroup.createSpan({
-        cls: "instrumentality-chip section" + (visible ? " on" : ""),
-        text: s.label,
+    for (const m of modes) {
+      const chip = groupBox.createSpan({
+        cls: "instrumentality-chip group-by-chip" + (this.groupBy === m.key ? " on" : ""),
+        text: m.label,
       });
       chip.addEventListener("click", () => {
-        if (this.hiddenSections.has(s.key)) this.hiddenSections.delete(s.key);
-        else this.hiddenSections.add(s.key);
-        chip.toggleClass("on", !this.hiddenSections.has(s.key));
-        this.applyFilterDom();
+        if (this.groupBy === m.key) return;
+        this.groupBy = m.key;
+        this.render();
       });
     }
 
@@ -227,13 +230,92 @@ export class InstrumentalityView extends ItemView {
 
   private renderSections(parent: HTMLElement): void {
     const grid = parent.createDiv({ cls: "instrumentality-section-grid" });
-    this.renderCodeDriftCard(grid);
-    this.renderKbDriftCard(grid);
-    this.renderStandardsDriftCard(grid);
-    this.renderConformCard(grid);
-    this.renderPromotionsCard(grid);
-    this.renderLintCard(grid);
+    if (this.groupBy === "section") {
+      this.renderCodeDriftCard(grid);
+      this.renderKbDriftCard(grid);
+      this.renderStandardsDriftCard(grid);
+      this.renderConformCard(grid);
+      this.renderPromotionsCard(grid);
+      this.renderLintCard(grid);
+    } else {
+      this.renderGenericGroups(grid);
+    }
     this.applyFilterDom();
+  }
+
+  /**
+   * Render top-level groups for non-section group-by modes via the shared
+   * `groupEntries` projection. Entries are rebuilt by handle so each
+   * surface keeps its own row formatting.
+   */
+  private renderGenericGroups(parent: HTMLElement): void {
+    const handles = buildEntryHandles(this.status!);
+    const groups = groupEntries(handles, this.groupBy);
+    for (const g of groups) {
+      const card = parent.createDiv({
+        cls: "instrumentality-section-card",
+        attr: { "data-section": g.key },
+      });
+      const header = card.createEl("header");
+      const h2 = header.createEl("h2");
+      h2.createSpan({ text: g.label });
+      h2.createSpan({ cls: "count", text: String(g.entries.length) });
+      if (g.hint) {
+        header.createDiv({ cls: "group-hint", text: g.hint });
+      }
+      const body = card.createDiv({ cls: "body" });
+      if (g.entries.length === 0) {
+        this.placeholder(body, "No entries");
+        continue;
+      }
+      for (const h of g.entries) {
+        this.renderEntryByHandle(body, h);
+      }
+    }
+  }
+
+  private renderEntryByHandle(parent: HTMLElement, h: EntryHandle): void {
+    const s = this.status!;
+    switch (h.section) {
+      case "code-drift": {
+        const i = s.codeDrift.entries.findIndex((e, idx) => stableEntryId(e.kbTarget, idx) === h.id);
+        if (i >= 0) this.renderCodeDriftRow(parent, s.codeDrift.entries[i], i);
+        return;
+      }
+      case "kb-drift": {
+        const i = s.kbDrift.entries.findIndex((e, idx) => stableEntryId(e.kbFile, idx) === h.id);
+        if (i >= 0) this.renderKbDriftRow(parent, s.kbDrift.entries[i], i);
+        return;
+      }
+      case "standards-drift": {
+        const i = s.standardsDrift.entries.findIndex((e, idx) => stableEntryId(e.queueKey, idx) === h.id);
+        if (i >= 0) this.renderStandardsDriftRow(parent, s.standardsDrift.entries[i], i);
+        return;
+      }
+      case "conform-pending": {
+        for (const p of [s.conformPending.current, s.conformPending.aspirational]) {
+          if (!p) continue;
+          const idx = p.requested.findIndex((r, j) => stableEntryId(`${p.mode}:${r.file}:${r.standard_id}`, j) === h.id);
+          if (idx >= 0) {
+            this.renderConformRow(parent, p, p.requested[idx], idx);
+            return;
+          }
+        }
+        return;
+      }
+      case "promotions": {
+        const i = s.promotions.findIndex((e, idx) => stableEntryId(e.queueKey, idx) === h.id);
+        if (i >= 0) this.renderPromotionRow(parent, s.promotions[i], i);
+        return;
+      }
+      case "lint": {
+        const i = s.lint.violations.findIndex(
+          (v, idx) => stableEntryId(`${v.file}:${v.message.slice(0, 40)}`, idx) === h.id
+        );
+        if (i >= 0) this.renderLintRow(parent, s.lint.violations[i], i);
+        return;
+      }
+    }
   }
 
   private sectionShell(
@@ -241,7 +323,8 @@ export class InstrumentalityView extends ItemView {
     kind: SectionKind,
     title: string,
     count: number,
-    badgeText?: string
+    badgeText?: string,
+    hint?: string
   ): HTMLElement {
     const card = parent.createDiv({ cls: "instrumentality-section-card", attr: { "data-section": kind } });
     const header = card.createEl("header");
@@ -249,6 +332,7 @@ export class InstrumentalityView extends ItemView {
     h2.createSpan({ text: title });
     h2.createSpan({ cls: "count", text: String(count) });
     if (badgeText) h2.createSpan({ cls: "badge", text: badgeText });
+    if (hint) header.createDiv({ cls: "group-hint", text: hint });
     return card.createDiv({ cls: "body" });
   }
 
@@ -262,9 +346,10 @@ export class InstrumentalityView extends ItemView {
     const body = this.sectionShell(
       parent,
       "code-drift",
-      "Code Drifts",
+      SECTION_GUIDE["code-drift"].label + "s",
       entries.length,
-      baseline ? baseline.slice(0, 7) : undefined
+      baseline ? baseline.slice(0, 7) : undefined,
+      SECTION_GUIDE["code-drift"].what
     );
     if (entries.length === 0) return this.placeholder(body, "No code drift");
     entries.forEach((e, i) => this.renderCodeDriftRow(body, e, i));
@@ -298,12 +383,22 @@ export class InstrumentalityView extends ItemView {
       meta,
       detail,
       sourceFile: path.join("knowledge", e.kbTarget),
+      diffableFiles: e.codeFiles
+        .filter((f) => !!f.sinceCommit)
+        .map((f) => ({ relPath: f.path, sinceCommit: f.sinceCommit!, latestCommit: f.latestCommit })),
     });
   }
 
   private renderKbDriftCard(parent: HTMLElement): void {
     const entries = this.status!.kbDrift.entries;
-    const body = this.sectionShell(parent, "kb-drift", "KB Drifts", entries.length);
+    const body = this.sectionShell(
+      parent,
+      "kb-drift",
+      SECTION_GUIDE["kb-drift"].label + "s",
+      entries.length,
+      undefined,
+      SECTION_GUIDE["kb-drift"].what
+    );
     if (entries.length === 0) return this.placeholder(body, "No KB drift");
     entries.forEach((e, i) => this.renderKbDriftRow(body, e, i));
   }
@@ -353,12 +448,22 @@ export class InstrumentalityView extends ItemView {
       meta,
       detail,
       sourceFile: path.join("knowledge", e.kbFile),
+      diffableFiles: e.sinceCommit
+        ? [{ relPath: path.join("knowledge", e.kbFile), sinceCommit: e.sinceCommit, latestCommit: e.latestCommit }]
+        : [],
     });
   }
 
   private renderStandardsDriftCard(parent: HTMLElement): void {
     const entries = this.status!.standardsDrift.entries;
-    const body = this.sectionShell(parent, "standards-drift", "Standards Drifts", entries.length);
+    const body = this.sectionShell(
+      parent,
+      "standards-drift",
+      SECTION_GUIDE["standards-drift"].label,
+      entries.length,
+      undefined,
+      SECTION_GUIDE["standards-drift"].what
+    );
     if (entries.length === 0) return this.placeholder(body, "No standards drift");
     entries.forEach((e, i) => this.renderStandardsDriftRow(body, e, i));
   }
@@ -372,17 +477,31 @@ export class InstrumentalityView extends ItemView {
     const sev = (e.severity as "error" | "warn" | "info" | null) ?? null;
     const fileCount = Object.values(e.filesByParty).reduce((s, fs) => s + fs.length, 0);
     const firstFile = Object.values(e.filesByParty).flat()[0]?.path;
-    const text = e.queueKey + " " + (e.standardId ?? "") + " " + (e.reason ?? "");
+    const ruleHint = e.resolvedRule?.title ? ` · ${e.resolvedRule.title}` : "";
+    const text =
+      e.queueKey + " " + (e.standardId ?? "") + " " + (e.reason ?? "") + " " + (e.resolvedRule?.title ?? "");
     const summary = (h2: HTMLElement) => {
       h2.createSpan({ cls: "title", text: e.queueKey });
       if (sev) h2.createSpan({ cls: `badge sev-${sev}`, text: sev });
     };
-    const meta = `${e.standardId ?? "?"}${e.standardKind ? ` (${e.standardKind})` : ""} · ${fileCount} file(s)`;
+    const meta = `${e.standardId ?? "?"}${e.standardKind ? ` (${e.standardKind})` : ""} · ${fileCount} file(s)${ruleHint}`;
     const detail = (d: HTMLElement) => {
       const div = d.createDiv({ cls: "detail-meta" });
+      if (e.standardId) {
+        const row = div.createDiv();
+        row.createSpan({ text: "Standard: " });
+        row.createEl("code", { text: e.standardId });
+        if (e.standardKind) row.appendText(` (${e.standardKind})`);
+      }
+      if (e.ruleId) {
+        const row = div.createDiv();
+        row.createSpan({ text: "Rule id: " });
+        row.createEl("code", { text: e.ruleId });
+      }
+      this.appendRuleBlock(div, e.resolvedRule);
       if (e.reason) {
         const row = div.createDiv();
-        row.createSpan({ text: "Reason: " });
+        row.createEl("strong", { text: "Drift reason: " });
         row.appendText(e.reason);
       }
       for (const [party, files] of Object.entries(e.filesByParty)) {
@@ -397,6 +516,13 @@ export class InstrumentalityView extends ItemView {
         }
       }
     };
+    const diffableFiles: { relPath: string; sinceCommit: string; latestCommit?: string }[] = [];
+    for (const files of Object.values(e.filesByParty)) {
+      for (const f of files) {
+        if (!f.sinceCommit) continue;
+        diffableFiles.push({ relPath: f.path, sinceCommit: f.sinceCommit, latestCommit: f.latestCommit });
+      }
+    }
     this.entryShell({
       parent,
       section: "standards-drift",
@@ -408,7 +534,51 @@ export class InstrumentalityView extends ItemView {
       detail,
       sourceFile: firstFile,
       standardId: e.standardId,
+      ruleId: e.ruleId,
+      authorEntry: e,
+      diffableFiles,
     });
+  }
+
+  private appendRuleBlock(parent: HTMLElement, rule: StandardRule | null | undefined): void {
+    if (!rule) return;
+    const block = parent.createDiv({ cls: "rule-block" });
+    if (rule.title) {
+      const row = block.createDiv({ cls: "rule-row" });
+      row.createSpan({ cls: "rule-label", text: "Rule:" });
+      row.createSpan({ cls: "rule-title", text: ` ${rule.title}` });
+    }
+    if (rule.severity) {
+      const row = block.createDiv({ cls: "rule-row" });
+      row.createSpan({ cls: "rule-label", text: "Severity:" });
+      row.appendText(" ");
+      row.createSpan({ cls: `badge sev-${rule.severity}`, text: rule.severity });
+    }
+    if (rule.description) {
+      const row = block.createDiv({ cls: "rule-row" });
+      row.createSpan({ cls: "rule-label", text: "What:" });
+      row.appendText(` ${rule.description}`);
+    }
+    if (rule.why) {
+      const row = block.createDiv({ cls: "rule-row" });
+      row.createSpan({ cls: "rule-label", text: "Why:" });
+      row.appendText(` ${rule.why}`);
+    }
+    if (rule.fixHint) {
+      const row = block.createDiv({ cls: "rule-row" });
+      row.createSpan({ cls: "rule-label", text: "Fix:" });
+      row.appendText(` ${rule.fixHint}`);
+    }
+    if (rule.examples?.length) {
+      const row = block.createDiv({ cls: "rule-row rule-aside" });
+      row.createSpan({ cls: "rule-label", text: "Examples:" });
+      row.appendText(` ${rule.examples.length} attached (open the standard to view)`);
+    }
+    if (rule.exceptions?.length) {
+      const row = block.createDiv({ cls: "rule-row rule-aside" });
+      row.createSpan({ cls: "rule-label", text: "Exceptions:" });
+      row.appendText(` ${rule.exceptions.length} recorded`);
+    }
   }
 
   private renderConformCard(parent: HTMLElement): void {
@@ -419,9 +589,10 @@ export class InstrumentalityView extends ItemView {
     const body = this.sectionShell(
       parent,
       "conform-pending",
-      "Conform Pending",
+      SECTION_GUIDE["conform-pending"].label,
       total,
-      stale ? "baseline stale" : undefined
+      stale ? "baseline stale" : undefined,
+      SECTION_GUIDE["conform-pending"].what
     );
     if (total === 0) return this.placeholder(body, "No conform pending");
     for (const p of [c, a]) {
@@ -433,17 +604,22 @@ export class InstrumentalityView extends ItemView {
   private renderConformRow(
     parent: HTMLElement,
     p: ConformPending & { staleAgainstHead?: boolean },
-    r: ConformPending["requested"][number],
+    r: ConformRequest,
     i: number
   ): void {
     const id = stableEntryId(`${p.mode}:${r.file}:${r.standard_id}`, i);
     const sev = p.staleAgainstHead ? "warn" : "info";
-    const text = r.file + " " + r.standard_id + " " + r.rule_ids.join(" ");
+    const ruleHint = r.resolvedRules && r.resolvedRules.length > 0
+      ? ` · ${r.resolvedRules.map((rr) => rr.title ?? rr.id).join(", ")}`
+      : "";
+    const text =
+      r.file + " " + r.standard_id + " " + r.rule_ids.join(" ") +
+      " " + (r.resolvedRules?.map((rr) => rr.title ?? "").join(" ") ?? "");
     const summary = (h2: HTMLElement) => {
       h2.createSpan({ cls: "title", text: r.file });
       if (p.staleAgainstHead) h2.createSpan({ cls: "badge sev-warn", text: "stale" });
     };
-    const meta = `${r.standard_id} · ${r.rule_ids.join(", ")} (${p.mode} @ ${p.head_sha_short})`;
+    const meta = `${r.standard_id} · ${r.rule_ids.join(", ")} (${p.mode} @ ${p.head_sha_short})${ruleHint}`;
     const detail = (d: HTMLElement) => {
       const div = d.createDiv({ cls: "detail-meta" });
       div.createDiv({ text: `Mode: ${p.mode}` });
@@ -465,6 +641,10 @@ export class InstrumentalityView extends ItemView {
         if (idx > 0) rules.appendText(", ");
         rules.createEl("code", { text: x });
       });
+      // Render resolved rule details: title, why, fix-hint per rule.
+      if (r.resolvedRules) {
+        for (const rr of r.resolvedRules) this.appendRuleBlock(div, rr);
+      }
     };
     this.entryShell({
       parent,
@@ -477,12 +657,20 @@ export class InstrumentalityView extends ItemView {
       detail,
       sourceFile: r.file,
       standardId: r.standard_id,
+      ruleId: r.rule_ids[0] ?? null,
     });
   }
 
   private renderPromotionsCard(parent: HTMLElement): void {
     const entries = this.status!.promotions;
-    const body = this.sectionShell(parent, "promotions", "Pending Promotions", entries.length);
+    const body = this.sectionShell(
+      parent,
+      "promotions",
+      SECTION_GUIDE.promotions.label,
+      entries.length,
+      undefined,
+      SECTION_GUIDE.promotions.what
+    );
     if (entries.length === 0) return this.placeholder(body, "No pending promotions");
     entries.forEach((e, i) => this.renderPromotionRow(body, e, i));
   }
@@ -490,13 +678,14 @@ export class InstrumentalityView extends ItemView {
   private renderPromotionRow(parent: HTMLElement, e: PromotionEntry, i: number): void {
     const id = stableEntryId(e.queueKey, i);
     const sev = (e.severity as "error" | "warn" | "info" | null) ?? "info";
+    const ruleHint = e.resolvedRule?.title ? ` · ${e.resolvedRule.title}` : "";
     const text =
-      e.queueKey + " " + (e.standardId ?? "") + " " + e.files.map((f) => f.path).join(" ");
+      e.queueKey + " " + (e.standardId ?? "") + " " + e.files.map((f) => f.path).join(" ") + " " + (e.resolvedRule?.title ?? "");
     const summary = (h2: HTMLElement) => {
       h2.createSpan({ cls: "title", text: e.queueKey });
       if (e.severity) h2.createSpan({ cls: `badge sev-${e.severity}`, text: e.severity });
     };
-    const meta = `${e.files.length} file(s) · ${e.standardId ?? "?"}`;
+    const meta = `${e.files.length} file(s) · ${e.standardId ?? "?"}${ruleHint}`;
     const detail = (d: HTMLElement) => {
       const div = d.createDiv({ cls: "detail-meta" });
       const rule = div.createDiv();
@@ -507,6 +696,7 @@ export class InstrumentalityView extends ItemView {
         fp.createSpan({ text: "Fingerprint: " });
         fp.createEl("code", { text: e.ruleFingerprint });
       }
+      this.appendRuleBlock(div, e.resolvedRule);
       const filesBlock = div.createDiv();
       filesBlock.createEl("strong", { text: "Files:" });
       const ul = filesBlock.createEl("ul");
@@ -531,6 +721,7 @@ export class InstrumentalityView extends ItemView {
       detail,
       sourceFile: e.files[0]?.path,
       standardId: e.standardId,
+      ruleId: e.ruleId,
     });
   }
 
@@ -540,9 +731,10 @@ export class InstrumentalityView extends ItemView {
     const body = this.sectionShell(
       parent,
       "lint",
-      "Lint Issues",
+      SECTION_GUIDE.lint.label,
       v.length,
-      ran ? undefined : "unavailable"
+      ran ? undefined : "unavailable",
+      SECTION_GUIDE.lint.what
     );
     if (!ran) {
       return this.placeholder(
@@ -595,6 +787,14 @@ export class InstrumentalityView extends ItemView {
     detail: (d: HTMLElement) => void;
     sourceFile?: string;
     standardId?: string | null;
+    ruleId?: string | null;
+    authorEntry?: StandardsDriftEntry;
+    /**
+     * Files for which we can show a git diff. Lazy-loaded on click — we
+     * shell out to `git diff <since>..<latest>` (or against working tree
+     * when `latestCommit` is missing) and render the patch text inline.
+     */
+    diffableFiles?: { relPath: string; sinceCommit: string; latestCommit?: string }[];
   }): void {
     const row = opts.parent.createDiv({
       cls: "instrumentality-entry",
@@ -611,19 +811,15 @@ export class InstrumentalityView extends ItemView {
     summary.createDiv({ cls: "entry-meta", text: opts.meta });
     const detail = row.createDiv({ cls: "entry-detail" });
     opts.detail(detail);
-    const promptPre = detail.createEl("pre", { cls: "entry-prompt" });
-    promptPre.empty();
-    const indexed = this.entryIndex.get(`${opts.section}:${opts.id}`);
-    promptPre.appendText(indexed?.prompt ?? "(no prompt available)");
 
     const actions = detail.createDiv({ cls: "entry-actions" });
-    const copyBtn = actions.createEl("button", { text: "Copy Prompt", cls: "mod-cta" });
-    copyBtn.addEventListener("click", async (e) => {
+    const sendBtn = actions.createEl("button", { text: copyActionLabel(opts.section), cls: "mod-cta" });
+    sendBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const indexed2 = this.entryIndex.get(`${opts.section}:${opts.id}`);
       if (!indexed2) return;
       await navigator.clipboard.writeText(indexed2.prompt);
-      new Notice("Instrumentality: prompt copied to clipboard.");
+      new Notice(`Instrumentality: ${primaryActionLabel(opts.section).toLowerCase()} prompt copied.`);
     });
     const openBtn = actions.createEl("button", { text: "Open Source" });
     openBtn.addEventListener("click", (e) => {
@@ -636,9 +832,127 @@ export class InstrumentalityView extends ItemView {
         e.stopPropagation();
         void this.openStandard(opts.standardId!);
       });
+      if (opts.ruleId) {
+        const editBtn = actions.createEl("button", { text: "Edit Rule" });
+        editBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void this.editRule(opts.standardId!, opts.ruleId!);
+        });
+      }
+      if (opts.authorEntry) {
+        const refineBtn = actions.createEl("button", { text: "Refine with Agent" });
+        refineBtn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const prompt = getActionPrompt({
+            kind: "standard-author",
+            entry: opts.authorEntry!,
+            mode: "refine",
+          });
+          await navigator.clipboard.writeText(prompt);
+          new Notice("Instrumentality: refine prompt copied to clipboard.");
+        });
+      }
     }
 
+    // Show Diff section (lazy — populated on click). The text content is
+    // captured into a closure so subsequent clicks don't re-shell.
+    if (opts.diffableFiles && opts.diffableFiles.length > 0) {
+      this.appendDiffDisclosure(detail, opts.diffableFiles);
+    }
+
+    // Prompt is hidden by default. Users who want to inspect or hand-tune
+    // before pasting can expand it; the Copy Prompt button always works
+    // without expanding.
+    const disclosure = detail.createEl("details", { cls: "prompt-disclosure" });
+    disclosure.createEl("summary", { text: "Show prompt" });
+    const promptPre = disclosure.createEl("pre", { cls: "entry-prompt" });
+    const indexed = this.entryIndex.get(`${opts.section}:${opts.id}`);
+    promptPre.appendText(indexed?.prompt ?? "(no prompt available)");
+
     summary.addEventListener("click", () => row.toggleClass("open", !row.hasClass("open")));
+  }
+
+  /**
+   * Lazy git-diff disclosure. We don't run git on render — only when the
+   * user expands a file's `<details>` block. Cache the resolved text on
+   * the disclosure element so re-toggling doesn't re-shell.
+   */
+  private appendDiffDisclosure(
+    parent: HTMLElement,
+    files: { relPath: string; sinceCommit: string; latestCommit?: string }[]
+  ): void {
+    const wrap = parent.createDiv({ cls: "diff-actions" });
+    const top = wrap.createEl("details", { cls: "diff-disclosure" });
+    top.createEl("summary", {
+      text: `Show diffs (${files.length} file${files.length === 1 ? "" : "s"})`,
+    });
+    const list = top.createEl("ul", { cls: "diff-list" });
+    for (const f of files) {
+      const li = list.createEl("li");
+      const fileDetail = li.createEl("details", { cls: "diff-file" });
+      const summary = fileDetail.createEl("summary");
+      summary.createEl("code", { text: f.relPath });
+      summary.appendText(
+        ` (${f.sinceCommit.slice(0, 7)}${
+          f.latestCommit ? ` → ${f.latestCommit.slice(0, 7)}` : " → working tree"
+        })`
+      );
+      const out = fileDetail.createEl("pre", { cls: "diff-block" });
+      let loaded = false;
+      fileDetail.addEventListener("toggle", async () => {
+        if (!fileDetail.open || loaded) return;
+        loaded = true;
+        try {
+          const text = await this.gitDiffFor(f);
+          out.empty();
+          this.renderDiffText(out, text);
+        } catch (err: any) {
+          out.empty();
+          out.appendText(`error: ${err?.message ?? err}`);
+        }
+      });
+    }
+  }
+
+  private async gitDiffFor(f: {
+    relPath: string;
+    sinceCommit: string;
+    latestCommit?: string;
+  }): Promise<string> {
+    if (!this.kbRoot) return "(kb root not detected)";
+    const range = f.latestCommit
+      ? `${f.sinceCommit}..${f.latestCommit}`
+      : f.sinceCommit; // diff against working tree when no latest
+    return new Promise((resolve, reject) => {
+      execFile(
+        "git",
+        ["diff", "--no-color", range, "--", f.relPath],
+        { cwd: this.kbRoot!, maxBuffer: 8 * 1024 * 1024 },
+        (err, stdout) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(stdout || "(no changes)");
+        }
+      );
+    });
+  }
+
+  private renderDiffText(parent: HTMLElement, text: string): void {
+    const lines = text.split("\n");
+    for (const line of lines) {
+      const cls = line.startsWith("+++") || line.startsWith("---")
+        ? "diff-meta"
+        : line.startsWith("+")
+        ? "diff-add"
+        : line.startsWith("-")
+        ? "diff-del"
+        : line.startsWith("@@")
+        ? "diff-hunk"
+        : "diff-ctx";
+      parent.createDiv({ cls, text: line });
+    }
   }
 
   private async openSource(sourceFile?: string): Promise<void> {
@@ -662,12 +976,26 @@ export class InstrumentalityView extends ItemView {
     await this.openPath(filePath);
   }
 
+  private async editRule(standardId: string, ruleId: string): Promise<void> {
+    if (!this.kbRoot) return;
+    const filePath = resolveStandardPath(this.kbRoot, standardId);
+    if (!filePath) {
+      new Notice(`Instrumentality: standard '${standardId}' not found.`);
+      return;
+    }
+    const range = findRuleLineRange(filePath, ruleId);
+    await this.openPath(filePath, range?.start);
+  }
+
   /**
    * Open via Obsidian when the file lives inside the vault (preferred — keeps
    * navigation, backlinks, and tabs working). Fall back to Electron's shell
    * for code files outside the vault.
+   *
+   * If `line` is given and the file opens inside the vault, position the
+   * editor cursor on that line (0-indexed). Used by Edit Rule.
    */
-  private async openPath(absPath: string): Promise<void> {
+  private async openPath(absPath: string, line?: number): Promise<void> {
     const vault = this.app.vault;
     const adapter = vault.adapter as unknown as { basePath?: string; getBasePath?: () => string };
     const basePath = adapter.basePath ?? adapter.getBasePath?.();
@@ -675,7 +1003,23 @@ export class InstrumentalityView extends ItemView {
       const rel = absPath.slice(basePath.length + 1);
       const file = vault.getAbstractFileByPath(rel);
       if (file instanceof TFile) {
-        await this.app.workspace.getLeaf(false).openFile(file);
+        const leaf = this.app.workspace.getLeaf(false);
+        await leaf.openFile(file);
+        if (typeof line === "number" && line >= 0) {
+          // The editor is exposed on MarkdownView; in newer Obsidian APIs
+          // the `editor` getter is on `leaf.view`. Guard for both shapes.
+          const view = leaf.view as unknown as {
+            editor?: {
+              setCursor: (pos: { line: number; ch: number }) => void;
+              scrollIntoView: (range: { from: { line: number; ch: number }; to: { line: number; ch: number } }, center?: boolean) => void;
+            };
+          };
+          if (view.editor) {
+            const pos = { line, ch: 0 };
+            view.editor.setCursor(pos);
+            view.editor.scrollIntoView({ from: pos, to: pos }, true);
+          }
+        }
         return;
       }
     }

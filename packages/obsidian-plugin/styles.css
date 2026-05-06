@@ -229,3 +229,135 @@
 .badge.sev-error { background: var(--text-error, #e51400); color: #fff; }
 .badge.sev-warn  { background: var(--text-warning, #b58900); color: #000; }
 .badge.sev-info  { background: var(--interactive-accent); color: var(--text-on-accent, #fff); }
+
+/* Resolved standard rule details. Renders as a left-bordered card so it
+   stands out from the queue's own context (drift reason, files). */
+.instrumentality-entry .rule-block {
+  background: var(--background-secondary);
+  border-left: 3px solid var(--interactive-accent);
+  padding: 6px 10px;
+  margin: 6px 0;
+  border-radius: 3px;
+}
+.instrumentality-entry .rule-block .rule-row { margin: 2px 0; font-size: 0.88em; }
+.instrumentality-entry .rule-block .rule-label { color: var(--text-muted); font-weight: 500; margin-right: 2px; }
+.instrumentality-entry .rule-block .rule-title { font-weight: 600; }
+.instrumentality-entry .rule-block .rule-aside { color: var(--text-muted); font-size: 0.84em; }
+
+.instrumentality-entry .prompt-disclosure {
+  margin-top: 8px;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+.instrumentality-entry .prompt-disclosure summary {
+  cursor: pointer;
+  user-select: none;
+  padding: 3px 0;
+}
+.instrumentality-entry .prompt-disclosure summary:hover { color: var(--text-normal); }
+.instrumentality-entry .prompt-disclosure[open] summary {
+  color: var(--text-normal);
+  margin-bottom: 4px;
+}
+
+/* Pipeline strip — drift → conform → promotion → lint at-a-glance. */
+.instrumentality-pipeline-strip {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 8px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  flex-wrap: wrap;
+}
+.instrumentality-pipeline-cell {
+  flex: 1 1 100px;
+  min-width: 90px;
+  padding: 6px 10px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  text-align: center;
+  cursor: default;
+}
+.instrumentality-pipeline-cell.dim { opacity: 0.5; }
+.instrumentality-pipeline-cell.active .pipeline-count { color: var(--interactive-accent); }
+.instrumentality-pipeline-cell .pipeline-count {
+  font-size: 1.4em;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.instrumentality-pipeline-cell .pipeline-label {
+  color: var(--text-muted);
+  font-size: 0.74em;
+  margin-top: 2px;
+}
+.instrumentality-pipeline-strip .pipeline-arrow {
+  color: var(--text-muted);
+  align-self: center;
+  font-size: 1em;
+}
+
+/* Group-by chips style closer to the section chips but always-on label. */
+.instrumentality-chip-group .group-by-label {
+  color: var(--text-muted);
+  font-size: 0.78em;
+  margin-right: 4px;
+  align-self: center;
+}
+.instrumentality-chip.group-by-chip.on {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent, #fff);
+  border-color: var(--interactive-accent);
+}
+
+/* Section guidance hint under the title — terse one-liner. */
+.instrumentality-section-card .group-hint {
+  color: var(--text-muted);
+  font-size: 0.78em;
+  font-style: italic;
+  padding: 2px 0 0;
+}
+
+/* Lazy git diff blocks */
+.instrumentality-entry .diff-actions {
+  margin-top: 6px;
+  font-size: 0.85em;
+}
+.instrumentality-entry .diff-disclosure summary,
+.instrumentality-entry .diff-file summary {
+  cursor: pointer;
+  user-select: none;
+  padding: 3px 0;
+  color: var(--text-muted);
+}
+.instrumentality-entry .diff-disclosure[open] summary,
+.instrumentality-entry .diff-file[open] summary {
+  color: var(--text-normal);
+}
+.instrumentality-entry .diff-list {
+  list-style: none;
+  margin: 4px 0 0 0;
+  padding: 0;
+}
+.instrumentality-entry .diff-list li {
+  padding: 2px 0;
+}
+.instrumentality-entry .diff-block {
+  font-family: var(--font-monospace);
+  font-size: 0.8em;
+  background: var(--code-background);
+  padding: 6px 8px;
+  border-radius: 3px;
+  white-space: pre-wrap;
+  max-height: 320px;
+  overflow: auto;
+  margin: 4px 0 0;
+}
+.instrumentality-entry .diff-block .diff-add { color: var(--text-success, #2da44e); }
+.instrumentality-entry .diff-block .diff-del { color: var(--text-error, #cf222e); }
+.instrumentality-entry .diff-block .diff-hunk { color: var(--text-accent); font-weight: 600; }
+.instrumentality-entry .diff-block .diff-meta { color: var(--text-muted); font-style: italic; }
+.instrumentality-entry .diff-block .diff-ctx { color: var(--text-normal); }

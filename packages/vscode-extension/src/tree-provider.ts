@@ -1,23 +1,22 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
-import { stableEntryId } from "@instrumentality/shared";
-import type {
-  StatusSummary,
-  CodeDriftEntry,
-  KbDriftEntry,
-  StandardsDriftEntry,
-  PromotionEntry,
-  LintViolation,
-  PromptInput,
+import {
+  stableEntryId,
+  buildEntryHandles,
+  groupEntries,
+  SECTION_GUIDE,
+  type StatusSummary,
+  type CodeDriftEntry,
+  type KbDriftEntry,
+  type StandardsDriftEntry,
+  type PromotionEntry,
+  type LintViolation,
+  type PromptInput,
+  type GroupBy,
+  type SectionKind as SharedSectionKind,
 } from "@instrumentality/shared";
 
-export type SectionKind =
-  | "code-drift"
-  | "kb-drift"
-  | "standards-drift"
-  | "conform-pending"
-  | "promotions"
-  | "lint";
+export type SectionKind = SharedSectionKind;
 
 export type SortMode = "default" | "severity" | "recency" | "path";
 
@@ -29,14 +28,28 @@ export interface FilterState {
 
 export interface SectionNode {
   type: "section";
-  kind: SectionKind;
+  /**
+   * For section-grouping this is the SectionKind. For other group-by
+   * modes, it's a synthetic key like "file:src/foo.ts" or "standard:naming"
+   * — used purely as an identity key, not a kind discriminator.
+   */
+  kind: string;
+  /** Backing section kind when in section-grouping mode (used for icon). */
+  iconKind?: SectionKind;
   label: string;
   count: number;
   warning?: string;
+  hint?: string;
+  /** Pre-resolved children for non-section group-by modes. */
+  children?: EntryNode[];
 }
 
 export interface EntryNode {
   type: "entry";
+  /**
+   * The section the entry's data belongs to. Used to decide which detail
+   * builders / commands apply, regardless of the current group-by axis.
+   */
   parentKind: SectionKind;
   /** Stable id matching the dashboard's id for the same entry. */
   entryId: string;
@@ -119,13 +132,14 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private status: StatusSummary | null = null;
   private kbRoot: string | null = null;
   private loadError: string | null = null;
-  private sectionByKind: Map<SectionKind, SectionNode> = new Map();
+  private sectionByKind: Map<string, SectionNode> = new Map();
   private parentByEntry: WeakMap<EntryNode, SectionNode> = new WeakMap();
 
   constructor(
     private getSort: () => SortMode,
     private getFilter: () => FilterState,
-    private resolveStandardForEntry: (e: EntryNode) => string | null
+    private resolveStandardForEntry: (e: EntryNode) => string | null,
+    private getGroupBy: () => GroupBy = () => "section"
   ) {}
 
   setStatus(status: StatusSummary, kbRoot: string) {
@@ -163,11 +177,14 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
           ? vscode.TreeItemCollapsibleState.Expanded
           : vscode.TreeItemCollapsibleState.Collapsed
       );
-      item.iconPath = new vscode.ThemeIcon(ICON[node.kind]);
+      const iconKind = (ICON[node.kind as SectionKind] ?? "list-tree") as string;
+      item.iconPath = new vscode.ThemeIcon(iconKind);
       item.contextValue = "instrumentality.section";
       if (node.warning) {
         item.tooltip = node.warning;
         item.description = "⚠";
+      } else if (node.hint) {
+        item.tooltip = node.hint;
       }
       return item;
     }
@@ -213,19 +230,142 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     }
     if (!this.status) return [];
 
+    const groupBy = this.getGroupBy();
+
     if (!node) {
-      const sections = this.buildSections(this.status);
+      const sections =
+        groupBy === "section"
+          ? this.buildSections(this.status)
+          : this.buildGenericGroups(this.status, groupBy);
       this.sectionByKind = new Map(sections.map((s) => [s.kind, s]));
       const filter = this.getFilter();
-      return sections.filter((s) => !filter.hiddenSections.has(s.kind));
+      // hiddenSections only applies to section-kind keys; in other modes we
+      // don't filter top-level groups via the same mechanism.
+      return sections.filter((s) => {
+        if (groupBy !== "section") return true;
+        return !filter.hiddenSections.has(s.kind as SectionKind);
+      });
     }
 
     if (node.type !== "section") return [];
+
+    // For non-section group-by, the section already carries pre-built children.
+    if (node.children) {
+      const filtered = this.applyEntryFilters(node.children);
+      const sorted = this.sortEntries(filtered);
+      for (const e of sorted) this.parentByEntry.set(e, node);
+      if (sorted.length === 0) {
+        return [{ type: "message", parentKind: node.iconKind ?? "code-drift", label: "No entries", iconId: "check" }];
+      }
+      return sorted;
+    }
+
     const entries = this.entriesForSection(this.status, node);
     for (const e of entries) {
       if (e.type === "entry") this.parentByEntry.set(e, node);
     }
     return entries;
+  }
+
+  /**
+   * Same filter-and-sort pipeline as `entriesForSection`, but applied to
+   * an already-built list of entry nodes (used by non-section group-bys
+   * where children are pre-projected via the shared `groupEntries` helper).
+   */
+  private applyEntryFilters(entries: EntryNode[]): EntryNode[] {
+    const filter = this.getFilter();
+    return entries.filter((e) => {
+      if (e.parentKind === "lint" && filter.hideInfoLint && e.severityRank > 1) return false;
+      if (filter.textPattern) {
+        const hay = (e.label + " " + e.description).toLowerCase();
+        if (!hay.includes(filter.textPattern.toLowerCase())) return false;
+      }
+      return true;
+    });
+  }
+
+  /**
+   * Build top-level groups for non-section group-by modes using the shared
+   * `groupEntries` projection. Each handle resolves back to a per-section
+   * builder so we get the same row formatting regardless of grouping.
+   */
+  private buildGenericGroups(s: StatusSummary, groupBy: GroupBy): SectionNode[] {
+    const handles = buildEntryHandles(s);
+    const groups = groupEntries(handles, groupBy);
+    return groups.map((g) => {
+      const children: EntryNode[] = [];
+      for (const h of g.entries) {
+        const node = this.buildEntryByHandle(s, h);
+        if (node) children.push(node);
+      }
+      return {
+        type: "section" as const,
+        kind: g.key,
+        label: g.label,
+        count: children.length,
+        hint: g.hint,
+        children,
+      };
+    });
+  }
+
+  private buildEntryByHandle(
+    s: StatusSummary,
+    h: { section: SectionKind; id: string }
+  ): EntryNode | null {
+    switch (h.section) {
+      case "code-drift": {
+        const entries = s.codeDrift.entries;
+        const i = entries.findIndex((e, idx) => stableEntryId(e.kbTarget, idx) === h.id);
+        if (i < 0) return null;
+        return this.codeDriftNode(entries[i], i, this.fakeSectionFor(h.section));
+      }
+      case "kb-drift": {
+        const entries = s.kbDrift.entries;
+        const i = entries.findIndex((e, idx) => stableEntryId(e.kbFile, idx) === h.id);
+        if (i < 0) return null;
+        return this.kbDriftNode(entries[i], i, this.fakeSectionFor(h.section));
+      }
+      case "standards-drift": {
+        const entries = s.standardsDrift.entries;
+        const i = entries.findIndex((e, idx) => stableEntryId(e.queueKey, idx) === h.id);
+        if (i < 0) return null;
+        return this.standardsDriftNode(entries[i], i, this.fakeSectionFor(h.section));
+      }
+      case "conform-pending": {
+        for (const p of [s.conformPending.current, s.conformPending.aspirational]) {
+          if (!p) continue;
+          const idx = p.requested.findIndex(
+            (r, j) => stableEntryId(`${p.mode}:${r.file}:${r.standard_id}`, j) === h.id
+          );
+          if (idx >= 0) {
+            const r = p.requested[idx];
+            return this.conformEntryNode(p, r, idx, this.fakeSectionFor(h.section));
+          }
+        }
+        return null;
+      }
+      case "promotions": {
+        const entries = s.promotions;
+        const i = entries.findIndex((e, idx) => stableEntryId(e.queueKey, idx) === h.id);
+        if (i < 0) return null;
+        return this.promotionNode(entries[i], i, this.fakeSectionFor(h.section));
+      }
+      case "lint": {
+        const entries = s.lint.violations;
+        const i = entries.findIndex(
+          (v, idx) => stableEntryId(`${v.file}:${v.message.slice(0, 40)}`, idx) === h.id
+        );
+        if (i < 0) return null;
+        return this.lintNode(entries[i], i, this.fakeSectionFor(h.section));
+      }
+    }
+  }
+
+  /** Synthesize a section node carrying just the section-kind, used by
+   * per-row builders that read `section.kind`. */
+  private fakeSectionFor(kind: SectionKind): SectionNode {
+    return { type: "section", kind, label: SECTION_LABEL[kind], count: 0 };
   }
 
   private buildSections(s: StatusSummary): SectionNode[] {
@@ -257,8 +397,9 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     let raw: EntryNode[] = [];
     let emptyMessage = "No entries";
     let emptyIcon = "check";
+    const kind = section.kind as SectionKind;
 
-    switch (section.kind) {
+    switch (kind) {
       case "code-drift":
         raw = s.codeDrift.entries.map((e, i) => this.codeDriftNode(e, i, section));
         emptyMessage = "No code drift";
@@ -284,7 +425,7 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
           return [
             {
               type: "message",
-              parentKind: section.kind,
+              parentKind: kind,
               label: s.lint.error || "lint subprocess unavailable in this workspace",
               iconId: "info",
             },
@@ -307,7 +448,7 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
 
     const sorted = this.sortEntries(filtered);
     if (sorted.length === 0) {
-      return [{ type: "message", parentKind: section.kind, label: emptyMessage, iconId: emptyIcon }];
+      return [{ type: "message", parentKind: section.kind as SectionKind, label: emptyMessage, iconId: emptyIcon }];
     }
     return sorted;
   }
@@ -348,34 +489,48 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     for (const p of [s.conformPending.current, s.conformPending.aspirational]) {
       if (!p || p.requested.length === 0) continue;
       p.requested.forEach((r, i) => {
-        const firstRule = r.rule_ids[0] ?? "?";
-        const allRules = r.rule_ids.map((x) => `\`${x}\``).join(", ");
-        const staleNote = p.staleAgainstHead
-          ? "\n\n⚠ Recorded baseline differs from current HEAD — re-run `kb_conform`."
-          : "";
-        const tooltipBody =
-          `**Conform pending** (mode: \`${p.mode}\`)\n\n` +
-          `Standard: \`${r.standard_id}\`\n\n` +
-          `Rules: ${allRules}\n\n` +
-          `Baseline: \`${p.head_sha_short}\` (${p.head_date})${staleNote}`;
-        const node: EntryNode = {
-          type: "entry",
-          parentKind: section.kind,
-          entryId: stableEntryId(`${p.mode}:${r.file}:${r.standard_id}`, i),
-          label: r.file,
-          description: `${r.standard_id}.${firstRule} @ ${p.head_sha_short}`,
-          tooltip: makeTooltip(tooltipBody),
-          sourceFile: r.file,
-          iconId: ICON["conform-pending"],
-          severityRank: p.staleAgainstHead ? 1 : 2,
-          recencyKey: p.head_date || "",
-          promptInput: { kind: "conform", entry: p },
-        };
-        node.standardFile = this.resolveStandardForEntry(node);
-        out.push(node);
+        out.push(this.conformEntryNode(p, r, i, section));
       });
     }
     return out;
+  }
+
+  private conformEntryNode(
+    p: NonNullable<StatusSummary["conformPending"]["current"]>,
+    r: NonNullable<StatusSummary["conformPending"]["current"]>["requested"][number],
+    i: number,
+    section: SectionNode
+  ): EntryNode {
+    const firstRule = r.rule_ids[0] ?? "?";
+    const allRules = r.rule_ids.map((x) => `\`${x}\``).join(", ");
+    const staleNote = p.staleAgainstHead
+      ? "\n\n⚠ Recorded baseline differs from current HEAD — re-run `kb_conform`."
+      : "";
+    const ruleHints = r.resolvedRules && r.resolvedRules.length > 0
+      ? "\n\n" + r.resolvedRules
+          .map((rr) => `- **${rr.title ?? rr.id}** — ${rr.fixHint ?? rr.description ?? "(no hint)"}`)
+          .join("\n")
+      : "";
+    const tooltipBody =
+      `**Conform pending** (mode: \`${p.mode}\`)\n\n` +
+      `Standard: \`${r.standard_id}\`\n\n` +
+      `Rules: ${allRules}${ruleHints}\n\n` +
+      `Baseline: \`${p.head_sha_short}\` (${p.head_date})${staleNote}`;
+    const node: EntryNode = {
+      type: "entry",
+      parentKind: section.kind as SectionKind,
+      entryId: stableEntryId(`${p.mode}:${r.file}:${r.standard_id}`, i),
+      label: r.file,
+      description: `${r.standard_id}.${firstRule} @ ${p.head_sha_short}`,
+      tooltip: makeTooltip(tooltipBody),
+      sourceFile: r.file,
+      iconId: ICON["conform-pending"],
+      severityRank: p.staleAgainstHead ? 1 : 2,
+      recencyKey: p.head_date || "",
+      promptInput: { kind: "conform", entry: p },
+    };
+    node.standardFile = this.resolveStandardForEntry(node);
+    return node;
   }
 
   private codeDriftNode(e: CodeDriftEntry, index: number, section: SectionNode): EntryNode {
@@ -396,7 +551,7 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       `Changed files:\n${filesPreview}${more}${sharedNote}`;
     return {
       type: "entry",
-      parentKind: section.kind,
+      parentKind: section.kind as SectionKind,
       entryId: stableEntryId(e.kbTarget, index),
       label: e.kbTarget,
       description,
@@ -431,7 +586,7 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       `Code areas to review:\n${areasMd}${moreAreas}${unmappedNote}`;
     return {
       type: "entry",
-      parentKind: section.kind,
+      parentKind: section.kind as SectionKind,
       entryId: stableEntryId(e.kbFile, index),
       label: e.kbFile,
       description,
@@ -479,7 +634,7 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       `${filesMd}`;
     return {
       type: "entry",
-      parentKind: section.kind,
+      parentKind: section.kind as SectionKind,
       entryId: stableEntryId(e.queueKey, index),
       label: e.queueKey,
       description,
@@ -510,7 +665,7 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       `Promoted files:\n${filesMd}${moreFiles}`;
     return {
       type: "entry",
-      parentKind: section.kind,
+      parentKind: section.kind as SectionKind,
       entryId: stableEntryId(e.queueKey, index),
       label: e.queueKey,
       description: `${e.files.length} file(s)`,
@@ -530,7 +685,7 @@ export class KbSyncTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       `> ${v.message}`;
     return {
       type: "entry",
-      parentKind: section.kind,
+      parentKind: section.kind as SectionKind,
       entryId: stableEntryId(`${v.file}:${v.message.slice(0, 40)}`, index),
       label: v.file,
       description: `${v.severity} · ${truncate(v.message)}`,

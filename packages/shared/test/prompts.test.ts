@@ -140,6 +140,54 @@ Files: \`src/legacy/X.ts\` (promoted 2026-04-20)`
   });
 });
 
+describe("standard-author prompt", () => {
+  const STD_WITH_RULE: StandardsDriftEntry = {
+    ...STD,
+    resolvedRule: {
+      id: "deprecation-window",
+      title: "Deprecation window must be 6 months",
+      severity: "error",
+      description: "All deprecated endpoints need a 6-month sunset banner.",
+      why: "Clients need lead time to migrate.",
+      fixHint: "Add a deprecation banner.",
+      examples: null,
+      exceptions: null,
+    },
+    resolvedStandard: {
+      id: "api-versioning",
+      kind: "contract",
+      topic: "API versioning",
+      filePath: "/tmp/api-versioning.md",
+    },
+  };
+
+  it("refine includes rule wording and violating files", () => {
+    const out = getActionPrompt({ kind: "standard-author", entry: STD_WITH_RULE, mode: "refine" });
+    assert.match(out, /Refine rule `deprecation-window`/);
+    assert.match(out, /api-versioning\.md/);
+    assert.match(out, /src\/api\/v1\/users\.ts/);
+    assert.match(out, /web\/api-client\.ts/);
+    assert.match(out, /Existing rule:/);
+    assert.match(out, /title: Deprecation window must be 6 months/);
+    assert.match(out, /6-month deprecation banner/i);
+  });
+
+  it("exception mode targets the exceptions list", () => {
+    const out = getActionPrompt({ kind: "standard-author", entry: STD_WITH_RULE, mode: "exception" });
+    assert.match(out, /new `exceptions` entry/);
+  });
+
+  it("example mode targets the examples list", () => {
+    const out = getActionPrompt({ kind: "standard-author", entry: STD_WITH_RULE, mode: "example" });
+    assert.match(out, /good\/bad example pair/);
+  });
+
+  it("works without a resolved rule", () => {
+    const out = getActionPrompt({ kind: "standard-author", entry: STD, mode: "refine" });
+    assert.match(out, /Existing rule: not resolvable/);
+  });
+});
+
 describe("resolveStandardPath", () => {
   it("returns null when standards dir missing", async () => {
     const { resolveStandardPath } = await import("../src/parsers/conform-pending.js");

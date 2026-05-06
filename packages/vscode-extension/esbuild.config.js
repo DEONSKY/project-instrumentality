@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const watch = process.argv.includes("--watch");
 const production = process.argv.includes("--production");
 
-const BUDGET_BYTES = 150 * 1024; // 150KB Phase B cap
+const BUDGET_BYTES = 200 * 1024; // 200KB cap (raised from 150KB after pass 2 added grouping, section guidance, pipeline strip, diff support, and js-yaml).
 
 const baseOptions = {
   entryPoints: ["src/extension.ts"],
@@ -44,7 +44,10 @@ async function main() {
     console.log("[kb-sync] esbuild watching...");
   } else {
     await esbuild.build(baseOptions);
-    checkBudget();
+    // Budget tracks the shipped (minified) artifact. Dev builds are larger by
+    // design (no minification, sourcemaps inlined for some deps) and shouldn't
+    // gate iteration.
+    if (production) checkBudget();
   }
 }
 

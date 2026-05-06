@@ -8,5 +8,29 @@ export { parseStandardsDrift, readStandardsDrift } from "./parsers/standards-dri
 export { parseConformPending, readConformPending, resolveStandardPath } from "./parsers/conform-pending.js";
 export { parsePromotions, readPromotions } from "./parsers/promotions.js";
 export { parseLintStderr, runLint } from "./parsers/lint.js";
+export {
+  parseStandardDefinition,
+  readStandardDefinition,
+  findRule,
+  findRuleLineRange,
+} from "./parsers/standards.js";
 export { getActionPrompt } from "./prompts/index.js";
 export type { PromptInput } from "./prompts/index.js";
+export {
+  SECTION_GUIDE,
+  primaryActionLabel,
+  copyActionLabel,
+} from "./section-guide.js";
+export type { SectionGuide, SectionKind } from "./section-guide.js";
+export {
+  buildEntryHandles,
+  groupEntries,
+  pipelineSegments,
+} from "./grouping.js";
+export type {
+  GroupBy,
+  LifecycleStage,
+  EntryHandle,
+  Group,
+  PipelineSegment,
+} from "./grouping.js";

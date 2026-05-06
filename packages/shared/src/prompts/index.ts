@@ -12,6 +12,7 @@ import { standardsDriftPrompt } from "./standards-drift.js";
 import { promotionPrompt } from "./promotion.js";
 import { conformPrompt } from "./conform.js";
 import { lintPrompt } from "./lint.js";
+import { standardAuthorPrompt, type StandardAuthorMode } from "./standard-author.js";
 
 export type PromptInput =
   | { kind: "code-drift"; entry: CodeDriftEntry }
@@ -19,7 +20,8 @@ export type PromptInput =
   | { kind: "standards-drift"; entry: StandardsDriftEntry }
   | { kind: "promotion"; entry: PromotionEntry }
   | { kind: "conform"; entry: ConformPending }
-  | { kind: "lint"; entry: LintViolation };
+  | { kind: "lint"; entry: LintViolation }
+  | { kind: "standard-author"; entry: StandardsDriftEntry; mode: StandardAuthorMode };
 
 export function getActionPrompt(input: PromptInput): string {
   switch (input.kind) {
@@ -35,6 +37,8 @@ export function getActionPrompt(input: PromptInput): string {
       return conformPrompt(input.entry);
     case "lint":
       return lintPrompt(input.entry);
+    case "standard-author":
+      return standardAuthorPrompt(input.entry, input.mode);
   }
 }
 
@@ -45,4 +49,6 @@ export {
   promotionPrompt,
   conformPrompt,
   lintPrompt,
+  standardAuthorPrompt,
 };
+export type { StandardAuthorMode };

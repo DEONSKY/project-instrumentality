@@ -831,6 +831,3087 @@ var require_lint = __commonJS({
   }
 });
 
+// ../shared/node_modules/js-yaml/lib/common.js
+var require_common = __commonJS({
+  "../shared/node_modules/js-yaml/lib/common.js"(exports2, module2) {
+    "use strict";
+    function isNothing(subject) {
+      return typeof subject === "undefined" || subject === null;
+    }
+    function isObject(subject) {
+      return typeof subject === "object" && subject !== null;
+    }
+    function toArray(sequence) {
+      if (Array.isArray(sequence))
+        return sequence;
+      else if (isNothing(sequence))
+        return [];
+      return [sequence];
+    }
+    function extend(target, source) {
+      var index, length, key, sourceKeys;
+      if (source) {
+        sourceKeys = Object.keys(source);
+        for (index = 0, length = sourceKeys.length; index < length; index += 1) {
+          key = sourceKeys[index];
+          target[key] = source[key];
+        }
+      }
+      return target;
+    }
+    function repeat(string, count) {
+      var result = "", cycle;
+      for (cycle = 0; cycle < count; cycle += 1) {
+        result += string;
+      }
+      return result;
+    }
+    function isNegativeZero(number) {
+      return number === 0 && Number.NEGATIVE_INFINITY === 1 / number;
+    }
+    module2.exports.isNothing = isNothing;
+    module2.exports.isObject = isObject;
+    module2.exports.toArray = toArray;
+    module2.exports.repeat = repeat;
+    module2.exports.isNegativeZero = isNegativeZero;
+    module2.exports.extend = extend;
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/exception.js
+var require_exception = __commonJS({
+  "../shared/node_modules/js-yaml/lib/exception.js"(exports2, module2) {
+    "use strict";
+    function formatError(exception, compact) {
+      var where = "", message = exception.reason || "(unknown reason)";
+      if (!exception.mark)
+        return message;
+      if (exception.mark.name) {
+        where += 'in "' + exception.mark.name + '" ';
+      }
+      where += "(" + (exception.mark.line + 1) + ":" + (exception.mark.column + 1) + ")";
+      if (!compact && exception.mark.snippet) {
+        where += "\n\n" + exception.mark.snippet;
+      }
+      return message + " " + where;
+    }
+    function YAMLException(reason, mark) {
+      Error.call(this);
+      this.name = "YAMLException";
+      this.reason = reason;
+      this.mark = mark;
+      this.message = formatError(this, false);
+      if (Error.captureStackTrace) {
+        Error.captureStackTrace(this, this.constructor);
+      } else {
+        this.stack = new Error().stack || "";
+      }
+    }
+    YAMLException.prototype = Object.create(Error.prototype);
+    YAMLException.prototype.constructor = YAMLException;
+    YAMLException.prototype.toString = function toString(compact) {
+      return this.name + ": " + formatError(this, compact);
+    };
+    module2.exports = YAMLException;
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/snippet.js
+var require_snippet = __commonJS({
+  "../shared/node_modules/js-yaml/lib/snippet.js"(exports2, module2) {
+    "use strict";
+    var common = require_common();
+    function getLine(buffer, lineStart, lineEnd, position, maxLineLength) {
+      var head = "";
+      var tail = "";
+      var maxHalfLength = Math.floor(maxLineLength / 2) - 1;
+      if (position - lineStart > maxHalfLength) {
+        head = " ... ";
+        lineStart = position - maxHalfLength + head.length;
+      }
+      if (lineEnd - position > maxHalfLength) {
+        tail = " ...";
+        lineEnd = position + maxHalfLength - tail.length;
+      }
+      return {
+        str: head + buffer.slice(lineStart, lineEnd).replace(/\t/g, "\u2192") + tail,
+        pos: position - lineStart + head.length
+        // relative position
+      };
+    }
+    function padStart(string, max) {
+      return common.repeat(" ", max - string.length) + string;
+    }
+    function makeSnippet(mark, options) {
+      options = Object.create(options || null);
+      if (!mark.buffer)
+        return null;
+      if (!options.maxLength)
+        options.maxLength = 79;
+      if (typeof options.indent !== "number")
+        options.indent = 1;
+      if (typeof options.linesBefore !== "number")
+        options.linesBefore = 3;
+      if (typeof options.linesAfter !== "number")
+        options.linesAfter = 2;
+      var re = /\r?\n|\r|\0/g;
+      var lineStarts = [0];
+      var lineEnds = [];
+      var match;
+      var foundLineNo = -1;
+      while (match = re.exec(mark.buffer)) {
+        lineEnds.push(match.index);
+        lineStarts.push(match.index + match[0].length);
+        if (mark.position <= match.index && foundLineNo < 0) {
+          foundLineNo = lineStarts.length - 2;
+        }
+      }
+      if (foundLineNo < 0)
+        foundLineNo = lineStarts.length - 1;
+      var result = "", i, line;
+      var lineNoLength = Math.min(mark.line + options.linesAfter, lineEnds.length).toString().length;
+      var maxLineLength = options.maxLength - (options.indent + lineNoLength + 3);
+      for (i = 1; i <= options.linesBefore; i++) {
+        if (foundLineNo - i < 0)
+          break;
+        line = getLine(
+          mark.buffer,
+          lineStarts[foundLineNo - i],
+          lineEnds[foundLineNo - i],
+          mark.position - (lineStarts[foundLineNo] - lineStarts[foundLineNo - i]),
+          maxLineLength
+        );
+        result = common.repeat(" ", options.indent) + padStart((mark.line - i + 1).toString(), lineNoLength) + " | " + line.str + "\n" + result;
+      }
+      line = getLine(mark.buffer, lineStarts[foundLineNo], lineEnds[foundLineNo], mark.position, maxLineLength);
+      result += common.repeat(" ", options.indent) + padStart((mark.line + 1).toString(), lineNoLength) + " | " + line.str + "\n";
+      result += common.repeat("-", options.indent + lineNoLength + 3 + line.pos) + "^\n";
+      for (i = 1; i <= options.linesAfter; i++) {
+        if (foundLineNo + i >= lineEnds.length)
+          break;
+        line = getLine(
+          mark.buffer,
+          lineStarts[foundLineNo + i],
+          lineEnds[foundLineNo + i],
+          mark.position - (lineStarts[foundLineNo] - lineStarts[foundLineNo + i]),
+          maxLineLength
+        );
+        result += common.repeat(" ", options.indent) + padStart((mark.line + i + 1).toString(), lineNoLength) + " | " + line.str + "\n";
+      }
+      return result.replace(/\n$/, "");
+    }
+    module2.exports = makeSnippet;
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/type.js
+var require_type = __commonJS({
+  "../shared/node_modules/js-yaml/lib/type.js"(exports2, module2) {
+    "use strict";
+    var YAMLException = require_exception();
+    var TYPE_CONSTRUCTOR_OPTIONS = [
+      "kind",
+      "multi",
+      "resolve",
+      "construct",
+      "instanceOf",
+      "predicate",
+      "represent",
+      "representName",
+      "defaultStyle",
+      "styleAliases"
+    ];
+    var YAML_NODE_KINDS = [
+      "scalar",
+      "sequence",
+      "mapping"
+    ];
+    function compileStyleAliases(map) {
+      var result = {};
+      if (map !== null) {
+        Object.keys(map).forEach(function(style) {
+          map[style].forEach(function(alias) {
+            result[String(alias)] = style;
+          });
+        });
+      }
+      return result;
+    }
+    function Type(tag, options) {
+      options = options || {};
+      Object.keys(options).forEach(function(name) {
+        if (TYPE_CONSTRUCTOR_OPTIONS.indexOf(name) === -1) {
+          throw new YAMLException('Unknown option "' + name + '" is met in definition of "' + tag + '" YAML type.');
+        }
+      });
+      this.options = options;
+      this.tag = tag;
+      this.kind = options["kind"] || null;
+      this.resolve = options["resolve"] || function() {
+        return true;
+      };
+      this.construct = options["construct"] || function(data) {
+        return data;
+      };
+      this.instanceOf = options["instanceOf"] || null;
+      this.predicate = options["predicate"] || null;
+      this.represent = options["represent"] || null;
+      this.representName = options["representName"] || null;
+      this.defaultStyle = options["defaultStyle"] || null;
+      this.multi = options["multi"] || false;
+      this.styleAliases = compileStyleAliases(options["styleAliases"] || null);
+      if (YAML_NODE_KINDS.indexOf(this.kind) === -1) {
+        throw new YAMLException('Unknown kind "' + this.kind + '" is specified for "' + tag + '" YAML type.');
+      }
+    }
+    module2.exports = Type;
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/schema.js
+var require_schema = __commonJS({
+  "../shared/node_modules/js-yaml/lib/schema.js"(exports2, module2) {
+    "use strict";
+    var YAMLException = require_exception();
+    var Type = require_type();
+    function compileList(schema, name) {
+      var result = [];
+      schema[name].forEach(function(currentType) {
+        var newIndex = result.length;
+        result.forEach(function(previousType, previousIndex) {
+          if (previousType.tag === currentType.tag && previousType.kind === currentType.kind && previousType.multi === currentType.multi) {
+            newIndex = previousIndex;
+          }
+        });
+        result[newIndex] = currentType;
+      });
+      return result;
+    }
+    function compileMap() {
+      var result = {
+        scalar: {},
+        sequence: {},
+        mapping: {},
+        fallback: {},
+        multi: {
+          scalar: [],
+          sequence: [],
+          mapping: [],
+          fallback: []
+        }
+      }, index, length;
+      function collectType(type) {
+        if (type.multi) {
+          result.multi[type.kind].push(type);
+          result.multi["fallback"].push(type);
+        } else {
+          result[type.kind][type.tag] = result["fallback"][type.tag] = type;
+        }
+      }
+      for (index = 0, length = arguments.length; index < length; index += 1) {
+        arguments[index].forEach(collectType);
+      }
+      return result;
+    }
+    function Schema(definition) {
+      return this.extend(definition);
+    }
+    Schema.prototype.extend = function extend(definition) {
+      var implicit = [];
+      var explicit = [];
+      if (definition instanceof Type) {
+        explicit.push(definition);
+      } else if (Array.isArray(definition)) {
+        explicit = explicit.concat(definition);
+      } else if (definition && (Array.isArray(definition.implicit) || Array.isArray(definition.explicit))) {
+        if (definition.implicit)
+          implicit = implicit.concat(definition.implicit);
+        if (definition.explicit)
+          explicit = explicit.concat(definition.explicit);
+      } else {
+        throw new YAMLException("Schema.extend argument should be a Type, [ Type ], or a schema definition ({ implicit: [...], explicit: [...] })");
+      }
+      implicit.forEach(function(type) {
+        if (!(type instanceof Type)) {
+          throw new YAMLException("Specified list of YAML types (or a single Type object) contains a non-Type object.");
+        }
+        if (type.loadKind && type.loadKind !== "scalar") {
+          throw new YAMLException("There is a non-scalar type in the implicit list of a schema. Implicit resolving of such types is not supported.");
+        }
+        if (type.multi) {
+          throw new YAMLException("There is a multi type in the implicit list of a schema. Multi tags can only be listed as explicit.");
+        }
+      });
+      explicit.forEach(function(type) {
+        if (!(type instanceof Type)) {
+          throw new YAMLException("Specified list of YAML types (or a single Type object) contains a non-Type object.");
+        }
+      });
+      var result = Object.create(Schema.prototype);
+      result.implicit = (this.implicit || []).concat(implicit);
+      result.explicit = (this.explicit || []).concat(explicit);
+      result.compiledImplicit = compileList(result, "implicit");
+      result.compiledExplicit = compileList(result, "explicit");
+      result.compiledTypeMap = compileMap(result.compiledImplicit, result.compiledExplicit);
+      return result;
+    };
+    module2.exports = Schema;
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/type/str.js
+var require_str = __commonJS({
+  "../shared/node_modules/js-yaml/lib/type/str.js"(exports2, module2) {
+    "use strict";
+    var Type = require_type();
+    module2.exports = new Type("tag:yaml.org,2002:str", {
+      kind: "scalar",
+      construct: function(data) {
+        return data !== null ? data : "";
+      }
+    });
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/type/seq.js
+var require_seq = __commonJS({
+  "../shared/node_modules/js-yaml/lib/type/seq.js"(exports2, module2) {
+    "use strict";
+    var Type = require_type();
+    module2.exports = new Type("tag:yaml.org,2002:seq", {
+      kind: "sequence",
+      construct: function(data) {
+        return data !== null ? data : [];
+      }
+    });
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/type/map.js
+var require_map = __commonJS({
+  "../shared/node_modules/js-yaml/lib/type/map.js"(exports2, module2) {
+    "use strict";
+    var Type = require_type();
+    module2.exports = new Type("tag:yaml.org,2002:map", {
+      kind: "mapping",
+      construct: function(data) {
+        return data !== null ? data : {};
+      }
+    });
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/schema/failsafe.js
+var require_failsafe = __commonJS({
+  "../shared/node_modules/js-yaml/lib/schema/failsafe.js"(exports2, module2) {
+    "use strict";
+    var Schema = require_schema();
+    module2.exports = new Schema({
+      explicit: [
+        require_str(),
+        require_seq(),
+        require_map()
+      ]
+    });
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/type/null.js
+var require_null = __commonJS({
+  "../shared/node_modules/js-yaml/lib/type/null.js"(exports2, module2) {
+    "use strict";
+    var Type = require_type();
+    function resolveYamlNull(data) {
+      if (data === null)
+        return true;
+      var max = data.length;
+      return max === 1 && data === "~" || max === 4 && (data === "null" || data === "Null" || data === "NULL");
+    }
+    function constructYamlNull() {
+      return null;
+    }
+    function isNull(object) {
+      return object === null;
+    }
+    module2.exports = new Type("tag:yaml.org,2002:null", {
+      kind: "scalar",
+      resolve: resolveYamlNull,
+      construct: constructYamlNull,
+      predicate: isNull,
+      represent: {
+        canonical: function() {
+          return "~";
+        },
+        lowercase: function() {
+          return "null";
+        },
+        uppercase: function() {
+          return "NULL";
+        },
+        camelcase: function() {
+          return "Null";
+        },
+        empty: function() {
+          return "";
+        }
+      },
+      defaultStyle: "lowercase"
+    });
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/type/bool.js
+var require_bool = __commonJS({
+  "../shared/node_modules/js-yaml/lib/type/bool.js"(exports2, module2) {
+    "use strict";
+    var Type = require_type();
+    function resolveYamlBoolean(data) {
+      if (data === null)
+        return false;
+      var max = data.length;
+      return max === 4 && (data === "true" || data === "True" || data === "TRUE") || max === 5 && (data === "false" || data === "False" || data === "FALSE");
+    }
+    function constructYamlBoolean(data) {
+      return data === "true" || data === "True" || data === "TRUE";
+    }
+    function isBoolean(object) {
+      return Object.prototype.toString.call(object) === "[object Boolean]";
+    }
+    module2.exports = new Type("tag:yaml.org,2002:bool", {
+      kind: "scalar",
+      resolve: resolveYamlBoolean,
+      construct: constructYamlBoolean,
+      predicate: isBoolean,
+      represent: {
+        lowercase: function(object) {
+          return object ? "true" : "false";
+        },
+        uppercase: function(object) {
+          return object ? "TRUE" : "FALSE";
+        },
+        camelcase: function(object) {
+          return object ? "True" : "False";
+        }
+      },
+      defaultStyle: "lowercase"
+    });
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/type/int.js
+var require_int = __commonJS({
+  "../shared/node_modules/js-yaml/lib/type/int.js"(exports2, module2) {
+    "use strict";
+    var common = require_common();
+    var Type = require_type();
+    function isHexCode(c) {
+      return 48 <= c && c <= 57 || 65 <= c && c <= 70 || 97 <= c && c <= 102;
+    }
+    function isOctCode(c) {
+      return 48 <= c && c <= 55;
+    }
+    function isDecCode(c) {
+      return 48 <= c && c <= 57;
+    }
+    function resolveYamlInteger(data) {
+      if (data === null)
+        return false;
+      var max = data.length, index = 0, hasDigits = false, ch;
+      if (!max)
+        return false;
+      ch = data[index];
+      if (ch === "-" || ch === "+") {
+        ch = data[++index];
+      }
+      if (ch === "0") {
+        if (index + 1 === max)
+          return true;
+        ch = data[++index];
+        if (ch === "b") {
+          index++;
+          for (; index < max; index++) {
+            ch = data[index];
+            if (ch === "_")
+              continue;
+            if (ch !== "0" && ch !== "1")
+              return false;
+            hasDigits = true;
+          }
+          return hasDigits && ch !== "_";
+        }
+        if (ch === "x") {
+          index++;
+          for (; index < max; index++) {
+            ch = data[index];
+            if (ch === "_")
+              continue;
+            if (!isHexCode(data.charCodeAt(index)))
+              return false;
+            hasDigits = true;
+          }
+          return hasDigits && ch !== "_";
+        }
+        if (ch === "o") {
+          index++;
+          for (; index < max; index++) {
+            ch = data[index];
+            if (ch === "_")
+              continue;
+            if (!isOctCode(data.charCodeAt(index)))
+              return false;
+            hasDigits = true;
+          }
+          return hasDigits && ch !== "_";
+        }
+      }
+      if (ch === "_")
+        return false;
+      for (; index < max; index++) {
+        ch = data[index];
+        if (ch === "_")
+          continue;
+        if (!isDecCode(data.charCodeAt(index))) {
+          return false;
+        }
+        hasDigits = true;
+      }
+      if (!hasDigits || ch === "_")
+        return false;
+      return true;
+    }
+    function constructYamlInteger(data) {
+      var value = data, sign = 1, ch;
+      if (value.indexOf("_") !== -1) {
+        value = value.replace(/_/g, "");
+      }
+      ch = value[0];
+      if (ch === "-" || ch === "+") {
+        if (ch === "-")
+          sign = -1;
+        value = value.slice(1);
+        ch = value[0];
+      }
+      if (value === "0")
+        return 0;
+      if (ch === "0") {
+        if (value[1] === "b")
+          return sign * parseInt(value.slice(2), 2);
+        if (value[1] === "x")
+          return sign * parseInt(value.slice(2), 16);
+        if (value[1] === "o")
+          return sign * parseInt(value.slice(2), 8);
+      }
+      return sign * parseInt(value, 10);
+    }
+    function isInteger(object) {
+      return Object.prototype.toString.call(object) === "[object Number]" && (object % 1 === 0 && !common.isNegativeZero(object));
+    }
+    module2.exports = new Type("tag:yaml.org,2002:int", {
+      kind: "scalar",
+      resolve: resolveYamlInteger,
+      construct: constructYamlInteger,
+      predicate: isInteger,
+      represent: {
+        binary: function(obj) {
+          return obj >= 0 ? "0b" + obj.toString(2) : "-0b" + obj.toString(2).slice(1);
+        },
+        octal: function(obj) {
+          return obj >= 0 ? "0o" + obj.toString(8) : "-0o" + obj.toString(8).slice(1);
+        },
+        decimal: function(obj) {
+          return obj.toString(10);
+        },
+        /* eslint-disable max-len */
+        hexadecimal: function(obj) {
+          return obj >= 0 ? "0x" + obj.toString(16).toUpperCase() : "-0x" + obj.toString(16).toUpperCase().slice(1);
+        }
+      },
+      defaultStyle: "decimal",
+      styleAliases: {
+        binary: [2, "bin"],
+        octal: [8, "oct"],
+        decimal: [10, "dec"],
+        hexadecimal: [16, "hex"]
+      }
+    });
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/type/float.js
+var require_float = __commonJS({
+  "../shared/node_modules/js-yaml/lib/type/float.js"(exports2, module2) {
+    "use strict";
+    var common = require_common();
+    var Type = require_type();
+    var YAML_FLOAT_PATTERN = new RegExp(
+      // 2.5e4, 2.5 and integers
+      "^(?:[-+]?(?:[0-9][0-9_]*)(?:\\.[0-9_]*)?(?:[eE][-+]?[0-9]+)?|\\.[0-9_]+(?:[eE][-+]?[0-9]+)?|[-+]?\\.(?:inf|Inf|INF)|\\.(?:nan|NaN|NAN))$"
+    );
+    function resolveYamlFloat(data) {
+      if (data === null)
+        return false;
+      if (!YAML_FLOAT_PATTERN.test(data) || // Quick hack to not allow integers end with `_`
+      // Probably should update regexp & check speed
+      data[data.length - 1] === "_") {
+        return false;
+      }
+      return true;
+    }
+    function constructYamlFloat(data) {
+      var value, sign;
+      value = data.replace(/_/g, "").toLowerCase();
+      sign = value[0] === "-" ? -1 : 1;
+      if ("+-".indexOf(value[0]) >= 0) {
+        value = value.slice(1);
+      }
+      if (value === ".inf") {
+        return sign === 1 ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+      } else if (value === ".nan") {
+        return NaN;
+      }
+      return sign * parseFloat(value, 10);
+    }
+    var SCIENTIFIC_WITHOUT_DOT = /^[-+]?[0-9]+e/;
+    function representYamlFloat(object, style) {
+      var res;
+      if (isNaN(object)) {
+        switch (style) {
+          case "lowercase":
+            return ".nan";
+          case "uppercase":
+            return ".NAN";
+          case "camelcase":
+            return ".NaN";
+        }
+      } else if (Number.POSITIVE_INFINITY === object) {
+        switch (style) {
+          case "lowercase":
+            return ".inf";
+          case "uppercase":
+            return ".INF";
+          case "camelcase":
+            return ".Inf";
+        }
+      } else if (Number.NEGATIVE_INFINITY === object) {
+        switch (style) {
+          case "lowercase":
+            return "-.inf";
+          case "uppercase":
+            return "-.INF";
+          case "camelcase":
+            return "-.Inf";
+        }
+      } else if (common.isNegativeZero(object)) {
+        return "-0.0";
+      }
+      res = object.toString(10);
+      return SCIENTIFIC_WITHOUT_DOT.test(res) ? res.replace("e", ".e") : res;
+    }
+    function isFloat(object) {
+      return Object.prototype.toString.call(object) === "[object Number]" && (object % 1 !== 0 || common.isNegativeZero(object));
+    }
+    module2.exports = new Type("tag:yaml.org,2002:float", {
+      kind: "scalar",
+      resolve: resolveYamlFloat,
+      construct: constructYamlFloat,
+      predicate: isFloat,
+      represent: representYamlFloat,
+      defaultStyle: "lowercase"
+    });
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/schema/json.js
+var require_json = __commonJS({
+  "../shared/node_modules/js-yaml/lib/schema/json.js"(exports2, module2) {
+    "use strict";
+    module2.exports = require_failsafe().extend({
+      implicit: [
+        require_null(),
+        require_bool(),
+        require_int(),
+        require_float()
+      ]
+    });
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/schema/core.js
+var require_core = __commonJS({
+  "../shared/node_modules/js-yaml/lib/schema/core.js"(exports2, module2) {
+    "use strict";
+    module2.exports = require_json();
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/type/timestamp.js
+var require_timestamp = __commonJS({
+  "../shared/node_modules/js-yaml/lib/type/timestamp.js"(exports2, module2) {
+    "use strict";
+    var Type = require_type();
+    var YAML_DATE_REGEXP = new RegExp(
+      "^([0-9][0-9][0-9][0-9])-([0-9][0-9])-([0-9][0-9])$"
+    );
+    var YAML_TIMESTAMP_REGEXP = new RegExp(
+      "^([0-9][0-9][0-9][0-9])-([0-9][0-9]?)-([0-9][0-9]?)(?:[Tt]|[ \\t]+)([0-9][0-9]?):([0-9][0-9]):([0-9][0-9])(?:\\.([0-9]*))?(?:[ \\t]*(Z|([-+])([0-9][0-9]?)(?::([0-9][0-9]))?))?$"
+    );
+    function resolveYamlTimestamp(data) {
+      if (data === null)
+        return false;
+      if (YAML_DATE_REGEXP.exec(data) !== null)
+        return true;
+      if (YAML_TIMESTAMP_REGEXP.exec(data) !== null)
+        return true;
+      return false;
+    }
+    function constructYamlTimestamp(data) {
+      var match, year, month, day, hour, minute, second, fraction = 0, delta = null, tz_hour, tz_minute, date;
+      match = YAML_DATE_REGEXP.exec(data);
+      if (match === null)
+        match = YAML_TIMESTAMP_REGEXP.exec(data);
+      if (match === null)
+        throw new Error("Date resolve error");
+      year = +match[1];
+      month = +match[2] - 1;
+      day = +match[3];
+      if (!match[4]) {
+        return new Date(Date.UTC(year, month, day));
+      }
+      hour = +match[4];
+      minute = +match[5];
+      second = +match[6];
+      if (match[7]) {
+        fraction = match[7].slice(0, 3);
+        while (fraction.length < 3) {
+          fraction += "0";
+        }
+        fraction = +fraction;
+      }
+      if (match[9]) {
+        tz_hour = +match[10];
+        tz_minute = +(match[11] || 0);
+        delta = (tz_hour * 60 + tz_minute) * 6e4;
+        if (match[9] === "-")
+          delta = -delta;
+      }
+      date = new Date(Date.UTC(year, month, day, hour, minute, second, fraction));
+      if (delta)
+        date.setTime(date.getTime() - delta);
+      return date;
+    }
+    function representYamlTimestamp(object) {
+      return object.toISOString();
+    }
+    module2.exports = new Type("tag:yaml.org,2002:timestamp", {
+      kind: "scalar",
+      resolve: resolveYamlTimestamp,
+      construct: constructYamlTimestamp,
+      instanceOf: Date,
+      represent: representYamlTimestamp
+    });
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/type/merge.js
+var require_merge = __commonJS({
+  "../shared/node_modules/js-yaml/lib/type/merge.js"(exports2, module2) {
+    "use strict";
+    var Type = require_type();
+    function resolveYamlMerge(data) {
+      return data === "<<" || data === null;
+    }
+    module2.exports = new Type("tag:yaml.org,2002:merge", {
+      kind: "scalar",
+      resolve: resolveYamlMerge
+    });
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/type/binary.js
+var require_binary = __commonJS({
+  "../shared/node_modules/js-yaml/lib/type/binary.js"(exports2, module2) {
+    "use strict";
+    var Type = require_type();
+    var BASE64_MAP = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\n\r";
+    function resolveYamlBinary(data) {
+      if (data === null)
+        return false;
+      var code, idx, bitlen = 0, max = data.length, map = BASE64_MAP;
+      for (idx = 0; idx < max; idx++) {
+        code = map.indexOf(data.charAt(idx));
+        if (code > 64)
+          continue;
+        if (code < 0)
+          return false;
+        bitlen += 6;
+      }
+      return bitlen % 8 === 0;
+    }
+    function constructYamlBinary(data) {
+      var idx, tailbits, input = data.replace(/[\r\n=]/g, ""), max = input.length, map = BASE64_MAP, bits = 0, result = [];
+      for (idx = 0; idx < max; idx++) {
+        if (idx % 4 === 0 && idx) {
+          result.push(bits >> 16 & 255);
+          result.push(bits >> 8 & 255);
+          result.push(bits & 255);
+        }
+        bits = bits << 6 | map.indexOf(input.charAt(idx));
+      }
+      tailbits = max % 4 * 6;
+      if (tailbits === 0) {
+        result.push(bits >> 16 & 255);
+        result.push(bits >> 8 & 255);
+        result.push(bits & 255);
+      } else if (tailbits === 18) {
+        result.push(bits >> 10 & 255);
+        result.push(bits >> 2 & 255);
+      } else if (tailbits === 12) {
+        result.push(bits >> 4 & 255);
+      }
+      return new Uint8Array(result);
+    }
+    function representYamlBinary(object) {
+      var result = "", bits = 0, idx, tail, max = object.length, map = BASE64_MAP;
+      for (idx = 0; idx < max; idx++) {
+        if (idx % 3 === 0 && idx) {
+          result += map[bits >> 18 & 63];
+          result += map[bits >> 12 & 63];
+          result += map[bits >> 6 & 63];
+          result += map[bits & 63];
+        }
+        bits = (bits << 8) + object[idx];
+      }
+      tail = max % 3;
+      if (tail === 0) {
+        result += map[bits >> 18 & 63];
+        result += map[bits >> 12 & 63];
+        result += map[bits >> 6 & 63];
+        result += map[bits & 63];
+      } else if (tail === 2) {
+        result += map[bits >> 10 & 63];
+        result += map[bits >> 4 & 63];
+        result += map[bits << 2 & 63];
+        result += map[64];
+      } else if (tail === 1) {
+        result += map[bits >> 2 & 63];
+        result += map[bits << 4 & 63];
+        result += map[64];
+        result += map[64];
+      }
+      return result;
+    }
+    function isBinary(obj) {
+      return Object.prototype.toString.call(obj) === "[object Uint8Array]";
+    }
+    module2.exports = new Type("tag:yaml.org,2002:binary", {
+      kind: "scalar",
+      resolve: resolveYamlBinary,
+      construct: constructYamlBinary,
+      predicate: isBinary,
+      represent: representYamlBinary
+    });
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/type/omap.js
+var require_omap = __commonJS({
+  "../shared/node_modules/js-yaml/lib/type/omap.js"(exports2, module2) {
+    "use strict";
+    var Type = require_type();
+    var _hasOwnProperty = Object.prototype.hasOwnProperty;
+    var _toString = Object.prototype.toString;
+    function resolveYamlOmap(data) {
+      if (data === null)
+        return true;
+      var objectKeys = [], index, length, pair, pairKey, pairHasKey, object = data;
+      for (index = 0, length = object.length; index < length; index += 1) {
+        pair = object[index];
+        pairHasKey = false;
+        if (_toString.call(pair) !== "[object Object]")
+          return false;
+        for (pairKey in pair) {
+          if (_hasOwnProperty.call(pair, pairKey)) {
+            if (!pairHasKey)
+              pairHasKey = true;
+            else
+              return false;
+          }
+        }
+        if (!pairHasKey)
+          return false;
+        if (objectKeys.indexOf(pairKey) === -1)
+          objectKeys.push(pairKey);
+        else
+          return false;
+      }
+      return true;
+    }
+    function constructYamlOmap(data) {
+      return data !== null ? data : [];
+    }
+    module2.exports = new Type("tag:yaml.org,2002:omap", {
+      kind: "sequence",
+      resolve: resolveYamlOmap,
+      construct: constructYamlOmap
+    });
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/type/pairs.js
+var require_pairs = __commonJS({
+  "../shared/node_modules/js-yaml/lib/type/pairs.js"(exports2, module2) {
+    "use strict";
+    var Type = require_type();
+    var _toString = Object.prototype.toString;
+    function resolveYamlPairs(data) {
+      if (data === null)
+        return true;
+      var index, length, pair, keys, result, object = data;
+      result = new Array(object.length);
+      for (index = 0, length = object.length; index < length; index += 1) {
+        pair = object[index];
+        if (_toString.call(pair) !== "[object Object]")
+          return false;
+        keys = Object.keys(pair);
+        if (keys.length !== 1)
+          return false;
+        result[index] = [keys[0], pair[keys[0]]];
+      }
+      return true;
+    }
+    function constructYamlPairs(data) {
+      if (data === null)
+        return [];
+      var index, length, pair, keys, result, object = data;
+      result = new Array(object.length);
+      for (index = 0, length = object.length; index < length; index += 1) {
+        pair = object[index];
+        keys = Object.keys(pair);
+        result[index] = [keys[0], pair[keys[0]]];
+      }
+      return result;
+    }
+    module2.exports = new Type("tag:yaml.org,2002:pairs", {
+      kind: "sequence",
+      resolve: resolveYamlPairs,
+      construct: constructYamlPairs
+    });
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/type/set.js
+var require_set = __commonJS({
+  "../shared/node_modules/js-yaml/lib/type/set.js"(exports2, module2) {
+    "use strict";
+    var Type = require_type();
+    var _hasOwnProperty = Object.prototype.hasOwnProperty;
+    function resolveYamlSet(data) {
+      if (data === null)
+        return true;
+      var key, object = data;
+      for (key in object) {
+        if (_hasOwnProperty.call(object, key)) {
+          if (object[key] !== null)
+            return false;
+        }
+      }
+      return true;
+    }
+    function constructYamlSet(data) {
+      return data !== null ? data : {};
+    }
+    module2.exports = new Type("tag:yaml.org,2002:set", {
+      kind: "mapping",
+      resolve: resolveYamlSet,
+      construct: constructYamlSet
+    });
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/schema/default.js
+var require_default = __commonJS({
+  "../shared/node_modules/js-yaml/lib/schema/default.js"(exports2, module2) {
+    "use strict";
+    module2.exports = require_core().extend({
+      implicit: [
+        require_timestamp(),
+        require_merge()
+      ],
+      explicit: [
+        require_binary(),
+        require_omap(),
+        require_pairs(),
+        require_set()
+      ]
+    });
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/loader.js
+var require_loader = __commonJS({
+  "../shared/node_modules/js-yaml/lib/loader.js"(exports2, module2) {
+    "use strict";
+    var common = require_common();
+    var YAMLException = require_exception();
+    var makeSnippet = require_snippet();
+    var DEFAULT_SCHEMA = require_default();
+    var _hasOwnProperty = Object.prototype.hasOwnProperty;
+    var CONTEXT_FLOW_IN = 1;
+    var CONTEXT_FLOW_OUT = 2;
+    var CONTEXT_BLOCK_IN = 3;
+    var CONTEXT_BLOCK_OUT = 4;
+    var CHOMPING_CLIP = 1;
+    var CHOMPING_STRIP = 2;
+    var CHOMPING_KEEP = 3;
+    var PATTERN_NON_PRINTABLE = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x84\x86-\x9F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]/;
+    var PATTERN_NON_ASCII_LINE_BREAKS = /[\x85\u2028\u2029]/;
+    var PATTERN_FLOW_INDICATORS = /[,\[\]\{\}]/;
+    var PATTERN_TAG_HANDLE = /^(?:!|!!|![a-z\-]+!)$/i;
+    var PATTERN_TAG_URI = /^(?:!|[^,\[\]\{\}])(?:%[0-9a-f]{2}|[0-9a-z\-#;\/\?:@&=\+\$,_\.!~\*'\(\)\[\]])*$/i;
+    function _class(obj) {
+      return Object.prototype.toString.call(obj);
+    }
+    function is_EOL(c) {
+      return c === 10 || c === 13;
+    }
+    function is_WHITE_SPACE(c) {
+      return c === 9 || c === 32;
+    }
+    function is_WS_OR_EOL(c) {
+      return c === 9 || c === 32 || c === 10 || c === 13;
+    }
+    function is_FLOW_INDICATOR(c) {
+      return c === 44 || c === 91 || c === 93 || c === 123 || c === 125;
+    }
+    function fromHexCode(c) {
+      var lc;
+      if (48 <= c && c <= 57) {
+        return c - 48;
+      }
+      lc = c | 32;
+      if (97 <= lc && lc <= 102) {
+        return lc - 97 + 10;
+      }
+      return -1;
+    }
+    function escapedHexLen(c) {
+      if (c === 120) {
+        return 2;
+      }
+      if (c === 117) {
+        return 4;
+      }
+      if (c === 85) {
+        return 8;
+      }
+      return 0;
+    }
+    function fromDecimalCode(c) {
+      if (48 <= c && c <= 57) {
+        return c - 48;
+      }
+      return -1;
+    }
+    function simpleEscapeSequence(c) {
+      return c === 48 ? "\0" : c === 97 ? "\x07" : c === 98 ? "\b" : c === 116 ? "	" : c === 9 ? "	" : c === 110 ? "\n" : c === 118 ? "\v" : c === 102 ? "\f" : c === 114 ? "\r" : c === 101 ? "\x1B" : c === 32 ? " " : c === 34 ? '"' : c === 47 ? "/" : c === 92 ? "\\" : c === 78 ? "\x85" : c === 95 ? "\xA0" : c === 76 ? "\u2028" : c === 80 ? "\u2029" : "";
+    }
+    function charFromCodepoint(c) {
+      if (c <= 65535) {
+        return String.fromCharCode(c);
+      }
+      return String.fromCharCode(
+        (c - 65536 >> 10) + 55296,
+        (c - 65536 & 1023) + 56320
+      );
+    }
+    function setProperty(object, key, value) {
+      if (key === "__proto__") {
+        Object.defineProperty(object, key, {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value
+        });
+      } else {
+        object[key] = value;
+      }
+    }
+    var simpleEscapeCheck = new Array(256);
+    var simpleEscapeMap = new Array(256);
+    for (i = 0; i < 256; i++) {
+      simpleEscapeCheck[i] = simpleEscapeSequence(i) ? 1 : 0;
+      simpleEscapeMap[i] = simpleEscapeSequence(i);
+    }
+    var i;
+    function State(input, options) {
+      this.input = input;
+      this.filename = options["filename"] || null;
+      this.schema = options["schema"] || DEFAULT_SCHEMA;
+      this.onWarning = options["onWarning"] || null;
+      this.legacy = options["legacy"] || false;
+      this.json = options["json"] || false;
+      this.listener = options["listener"] || null;
+      this.implicitTypes = this.schema.compiledImplicit;
+      this.typeMap = this.schema.compiledTypeMap;
+      this.length = input.length;
+      this.position = 0;
+      this.line = 0;
+      this.lineStart = 0;
+      this.lineIndent = 0;
+      this.firstTabInLine = -1;
+      this.documents = [];
+    }
+    function generateError(state, message) {
+      var mark = {
+        name: state.filename,
+        buffer: state.input.slice(0, -1),
+        // omit trailing \0
+        position: state.position,
+        line: state.line,
+        column: state.position - state.lineStart
+      };
+      mark.snippet = makeSnippet(mark);
+      return new YAMLException(message, mark);
+    }
+    function throwError(state, message) {
+      throw generateError(state, message);
+    }
+    function throwWarning(state, message) {
+      if (state.onWarning) {
+        state.onWarning.call(null, generateError(state, message));
+      }
+    }
+    var directiveHandlers = {
+      YAML: function handleYamlDirective(state, name, args) {
+        var match, major, minor;
+        if (state.version !== null) {
+          throwError(state, "duplication of %YAML directive");
+        }
+        if (args.length !== 1) {
+          throwError(state, "YAML directive accepts exactly one argument");
+        }
+        match = /^([0-9]+)\.([0-9]+)$/.exec(args[0]);
+        if (match === null) {
+          throwError(state, "ill-formed argument of the YAML directive");
+        }
+        major = parseInt(match[1], 10);
+        minor = parseInt(match[2], 10);
+        if (major !== 1) {
+          throwError(state, "unacceptable YAML version of the document");
+        }
+        state.version = args[0];
+        state.checkLineBreaks = minor < 2;
+        if (minor !== 1 && minor !== 2) {
+          throwWarning(state, "unsupported YAML version of the document");
+        }
+      },
+      TAG: function handleTagDirective(state, name, args) {
+        var handle, prefix;
+        if (args.length !== 2) {
+          throwError(state, "TAG directive accepts exactly two arguments");
+        }
+        handle = args[0];
+        prefix = args[1];
+        if (!PATTERN_TAG_HANDLE.test(handle)) {
+          throwError(state, "ill-formed tag handle (first argument) of the TAG directive");
+        }
+        if (_hasOwnProperty.call(state.tagMap, handle)) {
+          throwError(state, 'there is a previously declared suffix for "' + handle + '" tag handle');
+        }
+        if (!PATTERN_TAG_URI.test(prefix)) {
+          throwError(state, "ill-formed tag prefix (second argument) of the TAG directive");
+        }
+        try {
+          prefix = decodeURIComponent(prefix);
+        } catch (err) {
+          throwError(state, "tag prefix is malformed: " + prefix);
+        }
+        state.tagMap[handle] = prefix;
+      }
+    };
+    function captureSegment(state, start, end, checkJson) {
+      var _position, _length, _character, _result;
+      if (start < end) {
+        _result = state.input.slice(start, end);
+        if (checkJson) {
+          for (_position = 0, _length = _result.length; _position < _length; _position += 1) {
+            _character = _result.charCodeAt(_position);
+            if (!(_character === 9 || 32 <= _character && _character <= 1114111)) {
+              throwError(state, "expected valid JSON character");
+            }
+          }
+        } else if (PATTERN_NON_PRINTABLE.test(_result)) {
+          throwError(state, "the stream contains non-printable characters");
+        }
+        state.result += _result;
+      }
+    }
+    function mergeMappings(state, destination, source, overridableKeys) {
+      var sourceKeys, key, index, quantity;
+      if (!common.isObject(source)) {
+        throwError(state, "cannot merge mappings; the provided source object is unacceptable");
+      }
+      sourceKeys = Object.keys(source);
+      for (index = 0, quantity = sourceKeys.length; index < quantity; index += 1) {
+        key = sourceKeys[index];
+        if (!_hasOwnProperty.call(destination, key)) {
+          setProperty(destination, key, source[key]);
+          overridableKeys[key] = true;
+        }
+      }
+    }
+    function storeMappingPair(state, _result, overridableKeys, keyTag, keyNode, valueNode, startLine, startLineStart, startPos) {
+      var index, quantity;
+      if (Array.isArray(keyNode)) {
+        keyNode = Array.prototype.slice.call(keyNode);
+        for (index = 0, quantity = keyNode.length; index < quantity; index += 1) {
+          if (Array.isArray(keyNode[index])) {
+            throwError(state, "nested arrays are not supported inside keys");
+          }
+          if (typeof keyNode === "object" && _class(keyNode[index]) === "[object Object]") {
+            keyNode[index] = "[object Object]";
+          }
+        }
+      }
+      if (typeof keyNode === "object" && _class(keyNode) === "[object Object]") {
+        keyNode = "[object Object]";
+      }
+      keyNode = String(keyNode);
+      if (_result === null) {
+        _result = {};
+      }
+      if (keyTag === "tag:yaml.org,2002:merge") {
+        if (Array.isArray(valueNode)) {
+          for (index = 0, quantity = valueNode.length; index < quantity; index += 1) {
+            mergeMappings(state, _result, valueNode[index], overridableKeys);
+          }
+        } else {
+          mergeMappings(state, _result, valueNode, overridableKeys);
+        }
+      } else {
+        if (!state.json && !_hasOwnProperty.call(overridableKeys, keyNode) && _hasOwnProperty.call(_result, keyNode)) {
+          state.line = startLine || state.line;
+          state.lineStart = startLineStart || state.lineStart;
+          state.position = startPos || state.position;
+          throwError(state, "duplicated mapping key");
+        }
+        setProperty(_result, keyNode, valueNode);
+        delete overridableKeys[keyNode];
+      }
+      return _result;
+    }
+    function readLineBreak(state) {
+      var ch;
+      ch = state.input.charCodeAt(state.position);
+      if (ch === 10) {
+        state.position++;
+      } else if (ch === 13) {
+        state.position++;
+        if (state.input.charCodeAt(state.position) === 10) {
+          state.position++;
+        }
+      } else {
+        throwError(state, "a line break is expected");
+      }
+      state.line += 1;
+      state.lineStart = state.position;
+      state.firstTabInLine = -1;
+    }
+    function skipSeparationSpace(state, allowComments, checkIndent) {
+      var lineBreaks = 0, ch = state.input.charCodeAt(state.position);
+      while (ch !== 0) {
+        while (is_WHITE_SPACE(ch)) {
+          if (ch === 9 && state.firstTabInLine === -1) {
+            state.firstTabInLine = state.position;
+          }
+          ch = state.input.charCodeAt(++state.position);
+        }
+        if (allowComments && ch === 35) {
+          do {
+            ch = state.input.charCodeAt(++state.position);
+          } while (ch !== 10 && ch !== 13 && ch !== 0);
+        }
+        if (is_EOL(ch)) {
+          readLineBreak(state);
+          ch = state.input.charCodeAt(state.position);
+          lineBreaks++;
+          state.lineIndent = 0;
+          while (ch === 32) {
+            state.lineIndent++;
+            ch = state.input.charCodeAt(++state.position);
+          }
+        } else {
+          break;
+        }
+      }
+      if (checkIndent !== -1 && lineBreaks !== 0 && state.lineIndent < checkIndent) {
+        throwWarning(state, "deficient indentation");
+      }
+      return lineBreaks;
+    }
+    function testDocumentSeparator(state) {
+      var _position = state.position, ch;
+      ch = state.input.charCodeAt(_position);
+      if ((ch === 45 || ch === 46) && ch === state.input.charCodeAt(_position + 1) && ch === state.input.charCodeAt(_position + 2)) {
+        _position += 3;
+        ch = state.input.charCodeAt(_position);
+        if (ch === 0 || is_WS_OR_EOL(ch)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    function writeFoldedLines(state, count) {
+      if (count === 1) {
+        state.result += " ";
+      } else if (count > 1) {
+        state.result += common.repeat("\n", count - 1);
+      }
+    }
+    function readPlainScalar(state, nodeIndent, withinFlowCollection) {
+      var preceding, following, captureStart, captureEnd, hasPendingContent, _line, _lineStart, _lineIndent, _kind = state.kind, _result = state.result, ch;
+      ch = state.input.charCodeAt(state.position);
+      if (is_WS_OR_EOL(ch) || is_FLOW_INDICATOR(ch) || ch === 35 || ch === 38 || ch === 42 || ch === 33 || ch === 124 || ch === 62 || ch === 39 || ch === 34 || ch === 37 || ch === 64 || ch === 96) {
+        return false;
+      }
+      if (ch === 63 || ch === 45) {
+        following = state.input.charCodeAt(state.position + 1);
+        if (is_WS_OR_EOL(following) || withinFlowCollection && is_FLOW_INDICATOR(following)) {
+          return false;
+        }
+      }
+      state.kind = "scalar";
+      state.result = "";
+      captureStart = captureEnd = state.position;
+      hasPendingContent = false;
+      while (ch !== 0) {
+        if (ch === 58) {
+          following = state.input.charCodeAt(state.position + 1);
+          if (is_WS_OR_EOL(following) || withinFlowCollection && is_FLOW_INDICATOR(following)) {
+            break;
+          }
+        } else if (ch === 35) {
+          preceding = state.input.charCodeAt(state.position - 1);
+          if (is_WS_OR_EOL(preceding)) {
+            break;
+          }
+        } else if (state.position === state.lineStart && testDocumentSeparator(state) || withinFlowCollection && is_FLOW_INDICATOR(ch)) {
+          break;
+        } else if (is_EOL(ch)) {
+          _line = state.line;
+          _lineStart = state.lineStart;
+          _lineIndent = state.lineIndent;
+          skipSeparationSpace(state, false, -1);
+          if (state.lineIndent >= nodeIndent) {
+            hasPendingContent = true;
+            ch = state.input.charCodeAt(state.position);
+            continue;
+          } else {
+            state.position = captureEnd;
+            state.line = _line;
+            state.lineStart = _lineStart;
+            state.lineIndent = _lineIndent;
+            break;
+          }
+        }
+        if (hasPendingContent) {
+          captureSegment(state, captureStart, captureEnd, false);
+          writeFoldedLines(state, state.line - _line);
+          captureStart = captureEnd = state.position;
+          hasPendingContent = false;
+        }
+        if (!is_WHITE_SPACE(ch)) {
+          captureEnd = state.position + 1;
+        }
+        ch = state.input.charCodeAt(++state.position);
+      }
+      captureSegment(state, captureStart, captureEnd, false);
+      if (state.result) {
+        return true;
+      }
+      state.kind = _kind;
+      state.result = _result;
+      return false;
+    }
+    function readSingleQuotedScalar(state, nodeIndent) {
+      var ch, captureStart, captureEnd;
+      ch = state.input.charCodeAt(state.position);
+      if (ch !== 39) {
+        return false;
+      }
+      state.kind = "scalar";
+      state.result = "";
+      state.position++;
+      captureStart = captureEnd = state.position;
+      while ((ch = state.input.charCodeAt(state.position)) !== 0) {
+        if (ch === 39) {
+          captureSegment(state, captureStart, state.position, true);
+          ch = state.input.charCodeAt(++state.position);
+          if (ch === 39) {
+            captureStart = state.position;
+            state.position++;
+            captureEnd = state.position;
+          } else {
+            return true;
+          }
+        } else if (is_EOL(ch)) {
+          captureSegment(state, captureStart, captureEnd, true);
+          writeFoldedLines(state, skipSeparationSpace(state, false, nodeIndent));
+          captureStart = captureEnd = state.position;
+        } else if (state.position === state.lineStart && testDocumentSeparator(state)) {
+          throwError(state, "unexpected end of the document within a single quoted scalar");
+        } else {
+          state.position++;
+          captureEnd = state.position;
+        }
+      }
+      throwError(state, "unexpected end of the stream within a single quoted scalar");
+    }
+    function readDoubleQuotedScalar(state, nodeIndent) {
+      var captureStart, captureEnd, hexLength, hexResult, tmp, ch;
+      ch = state.input.charCodeAt(state.position);
+      if (ch !== 34) {
+        return false;
+      }
+      state.kind = "scalar";
+      state.result = "";
+      state.position++;
+      captureStart = captureEnd = state.position;
+      while ((ch = state.input.charCodeAt(state.position)) !== 0) {
+        if (ch === 34) {
+          captureSegment(state, captureStart, state.position, true);
+          state.position++;
+          return true;
+        } else if (ch === 92) {
+          captureSegment(state, captureStart, state.position, true);
+          ch = state.input.charCodeAt(++state.position);
+          if (is_EOL(ch)) {
+            skipSeparationSpace(state, false, nodeIndent);
+          } else if (ch < 256 && simpleEscapeCheck[ch]) {
+            state.result += simpleEscapeMap[ch];
+            state.position++;
+          } else if ((tmp = escapedHexLen(ch)) > 0) {
+            hexLength = tmp;
+            hexResult = 0;
+            for (; hexLength > 0; hexLength--) {
+              ch = state.input.charCodeAt(++state.position);
+              if ((tmp = fromHexCode(ch)) >= 0) {
+                hexResult = (hexResult << 4) + tmp;
+              } else {
+                throwError(state, "expected hexadecimal character");
+              }
+            }
+            state.result += charFromCodepoint(hexResult);
+            state.position++;
+          } else {
+            throwError(state, "unknown escape sequence");
+          }
+          captureStart = captureEnd = state.position;
+        } else if (is_EOL(ch)) {
+          captureSegment(state, captureStart, captureEnd, true);
+          writeFoldedLines(state, skipSeparationSpace(state, false, nodeIndent));
+          captureStart = captureEnd = state.position;
+        } else if (state.position === state.lineStart && testDocumentSeparator(state)) {
+          throwError(state, "unexpected end of the document within a double quoted scalar");
+        } else {
+          state.position++;
+          captureEnd = state.position;
+        }
+      }
+      throwError(state, "unexpected end of the stream within a double quoted scalar");
+    }
+    function readFlowCollection(state, nodeIndent) {
+      var readNext = true, _line, _lineStart, _pos, _tag = state.tag, _result, _anchor = state.anchor, following, terminator, isPair, isExplicitPair, isMapping, overridableKeys = /* @__PURE__ */ Object.create(null), keyNode, keyTag, valueNode, ch;
+      ch = state.input.charCodeAt(state.position);
+      if (ch === 91) {
+        terminator = 93;
+        isMapping = false;
+        _result = [];
+      } else if (ch === 123) {
+        terminator = 125;
+        isMapping = true;
+        _result = {};
+      } else {
+        return false;
+      }
+      if (state.anchor !== null) {
+        state.anchorMap[state.anchor] = _result;
+      }
+      ch = state.input.charCodeAt(++state.position);
+      while (ch !== 0) {
+        skipSeparationSpace(state, true, nodeIndent);
+        ch = state.input.charCodeAt(state.position);
+        if (ch === terminator) {
+          state.position++;
+          state.tag = _tag;
+          state.anchor = _anchor;
+          state.kind = isMapping ? "mapping" : "sequence";
+          state.result = _result;
+          return true;
+        } else if (!readNext) {
+          throwError(state, "missed comma between flow collection entries");
+        } else if (ch === 44) {
+          throwError(state, "expected the node content, but found ','");
+        }
+        keyTag = keyNode = valueNode = null;
+        isPair = isExplicitPair = false;
+        if (ch === 63) {
+          following = state.input.charCodeAt(state.position + 1);
+          if (is_WS_OR_EOL(following)) {
+            isPair = isExplicitPair = true;
+            state.position++;
+            skipSeparationSpace(state, true, nodeIndent);
+          }
+        }
+        _line = state.line;
+        _lineStart = state.lineStart;
+        _pos = state.position;
+        composeNode(state, nodeIndent, CONTEXT_FLOW_IN, false, true);
+        keyTag = state.tag;
+        keyNode = state.result;
+        skipSeparationSpace(state, true, nodeIndent);
+        ch = state.input.charCodeAt(state.position);
+        if ((isExplicitPair || state.line === _line) && ch === 58) {
+          isPair = true;
+          ch = state.input.charCodeAt(++state.position);
+          skipSeparationSpace(state, true, nodeIndent);
+          composeNode(state, nodeIndent, CONTEXT_FLOW_IN, false, true);
+          valueNode = state.result;
+        }
+        if (isMapping) {
+          storeMappingPair(state, _result, overridableKeys, keyTag, keyNode, valueNode, _line, _lineStart, _pos);
+        } else if (isPair) {
+          _result.push(storeMappingPair(state, null, overridableKeys, keyTag, keyNode, valueNode, _line, _lineStart, _pos));
+        } else {
+          _result.push(keyNode);
+        }
+        skipSeparationSpace(state, true, nodeIndent);
+        ch = state.input.charCodeAt(state.position);
+        if (ch === 44) {
+          readNext = true;
+          ch = state.input.charCodeAt(++state.position);
+        } else {
+          readNext = false;
+        }
+      }
+      throwError(state, "unexpected end of the stream within a flow collection");
+    }
+    function readBlockScalar(state, nodeIndent) {
+      var captureStart, folding, chomping = CHOMPING_CLIP, didReadContent = false, detectedIndent = false, textIndent = nodeIndent, emptyLines = 0, atMoreIndented = false, tmp, ch;
+      ch = state.input.charCodeAt(state.position);
+      if (ch === 124) {
+        folding = false;
+      } else if (ch === 62) {
+        folding = true;
+      } else {
+        return false;
+      }
+      state.kind = "scalar";
+      state.result = "";
+      while (ch !== 0) {
+        ch = state.input.charCodeAt(++state.position);
+        if (ch === 43 || ch === 45) {
+          if (CHOMPING_CLIP === chomping) {
+            chomping = ch === 43 ? CHOMPING_KEEP : CHOMPING_STRIP;
+          } else {
+            throwError(state, "repeat of a chomping mode identifier");
+          }
+        } else if ((tmp = fromDecimalCode(ch)) >= 0) {
+          if (tmp === 0) {
+            throwError(state, "bad explicit indentation width of a block scalar; it cannot be less than one");
+          } else if (!detectedIndent) {
+            textIndent = nodeIndent + tmp - 1;
+            detectedIndent = true;
+          } else {
+            throwError(state, "repeat of an indentation width identifier");
+          }
+        } else {
+          break;
+        }
+      }
+      if (is_WHITE_SPACE(ch)) {
+        do {
+          ch = state.input.charCodeAt(++state.position);
+        } while (is_WHITE_SPACE(ch));
+        if (ch === 35) {
+          do {
+            ch = state.input.charCodeAt(++state.position);
+          } while (!is_EOL(ch) && ch !== 0);
+        }
+      }
+      while (ch !== 0) {
+        readLineBreak(state);
+        state.lineIndent = 0;
+        ch = state.input.charCodeAt(state.position);
+        while ((!detectedIndent || state.lineIndent < textIndent) && ch === 32) {
+          state.lineIndent++;
+          ch = state.input.charCodeAt(++state.position);
+        }
+        if (!detectedIndent && state.lineIndent > textIndent) {
+          textIndent = state.lineIndent;
+        }
+        if (is_EOL(ch)) {
+          emptyLines++;
+          continue;
+        }
+        if (state.lineIndent < textIndent) {
+          if (chomping === CHOMPING_KEEP) {
+            state.result += common.repeat("\n", didReadContent ? 1 + emptyLines : emptyLines);
+          } else if (chomping === CHOMPING_CLIP) {
+            if (didReadContent) {
+              state.result += "\n";
+            }
+          }
+          break;
+        }
+        if (folding) {
+          if (is_WHITE_SPACE(ch)) {
+            atMoreIndented = true;
+            state.result += common.repeat("\n", didReadContent ? 1 + emptyLines : emptyLines);
+          } else if (atMoreIndented) {
+            atMoreIndented = false;
+            state.result += common.repeat("\n", emptyLines + 1);
+          } else if (emptyLines === 0) {
+            if (didReadContent) {
+              state.result += " ";
+            }
+          } else {
+            state.result += common.repeat("\n", emptyLines);
+          }
+        } else {
+          state.result += common.repeat("\n", didReadContent ? 1 + emptyLines : emptyLines);
+        }
+        didReadContent = true;
+        detectedIndent = true;
+        emptyLines = 0;
+        captureStart = state.position;
+        while (!is_EOL(ch) && ch !== 0) {
+          ch = state.input.charCodeAt(++state.position);
+        }
+        captureSegment(state, captureStart, state.position, false);
+      }
+      return true;
+    }
+    function readBlockSequence(state, nodeIndent) {
+      var _line, _tag = state.tag, _anchor = state.anchor, _result = [], following, detected = false, ch;
+      if (state.firstTabInLine !== -1)
+        return false;
+      if (state.anchor !== null) {
+        state.anchorMap[state.anchor] = _result;
+      }
+      ch = state.input.charCodeAt(state.position);
+      while (ch !== 0) {
+        if (state.firstTabInLine !== -1) {
+          state.position = state.firstTabInLine;
+          throwError(state, "tab characters must not be used in indentation");
+        }
+        if (ch !== 45) {
+          break;
+        }
+        following = state.input.charCodeAt(state.position + 1);
+        if (!is_WS_OR_EOL(following)) {
+          break;
+        }
+        detected = true;
+        state.position++;
+        if (skipSeparationSpace(state, true, -1)) {
+          if (state.lineIndent <= nodeIndent) {
+            _result.push(null);
+            ch = state.input.charCodeAt(state.position);
+            continue;
+          }
+        }
+        _line = state.line;
+        composeNode(state, nodeIndent, CONTEXT_BLOCK_IN, false, true);
+        _result.push(state.result);
+        skipSeparationSpace(state, true, -1);
+        ch = state.input.charCodeAt(state.position);
+        if ((state.line === _line || state.lineIndent > nodeIndent) && ch !== 0) {
+          throwError(state, "bad indentation of a sequence entry");
+        } else if (state.lineIndent < nodeIndent) {
+          break;
+        }
+      }
+      if (detected) {
+        state.tag = _tag;
+        state.anchor = _anchor;
+        state.kind = "sequence";
+        state.result = _result;
+        return true;
+      }
+      return false;
+    }
+    function readBlockMapping(state, nodeIndent, flowIndent) {
+      var following, allowCompact, _line, _keyLine, _keyLineStart, _keyPos, _tag = state.tag, _anchor = state.anchor, _result = {}, overridableKeys = /* @__PURE__ */ Object.create(null), keyTag = null, keyNode = null, valueNode = null, atExplicitKey = false, detected = false, ch;
+      if (state.firstTabInLine !== -1)
+        return false;
+      if (state.anchor !== null) {
+        state.anchorMap[state.anchor] = _result;
+      }
+      ch = state.input.charCodeAt(state.position);
+      while (ch !== 0) {
+        if (!atExplicitKey && state.firstTabInLine !== -1) {
+          state.position = state.firstTabInLine;
+          throwError(state, "tab characters must not be used in indentation");
+        }
+        following = state.input.charCodeAt(state.position + 1);
+        _line = state.line;
+        if ((ch === 63 || ch === 58) && is_WS_OR_EOL(following)) {
+          if (ch === 63) {
+            if (atExplicitKey) {
+              storeMappingPair(state, _result, overridableKeys, keyTag, keyNode, null, _keyLine, _keyLineStart, _keyPos);
+              keyTag = keyNode = valueNode = null;
+            }
+            detected = true;
+            atExplicitKey = true;
+            allowCompact = true;
+          } else if (atExplicitKey) {
+            atExplicitKey = false;
+            allowCompact = true;
+          } else {
+            throwError(state, "incomplete explicit mapping pair; a key node is missed; or followed by a non-tabulated empty line");
+          }
+          state.position += 1;
+          ch = following;
+        } else {
+          _keyLine = state.line;
+          _keyLineStart = state.lineStart;
+          _keyPos = state.position;
+          if (!composeNode(state, flowIndent, CONTEXT_FLOW_OUT, false, true)) {
+            break;
+          }
+          if (state.line === _line) {
+            ch = state.input.charCodeAt(state.position);
+            while (is_WHITE_SPACE(ch)) {
+              ch = state.input.charCodeAt(++state.position);
+            }
+            if (ch === 58) {
+              ch = state.input.charCodeAt(++state.position);
+              if (!is_WS_OR_EOL(ch)) {
+                throwError(state, "a whitespace character is expected after the key-value separator within a block mapping");
+              }
+              if (atExplicitKey) {
+                storeMappingPair(state, _result, overridableKeys, keyTag, keyNode, null, _keyLine, _keyLineStart, _keyPos);
+                keyTag = keyNode = valueNode = null;
+              }
+              detected = true;
+              atExplicitKey = false;
+              allowCompact = false;
+              keyTag = state.tag;
+              keyNode = state.result;
+            } else if (detected) {
+              throwError(state, "can not read an implicit mapping pair; a colon is missed");
+            } else {
+              state.tag = _tag;
+              state.anchor = _anchor;
+              return true;
+            }
+          } else if (detected) {
+            throwError(state, "can not read a block mapping entry; a multiline key may not be an implicit key");
+          } else {
+            state.tag = _tag;
+            state.anchor = _anchor;
+            return true;
+          }
+        }
+        if (state.line === _line || state.lineIndent > nodeIndent) {
+          if (atExplicitKey) {
+            _keyLine = state.line;
+            _keyLineStart = state.lineStart;
+            _keyPos = state.position;
+          }
+          if (composeNode(state, nodeIndent, CONTEXT_BLOCK_OUT, true, allowCompact)) {
+            if (atExplicitKey) {
+              keyNode = state.result;
+            } else {
+              valueNode = state.result;
+            }
+          }
+          if (!atExplicitKey) {
+            storeMappingPair(state, _result, overridableKeys, keyTag, keyNode, valueNode, _keyLine, _keyLineStart, _keyPos);
+            keyTag = keyNode = valueNode = null;
+          }
+          skipSeparationSpace(state, true, -1);
+          ch = state.input.charCodeAt(state.position);
+        }
+        if ((state.line === _line || state.lineIndent > nodeIndent) && ch !== 0) {
+          throwError(state, "bad indentation of a mapping entry");
+        } else if (state.lineIndent < nodeIndent) {
+          break;
+        }
+      }
+      if (atExplicitKey) {
+        storeMappingPair(state, _result, overridableKeys, keyTag, keyNode, null, _keyLine, _keyLineStart, _keyPos);
+      }
+      if (detected) {
+        state.tag = _tag;
+        state.anchor = _anchor;
+        state.kind = "mapping";
+        state.result = _result;
+      }
+      return detected;
+    }
+    function readTagProperty(state) {
+      var _position, isVerbatim = false, isNamed = false, tagHandle, tagName, ch;
+      ch = state.input.charCodeAt(state.position);
+      if (ch !== 33)
+        return false;
+      if (state.tag !== null) {
+        throwError(state, "duplication of a tag property");
+      }
+      ch = state.input.charCodeAt(++state.position);
+      if (ch === 60) {
+        isVerbatim = true;
+        ch = state.input.charCodeAt(++state.position);
+      } else if (ch === 33) {
+        isNamed = true;
+        tagHandle = "!!";
+        ch = state.input.charCodeAt(++state.position);
+      } else {
+        tagHandle = "!";
+      }
+      _position = state.position;
+      if (isVerbatim) {
+        do {
+          ch = state.input.charCodeAt(++state.position);
+        } while (ch !== 0 && ch !== 62);
+        if (state.position < state.length) {
+          tagName = state.input.slice(_position, state.position);
+          ch = state.input.charCodeAt(++state.position);
+        } else {
+          throwError(state, "unexpected end of the stream within a verbatim tag");
+        }
+      } else {
+        while (ch !== 0 && !is_WS_OR_EOL(ch)) {
+          if (ch === 33) {
+            if (!isNamed) {
+              tagHandle = state.input.slice(_position - 1, state.position + 1);
+              if (!PATTERN_TAG_HANDLE.test(tagHandle)) {
+                throwError(state, "named tag handle cannot contain such characters");
+              }
+              isNamed = true;
+              _position = state.position + 1;
+            } else {
+              throwError(state, "tag suffix cannot contain exclamation marks");
+            }
+          }
+          ch = state.input.charCodeAt(++state.position);
+        }
+        tagName = state.input.slice(_position, state.position);
+        if (PATTERN_FLOW_INDICATORS.test(tagName)) {
+          throwError(state, "tag suffix cannot contain flow indicator characters");
+        }
+      }
+      if (tagName && !PATTERN_TAG_URI.test(tagName)) {
+        throwError(state, "tag name cannot contain such characters: " + tagName);
+      }
+      try {
+        tagName = decodeURIComponent(tagName);
+      } catch (err) {
+        throwError(state, "tag name is malformed: " + tagName);
+      }
+      if (isVerbatim) {
+        state.tag = tagName;
+      } else if (_hasOwnProperty.call(state.tagMap, tagHandle)) {
+        state.tag = state.tagMap[tagHandle] + tagName;
+      } else if (tagHandle === "!") {
+        state.tag = "!" + tagName;
+      } else if (tagHandle === "!!") {
+        state.tag = "tag:yaml.org,2002:" + tagName;
+      } else {
+        throwError(state, 'undeclared tag handle "' + tagHandle + '"');
+      }
+      return true;
+    }
+    function readAnchorProperty(state) {
+      var _position, ch;
+      ch = state.input.charCodeAt(state.position);
+      if (ch !== 38)
+        return false;
+      if (state.anchor !== null) {
+        throwError(state, "duplication of an anchor property");
+      }
+      ch = state.input.charCodeAt(++state.position);
+      _position = state.position;
+      while (ch !== 0 && !is_WS_OR_EOL(ch) && !is_FLOW_INDICATOR(ch)) {
+        ch = state.input.charCodeAt(++state.position);
+      }
+      if (state.position === _position) {
+        throwError(state, "name of an anchor node must contain at least one character");
+      }
+      state.anchor = state.input.slice(_position, state.position);
+      return true;
+    }
+    function readAlias(state) {
+      var _position, alias, ch;
+      ch = state.input.charCodeAt(state.position);
+      if (ch !== 42)
+        return false;
+      ch = state.input.charCodeAt(++state.position);
+      _position = state.position;
+      while (ch !== 0 && !is_WS_OR_EOL(ch) && !is_FLOW_INDICATOR(ch)) {
+        ch = state.input.charCodeAt(++state.position);
+      }
+      if (state.position === _position) {
+        throwError(state, "name of an alias node must contain at least one character");
+      }
+      alias = state.input.slice(_position, state.position);
+      if (!_hasOwnProperty.call(state.anchorMap, alias)) {
+        throwError(state, 'unidentified alias "' + alias + '"');
+      }
+      state.result = state.anchorMap[alias];
+      skipSeparationSpace(state, true, -1);
+      return true;
+    }
+    function composeNode(state, parentIndent, nodeContext, allowToSeek, allowCompact) {
+      var allowBlockStyles, allowBlockScalars, allowBlockCollections, indentStatus = 1, atNewLine = false, hasContent = false, typeIndex, typeQuantity, typeList, type, flowIndent, blockIndent;
+      if (state.listener !== null) {
+        state.listener("open", state);
+      }
+      state.tag = null;
+      state.anchor = null;
+      state.kind = null;
+      state.result = null;
+      allowBlockStyles = allowBlockScalars = allowBlockCollections = CONTEXT_BLOCK_OUT === nodeContext || CONTEXT_BLOCK_IN === nodeContext;
+      if (allowToSeek) {
+        if (skipSeparationSpace(state, true, -1)) {
+          atNewLine = true;
+          if (state.lineIndent > parentIndent) {
+            indentStatus = 1;
+          } else if (state.lineIndent === parentIndent) {
+            indentStatus = 0;
+          } else if (state.lineIndent < parentIndent) {
+            indentStatus = -1;
+          }
+        }
+      }
+      if (indentStatus === 1) {
+        while (readTagProperty(state) || readAnchorProperty(state)) {
+          if (skipSeparationSpace(state, true, -1)) {
+            atNewLine = true;
+            allowBlockCollections = allowBlockStyles;
+            if (state.lineIndent > parentIndent) {
+              indentStatus = 1;
+            } else if (state.lineIndent === parentIndent) {
+              indentStatus = 0;
+            } else if (state.lineIndent < parentIndent) {
+              indentStatus = -1;
+            }
+          } else {
+            allowBlockCollections = false;
+          }
+        }
+      }
+      if (allowBlockCollections) {
+        allowBlockCollections = atNewLine || allowCompact;
+      }
+      if (indentStatus === 1 || CONTEXT_BLOCK_OUT === nodeContext) {
+        if (CONTEXT_FLOW_IN === nodeContext || CONTEXT_FLOW_OUT === nodeContext) {
+          flowIndent = parentIndent;
+        } else {
+          flowIndent = parentIndent + 1;
+        }
+        blockIndent = state.position - state.lineStart;
+        if (indentStatus === 1) {
+          if (allowBlockCollections && (readBlockSequence(state, blockIndent) || readBlockMapping(state, blockIndent, flowIndent)) || readFlowCollection(state, flowIndent)) {
+            hasContent = true;
+          } else {
+            if (allowBlockScalars && readBlockScalar(state, flowIndent) || readSingleQuotedScalar(state, flowIndent) || readDoubleQuotedScalar(state, flowIndent)) {
+              hasContent = true;
+            } else if (readAlias(state)) {
+              hasContent = true;
+              if (state.tag !== null || state.anchor !== null) {
+                throwError(state, "alias node should not have any properties");
+              }
+            } else if (readPlainScalar(state, flowIndent, CONTEXT_FLOW_IN === nodeContext)) {
+              hasContent = true;
+              if (state.tag === null) {
+                state.tag = "?";
+              }
+            }
+            if (state.anchor !== null) {
+              state.anchorMap[state.anchor] = state.result;
+            }
+          }
+        } else if (indentStatus === 0) {
+          hasContent = allowBlockCollections && readBlockSequence(state, blockIndent);
+        }
+      }
+      if (state.tag === null) {
+        if (state.anchor !== null) {
+          state.anchorMap[state.anchor] = state.result;
+        }
+      } else if (state.tag === "?") {
+        if (state.result !== null && state.kind !== "scalar") {
+          throwError(state, 'unacceptable node kind for !<?> tag; it should be "scalar", not "' + state.kind + '"');
+        }
+        for (typeIndex = 0, typeQuantity = state.implicitTypes.length; typeIndex < typeQuantity; typeIndex += 1) {
+          type = state.implicitTypes[typeIndex];
+          if (type.resolve(state.result)) {
+            state.result = type.construct(state.result);
+            state.tag = type.tag;
+            if (state.anchor !== null) {
+              state.anchorMap[state.anchor] = state.result;
+            }
+            break;
+          }
+        }
+      } else if (state.tag !== "!") {
+        if (_hasOwnProperty.call(state.typeMap[state.kind || "fallback"], state.tag)) {
+          type = state.typeMap[state.kind || "fallback"][state.tag];
+        } else {
+          type = null;
+          typeList = state.typeMap.multi[state.kind || "fallback"];
+          for (typeIndex = 0, typeQuantity = typeList.length; typeIndex < typeQuantity; typeIndex += 1) {
+            if (state.tag.slice(0, typeList[typeIndex].tag.length) === typeList[typeIndex].tag) {
+              type = typeList[typeIndex];
+              break;
+            }
+          }
+        }
+        if (!type) {
+          throwError(state, "unknown tag !<" + state.tag + ">");
+        }
+        if (state.result !== null && type.kind !== state.kind) {
+          throwError(state, "unacceptable node kind for !<" + state.tag + '> tag; it should be "' + type.kind + '", not "' + state.kind + '"');
+        }
+        if (!type.resolve(state.result, state.tag)) {
+          throwError(state, "cannot resolve a node with !<" + state.tag + "> explicit tag");
+        } else {
+          state.result = type.construct(state.result, state.tag);
+          if (state.anchor !== null) {
+            state.anchorMap[state.anchor] = state.result;
+          }
+        }
+      }
+      if (state.listener !== null) {
+        state.listener("close", state);
+      }
+      return state.tag !== null || state.anchor !== null || hasContent;
+    }
+    function readDocument(state) {
+      var documentStart = state.position, _position, directiveName, directiveArgs, hasDirectives = false, ch;
+      state.version = null;
+      state.checkLineBreaks = state.legacy;
+      state.tagMap = /* @__PURE__ */ Object.create(null);
+      state.anchorMap = /* @__PURE__ */ Object.create(null);
+      while ((ch = state.input.charCodeAt(state.position)) !== 0) {
+        skipSeparationSpace(state, true, -1);
+        ch = state.input.charCodeAt(state.position);
+        if (state.lineIndent > 0 || ch !== 37) {
+          break;
+        }
+        hasDirectives = true;
+        ch = state.input.charCodeAt(++state.position);
+        _position = state.position;
+        while (ch !== 0 && !is_WS_OR_EOL(ch)) {
+          ch = state.input.charCodeAt(++state.position);
+        }
+        directiveName = state.input.slice(_position, state.position);
+        directiveArgs = [];
+        if (directiveName.length < 1) {
+          throwError(state, "directive name must not be less than one character in length");
+        }
+        while (ch !== 0) {
+          while (is_WHITE_SPACE(ch)) {
+            ch = state.input.charCodeAt(++state.position);
+          }
+          if (ch === 35) {
+            do {
+              ch = state.input.charCodeAt(++state.position);
+            } while (ch !== 0 && !is_EOL(ch));
+            break;
+          }
+          if (is_EOL(ch))
+            break;
+          _position = state.position;
+          while (ch !== 0 && !is_WS_OR_EOL(ch)) {
+            ch = state.input.charCodeAt(++state.position);
+          }
+          directiveArgs.push(state.input.slice(_position, state.position));
+        }
+        if (ch !== 0)
+          readLineBreak(state);
+        if (_hasOwnProperty.call(directiveHandlers, directiveName)) {
+          directiveHandlers[directiveName](state, directiveName, directiveArgs);
+        } else {
+          throwWarning(state, 'unknown document directive "' + directiveName + '"');
+        }
+      }
+      skipSeparationSpace(state, true, -1);
+      if (state.lineIndent === 0 && state.input.charCodeAt(state.position) === 45 && state.input.charCodeAt(state.position + 1) === 45 && state.input.charCodeAt(state.position + 2) === 45) {
+        state.position += 3;
+        skipSeparationSpace(state, true, -1);
+      } else if (hasDirectives) {
+        throwError(state, "directives end mark is expected");
+      }
+      composeNode(state, state.lineIndent - 1, CONTEXT_BLOCK_OUT, false, true);
+      skipSeparationSpace(state, true, -1);
+      if (state.checkLineBreaks && PATTERN_NON_ASCII_LINE_BREAKS.test(state.input.slice(documentStart, state.position))) {
+        throwWarning(state, "non-ASCII line breaks are interpreted as content");
+      }
+      state.documents.push(state.result);
+      if (state.position === state.lineStart && testDocumentSeparator(state)) {
+        if (state.input.charCodeAt(state.position) === 46) {
+          state.position += 3;
+          skipSeparationSpace(state, true, -1);
+        }
+        return;
+      }
+      if (state.position < state.length - 1) {
+        throwError(state, "end of the stream or a document separator is expected");
+      } else {
+        return;
+      }
+    }
+    function loadDocuments(input, options) {
+      input = String(input);
+      options = options || {};
+      if (input.length !== 0) {
+        if (input.charCodeAt(input.length - 1) !== 10 && input.charCodeAt(input.length - 1) !== 13) {
+          input += "\n";
+        }
+        if (input.charCodeAt(0) === 65279) {
+          input = input.slice(1);
+        }
+      }
+      var state = new State(input, options);
+      var nullpos = input.indexOf("\0");
+      if (nullpos !== -1) {
+        state.position = nullpos;
+        throwError(state, "null byte is not allowed in input");
+      }
+      state.input += "\0";
+      while (state.input.charCodeAt(state.position) === 32) {
+        state.lineIndent += 1;
+        state.position += 1;
+      }
+      while (state.position < state.length - 1) {
+        readDocument(state);
+      }
+      return state.documents;
+    }
+    function loadAll(input, iterator, options) {
+      if (iterator !== null && typeof iterator === "object" && typeof options === "undefined") {
+        options = iterator;
+        iterator = null;
+      }
+      var documents = loadDocuments(input, options);
+      if (typeof iterator !== "function") {
+        return documents;
+      }
+      for (var index = 0, length = documents.length; index < length; index += 1) {
+        iterator(documents[index]);
+      }
+    }
+    function load(input, options) {
+      var documents = loadDocuments(input, options);
+      if (documents.length === 0) {
+        return void 0;
+      } else if (documents.length === 1) {
+        return documents[0];
+      }
+      throw new YAMLException("expected a single document in the stream, but found more");
+    }
+    module2.exports.loadAll = loadAll;
+    module2.exports.load = load;
+  }
+});
+
+// ../shared/node_modules/js-yaml/lib/dumper.js
+var require_dumper = __commonJS({
+  "../shared/node_modules/js-yaml/lib/dumper.js"(exports2, module2) {
+    "use strict";
+    var common = require_common();
+    var YAMLException = require_exception();
+    var DEFAULT_SCHEMA = require_default();
+    var _toString = Object.prototype.toString;
+    var _hasOwnProperty = Object.prototype.hasOwnProperty;
+    var CHAR_BOM = 65279;
+    var CHAR_TAB = 9;
+    var CHAR_LINE_FEED = 10;
+    var CHAR_CARRIAGE_RETURN = 13;
+    var CHAR_SPACE = 32;
+    var CHAR_EXCLAMATION = 33;
+    var CHAR_DOUBLE_QUOTE = 34;
+    var CHAR_SHARP = 35;
+    var CHAR_PERCENT = 37;
+    var CHAR_AMPERSAND = 38;
+    var CHAR_SINGLE_QUOTE = 39;
+    var CHAR_ASTERISK = 42;
+    var CHAR_COMMA = 44;
+    var CHAR_MINUS = 45;
+    var CHAR_COLON = 58;
+    var CHAR_EQUALS = 61;
+    var CHAR_GREATER_THAN = 62;
+    var CHAR_QUESTION = 63;
+    var CHAR_COMMERCIAL_AT = 64;
+    var CHAR_LEFT_SQUARE_BRACKET = 91;
+    var CHAR_RIGHT_SQUARE_BRACKET = 93;
+    var CHAR_GRAVE_ACCENT = 96;
+    var CHAR_LEFT_CURLY_BRACKET = 123;
+    var CHAR_VERTICAL_LINE = 124;
+    var CHAR_RIGHT_CURLY_BRACKET = 125;
+    var ESCAPE_SEQUENCES = {};
+    ESCAPE_SEQUENCES[0] = "\\0";
+    ESCAPE_SEQUENCES[7] = "\\a";
+    ESCAPE_SEQUENCES[8] = "\\b";
+    ESCAPE_SEQUENCES[9] = "\\t";
+    ESCAPE_SEQUENCES[10] = "\\n";
+    ESCAPE_SEQUENCES[11] = "\\v";
+    ESCAPE_SEQUENCES[12] = "\\f";
+    ESCAPE_SEQUENCES[13] = "\\r";
+    ESCAPE_SEQUENCES[27] = "\\e";
+    ESCAPE_SEQUENCES[34] = '\\"';
+    ESCAPE_SEQUENCES[92] = "\\\\";
+    ESCAPE_SEQUENCES[133] = "\\N";
+    ESCAPE_SEQUENCES[160] = "\\_";
+    ESCAPE_SEQUENCES[8232] = "\\L";
+    ESCAPE_SEQUENCES[8233] = "\\P";
+    var DEPRECATED_BOOLEANS_SYNTAX = [
+      "y",
+      "Y",
+      "yes",
+      "Yes",
+      "YES",
+      "on",
+      "On",
+      "ON",
+      "n",
+      "N",
+      "no",
+      "No",
+      "NO",
+      "off",
+      "Off",
+      "OFF"
+    ];
+    var DEPRECATED_BASE60_SYNTAX = /^[-+]?[0-9_]+(?::[0-9_]+)+(?:\.[0-9_]*)?$/;
+    function compileStyleMap(schema, map) {
+      var result, keys, index, length, tag, style, type;
+      if (map === null)
+        return {};
+      result = {};
+      keys = Object.keys(map);
+      for (index = 0, length = keys.length; index < length; index += 1) {
+        tag = keys[index];
+        style = String(map[tag]);
+        if (tag.slice(0, 2) === "!!") {
+          tag = "tag:yaml.org,2002:" + tag.slice(2);
+        }
+        type = schema.compiledTypeMap["fallback"][tag];
+        if (type && _hasOwnProperty.call(type.styleAliases, style)) {
+          style = type.styleAliases[style];
+        }
+        result[tag] = style;
+      }
+      return result;
+    }
+    function encodeHex(character) {
+      var string, handle, length;
+      string = character.toString(16).toUpperCase();
+      if (character <= 255) {
+        handle = "x";
+        length = 2;
+      } else if (character <= 65535) {
+        handle = "u";
+        length = 4;
+      } else if (character <= 4294967295) {
+        handle = "U";
+        length = 8;
+      } else {
+        throw new YAMLException("code point within a string may not be greater than 0xFFFFFFFF");
+      }
+      return "\\" + handle + common.repeat("0", length - string.length) + string;
+    }
+    var QUOTING_TYPE_SINGLE = 1;
+    var QUOTING_TYPE_DOUBLE = 2;
+    function State(options) {
+      this.schema = options["schema"] || DEFAULT_SCHEMA;
+      this.indent = Math.max(1, options["indent"] || 2);
+      this.noArrayIndent = options["noArrayIndent"] || false;
+      this.skipInvalid = options["skipInvalid"] || false;
+      this.flowLevel = common.isNothing(options["flowLevel"]) ? -1 : options["flowLevel"];
+      this.styleMap = compileStyleMap(this.schema, options["styles"] || null);
+      this.sortKeys = options["sortKeys"] || false;
+      this.lineWidth = options["lineWidth"] || 80;
+      this.noRefs = options["noRefs"] || false;
+      this.noCompatMode = options["noCompatMode"] || false;
+      this.condenseFlow = options["condenseFlow"] || false;
+      this.quotingType = options["quotingType"] === '"' ? QUOTING_TYPE_DOUBLE : QUOTING_TYPE_SINGLE;
+      this.forceQuotes = options["forceQuotes"] || false;
+      this.replacer = typeof options["replacer"] === "function" ? options["replacer"] : null;
+      this.implicitTypes = this.schema.compiledImplicit;
+      this.explicitTypes = this.schema.compiledExplicit;
+      this.tag = null;
+      this.result = "";
+      this.duplicates = [];
+      this.usedDuplicates = null;
+    }
+    function indentString(string, spaces) {
+      var ind = common.repeat(" ", spaces), position = 0, next = -1, result = "", line, length = string.length;
+      while (position < length) {
+        next = string.indexOf("\n", position);
+        if (next === -1) {
+          line = string.slice(position);
+          position = length;
+        } else {
+          line = string.slice(position, next + 1);
+          position = next + 1;
+        }
+        if (line.length && line !== "\n")
+          result += ind;
+        result += line;
+      }
+      return result;
+    }
+    function generateNextLine(state, level) {
+      return "\n" + common.repeat(" ", state.indent * level);
+    }
+    function testImplicitResolving(state, str) {
+      var index, length, type;
+      for (index = 0, length = state.implicitTypes.length; index < length; index += 1) {
+        type = state.implicitTypes[index];
+        if (type.resolve(str)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    function isWhitespace(c) {
+      return c === CHAR_SPACE || c === CHAR_TAB;
+    }
+    function isPrintable(c) {
+      return 32 <= c && c <= 126 || 161 <= c && c <= 55295 && c !== 8232 && c !== 8233 || 57344 <= c && c <= 65533 && c !== CHAR_BOM || 65536 <= c && c <= 1114111;
+    }
+    function isNsCharOrWhitespace(c) {
+      return isPrintable(c) && c !== CHAR_BOM && c !== CHAR_CARRIAGE_RETURN && c !== CHAR_LINE_FEED;
+    }
+    function isPlainSafe(c, prev, inblock) {
+      var cIsNsCharOrWhitespace = isNsCharOrWhitespace(c);
+      var cIsNsChar = cIsNsCharOrWhitespace && !isWhitespace(c);
+      return (
+        // ns-plain-safe
+        (inblock ? (
+          // c = flow-in
+          cIsNsCharOrWhitespace
+        ) : cIsNsCharOrWhitespace && c !== CHAR_COMMA && c !== CHAR_LEFT_SQUARE_BRACKET && c !== CHAR_RIGHT_SQUARE_BRACKET && c !== CHAR_LEFT_CURLY_BRACKET && c !== CHAR_RIGHT_CURLY_BRACKET) && c !== CHAR_SHARP && !(prev === CHAR_COLON && !cIsNsChar) || isNsCharOrWhitespace(prev) && !isWhitespace(prev) && c === CHAR_SHARP || prev === CHAR_COLON && cIsNsChar
+      );
+    }
+    function isPlainSafeFirst(c) {
+      return isPrintable(c) && c !== CHAR_BOM && !isWhitespace(c) && c !== CHAR_MINUS && c !== CHAR_QUESTION && c !== CHAR_COLON && c !== CHAR_COMMA && c !== CHAR_LEFT_SQUARE_BRACKET && c !== CHAR_RIGHT_SQUARE_BRACKET && c !== CHAR_LEFT_CURLY_BRACKET && c !== CHAR_RIGHT_CURLY_BRACKET && c !== CHAR_SHARP && c !== CHAR_AMPERSAND && c !== CHAR_ASTERISK && c !== CHAR_EXCLAMATION && c !== CHAR_VERTICAL_LINE && c !== CHAR_EQUALS && c !== CHAR_GREATER_THAN && c !== CHAR_SINGLE_QUOTE && c !== CHAR_DOUBLE_QUOTE && c !== CHAR_PERCENT && c !== CHAR_COMMERCIAL_AT && c !== CHAR_GRAVE_ACCENT;
+    }
+    function isPlainSafeLast(c) {
+      return !isWhitespace(c) && c !== CHAR_COLON;
+    }
+    function codePointAt(string, pos) {
+      var first = string.charCodeAt(pos), second;
+      if (first >= 55296 && first <= 56319 && pos + 1 < string.length) {
+        second = string.charCodeAt(pos + 1);
+        if (second >= 56320 && second <= 57343) {
+          return (first - 55296) * 1024 + second - 56320 + 65536;
+        }
+      }
+      return first;
+    }
+    function needIndentIndicator(string) {
+      var leadingSpaceRe = /^\n* /;
+      return leadingSpaceRe.test(string);
+    }
+    var STYLE_PLAIN = 1;
+    var STYLE_SINGLE = 2;
+    var STYLE_LITERAL = 3;
+    var STYLE_FOLDED = 4;
+    var STYLE_DOUBLE = 5;
+    function chooseScalarStyle(string, singleLineOnly, indentPerLevel, lineWidth, testAmbiguousType, quotingType, forceQuotes, inblock) {
+      var i;
+      var char = 0;
+      var prevChar = null;
+      var hasLineBreak = false;
+      var hasFoldableLine = false;
+      var shouldTrackWidth = lineWidth !== -1;
+      var previousLineBreak = -1;
+      var plain = isPlainSafeFirst(codePointAt(string, 0)) && isPlainSafeLast(codePointAt(string, string.length - 1));
+      if (singleLineOnly || forceQuotes) {
+        for (i = 0; i < string.length; char >= 65536 ? i += 2 : i++) {
+          char = codePointAt(string, i);
+          if (!isPrintable(char)) {
+            return STYLE_DOUBLE;
+          }
+          plain = plain && isPlainSafe(char, prevChar, inblock);
+          prevChar = char;
+        }
+      } else {
+        for (i = 0; i < string.length; char >= 65536 ? i += 2 : i++) {
+          char = codePointAt(string, i);
+          if (char === CHAR_LINE_FEED) {
+            hasLineBreak = true;
+            if (shouldTrackWidth) {
+              hasFoldableLine = hasFoldableLine || // Foldable line = too long, and not more-indented.
+              i - previousLineBreak - 1 > lineWidth && string[previousLineBreak + 1] !== " ";
+              previousLineBreak = i;
+            }
+          } else if (!isPrintable(char)) {
+            return STYLE_DOUBLE;
+          }
+          plain = plain && isPlainSafe(char, prevChar, inblock);
+          prevChar = char;
+        }
+        hasFoldableLine = hasFoldableLine || shouldTrackWidth && (i - previousLineBreak - 1 > lineWidth && string[previousLineBreak + 1] !== " ");
+      }
+      if (!hasLineBreak && !hasFoldableLine) {
+        if (plain && !forceQuotes && !testAmbiguousType(string)) {
+          return STYLE_PLAIN;
+        }
+        return quotingType === QUOTING_TYPE_DOUBLE ? STYLE_DOUBLE : STYLE_SINGLE;
+      }
+      if (indentPerLevel > 9 && needIndentIndicator(string)) {
+        return STYLE_DOUBLE;
+      }
+      if (!forceQuotes) {
+        return hasFoldableLine ? STYLE_FOLDED : STYLE_LITERAL;
+      }
+      return quotingType === QUOTING_TYPE_DOUBLE ? STYLE_DOUBLE : STYLE_SINGLE;
+    }
+    function writeScalar(state, string, level, iskey, inblock) {
+      state.dump = function() {
+        if (string.length === 0) {
+          return state.quotingType === QUOTING_TYPE_DOUBLE ? '""' : "''";
+        }
+        if (!state.noCompatMode) {
+          if (DEPRECATED_BOOLEANS_SYNTAX.indexOf(string) !== -1 || DEPRECATED_BASE60_SYNTAX.test(string)) {
+            return state.quotingType === QUOTING_TYPE_DOUBLE ? '"' + string + '"' : "'" + string + "'";
+          }
+        }
+        var indent = state.indent * Math.max(1, level);
+        var lineWidth = state.lineWidth === -1 ? -1 : Math.max(Math.min(state.lineWidth, 40), state.lineWidth - indent);
+        var singleLineOnly = iskey || state.flowLevel > -1 && level >= state.flowLevel;
+        function testAmbiguity(string2) {
+          return testImplicitResolving(state, string2);
+        }
+        switch (chooseScalarStyle(
+          string,
+          singleLineOnly,
+          state.indent,
+          lineWidth,
+          testAmbiguity,
+          state.quotingType,
+          state.forceQuotes && !iskey,
+          inblock
+        )) {
+          case STYLE_PLAIN:
+            return string;
+          case STYLE_SINGLE:
+            return "'" + string.replace(/'/g, "''") + "'";
+          case STYLE_LITERAL:
+            return "|" + blockHeader(string, state.indent) + dropEndingNewline(indentString(string, indent));
+          case STYLE_FOLDED:
+            return ">" + blockHeader(string, state.indent) + dropEndingNewline(indentString(foldString(string, lineWidth), indent));
+          case STYLE_DOUBLE:
+            return '"' + escapeString(string, lineWidth) + '"';
+          default:
+            throw new YAMLException("impossible error: invalid scalar style");
+        }
+      }();
+    }
+    function blockHeader(string, indentPerLevel) {
+      var indentIndicator = needIndentIndicator(string) ? String(indentPerLevel) : "";
+      var clip = string[string.length - 1] === "\n";
+      var keep = clip && (string[string.length - 2] === "\n" || string === "\n");
+      var chomp = keep ? "+" : clip ? "" : "-";
+      return indentIndicator + chomp + "\n";
+    }
+    function dropEndingNewline(string) {
+      return string[string.length - 1] === "\n" ? string.slice(0, -1) : string;
+    }
+    function foldString(string, width) {
+      var lineRe = /(\n+)([^\n]*)/g;
+      var result = function() {
+        var nextLF = string.indexOf("\n");
+        nextLF = nextLF !== -1 ? nextLF : string.length;
+        lineRe.lastIndex = nextLF;
+        return foldLine(string.slice(0, nextLF), width);
+      }();
+      var prevMoreIndented = string[0] === "\n" || string[0] === " ";
+      var moreIndented;
+      var match;
+      while (match = lineRe.exec(string)) {
+        var prefix = match[1], line = match[2];
+        moreIndented = line[0] === " ";
+        result += prefix + (!prevMoreIndented && !moreIndented && line !== "" ? "\n" : "") + foldLine(line, width);
+        prevMoreIndented = moreIndented;
+      }
+      return result;
+    }
+    function foldLine(line, width) {
+      if (line === "" || line[0] === " ")
+        return line;
+      var breakRe = / [^ ]/g;
+      var match;
+      var start = 0, end, curr = 0, next = 0;
+      var result = "";
+      while (match = breakRe.exec(line)) {
+        next = match.index;
+        if (next - start > width) {
+          end = curr > start ? curr : next;
+          result += "\n" + line.slice(start, end);
+          start = end + 1;
+        }
+        curr = next;
+      }
+      result += "\n";
+      if (line.length - start > width && curr > start) {
+        result += line.slice(start, curr) + "\n" + line.slice(curr + 1);
+      } else {
+        result += line.slice(start);
+      }
+      return result.slice(1);
+    }
+    function escapeString(string) {
+      var result = "";
+      var char = 0;
+      var escapeSeq;
+      for (var i = 0; i < string.length; char >= 65536 ? i += 2 : i++) {
+        char = codePointAt(string, i);
+        escapeSeq = ESCAPE_SEQUENCES[char];
+        if (!escapeSeq && isPrintable(char)) {
+          result += string[i];
+          if (char >= 65536)
+            result += string[i + 1];
+        } else {
+          result += escapeSeq || encodeHex(char);
+        }
+      }
+      return result;
+    }
+    function writeFlowSequence(state, level, object) {
+      var _result = "", _tag = state.tag, index, length, value;
+      for (index = 0, length = object.length; index < length; index += 1) {
+        value = object[index];
+        if (state.replacer) {
+          value = state.replacer.call(object, String(index), value);
+        }
+        if (writeNode(state, level, value, false, false) || typeof value === "undefined" && writeNode(state, level, null, false, false)) {
+          if (_result !== "")
+            _result += "," + (!state.condenseFlow ? " " : "");
+          _result += state.dump;
+        }
+      }
+      state.tag = _tag;
+      state.dump = "[" + _result + "]";
+    }
+    function writeBlockSequence(state, level, object, compact) {
+      var _result = "", _tag = state.tag, index, length, value;
+      for (index = 0, length = object.length; index < length; index += 1) {
+        value = object[index];
+        if (state.replacer) {
+          value = state.replacer.call(object, String(index), value);
+        }
+        if (writeNode(state, level + 1, value, true, true, false, true) || typeof value === "undefined" && writeNode(state, level + 1, null, true, true, false, true)) {
+          if (!compact || _result !== "") {
+            _result += generateNextLine(state, level);
+          }
+          if (state.dump && CHAR_LINE_FEED === state.dump.charCodeAt(0)) {
+            _result += "-";
+          } else {
+            _result += "- ";
+          }
+          _result += state.dump;
+        }
+      }
+      state.tag = _tag;
+      state.dump = _result || "[]";
+    }
+    function writeFlowMapping(state, level, object) {
+      var _result = "", _tag = state.tag, objectKeyList = Object.keys(object), index, length, objectKey, objectValue, pairBuffer;
+      for (index = 0, length = objectKeyList.length; index < length; index += 1) {
+        pairBuffer = "";
+        if (_result !== "")
+          pairBuffer += ", ";
+        if (state.condenseFlow)
+          pairBuffer += '"';
+        objectKey = objectKeyList[index];
+        objectValue = object[objectKey];
+        if (state.replacer) {
+          objectValue = state.replacer.call(object, objectKey, objectValue);
+        }
+        if (!writeNode(state, level, objectKey, false, false)) {
+          continue;
+        }
+        if (state.dump.length > 1024)
+          pairBuffer += "? ";
+        pairBuffer += state.dump + (state.condenseFlow ? '"' : "") + ":" + (state.condenseFlow ? "" : " ");
+        if (!writeNode(state, level, objectValue, false, false)) {
+          continue;
+        }
+        pairBuffer += state.dump;
+        _result += pairBuffer;
+      }
+      state.tag = _tag;
+      state.dump = "{" + _result + "}";
+    }
+    function writeBlockMapping(state, level, object, compact) {
+      var _result = "", _tag = state.tag, objectKeyList = Object.keys(object), index, length, objectKey, objectValue, explicitPair, pairBuffer;
+      if (state.sortKeys === true) {
+        objectKeyList.sort();
+      } else if (typeof state.sortKeys === "function") {
+        objectKeyList.sort(state.sortKeys);
+      } else if (state.sortKeys) {
+        throw new YAMLException("sortKeys must be a boolean or a function");
+      }
+      for (index = 0, length = objectKeyList.length; index < length; index += 1) {
+        pairBuffer = "";
+        if (!compact || _result !== "") {
+          pairBuffer += generateNextLine(state, level);
+        }
+        objectKey = objectKeyList[index];
+        objectValue = object[objectKey];
+        if (state.replacer) {
+          objectValue = state.replacer.call(object, objectKey, objectValue);
+        }
+        if (!writeNode(state, level + 1, objectKey, true, true, true)) {
+          continue;
+        }
+        explicitPair = state.tag !== null && state.tag !== "?" || state.dump && state.dump.length > 1024;
+        if (explicitPair) {
+          if (state.dump && CHAR_LINE_FEED === state.dump.charCodeAt(0)) {
+            pairBuffer += "?";
+          } else {
+            pairBuffer += "? ";
+          }
+        }
+        pairBuffer += state.dump;
+        if (explicitPair) {
+          pairBuffer += generateNextLine(state, level);
+        }
+        if (!writeNode(state, level + 1, objectValue, true, explicitPair)) {
+          continue;
+        }
+        if (state.dump && CHAR_LINE_FEED === state.dump.charCodeAt(0)) {
+          pairBuffer += ":";
+        } else {
+          pairBuffer += ": ";
+        }
+        pairBuffer += state.dump;
+        _result += pairBuffer;
+      }
+      state.tag = _tag;
+      state.dump = _result || "{}";
+    }
+    function detectType(state, object, explicit) {
+      var _result, typeList, index, length, type, style;
+      typeList = explicit ? state.explicitTypes : state.implicitTypes;
+      for (index = 0, length = typeList.length; index < length; index += 1) {
+        type = typeList[index];
+        if ((type.instanceOf || type.predicate) && (!type.instanceOf || typeof object === "object" && object instanceof type.instanceOf) && (!type.predicate || type.predicate(object))) {
+          if (explicit) {
+            if (type.multi && type.representName) {
+              state.tag = type.representName(object);
+            } else {
+              state.tag = type.tag;
+            }
+          } else {
+            state.tag = "?";
+          }
+          if (type.represent) {
+            style = state.styleMap[type.tag] || type.defaultStyle;
+            if (_toString.call(type.represent) === "[object Function]") {
+              _result = type.represent(object, style);
+            } else if (_hasOwnProperty.call(type.represent, style)) {
+              _result = type.represent[style](object, style);
+            } else {
+              throw new YAMLException("!<" + type.tag + '> tag resolver accepts not "' + style + '" style');
+            }
+            state.dump = _result;
+          }
+          return true;
+        }
+      }
+      return false;
+    }
+    function writeNode(state, level, object, block, compact, iskey, isblockseq) {
+      state.tag = null;
+      state.dump = object;
+      if (!detectType(state, object, false)) {
+        detectType(state, object, true);
+      }
+      var type = _toString.call(state.dump);
+      var inblock = block;
+      var tagStr;
+      if (block) {
+        block = state.flowLevel < 0 || state.flowLevel > level;
+      }
+      var objectOrArray = type === "[object Object]" || type === "[object Array]", duplicateIndex, duplicate;
+      if (objectOrArray) {
+        duplicateIndex = state.duplicates.indexOf(object);
+        duplicate = duplicateIndex !== -1;
+      }
+      if (state.tag !== null && state.tag !== "?" || duplicate || state.indent !== 2 && level > 0) {
+        compact = false;
+      }
+      if (duplicate && state.usedDuplicates[duplicateIndex]) {
+        state.dump = "*ref_" + duplicateIndex;
+      } else {
+        if (objectOrArray && duplicate && !state.usedDuplicates[duplicateIndex]) {
+          state.usedDuplicates[duplicateIndex] = true;
+        }
+        if (type === "[object Object]") {
+          if (block && Object.keys(state.dump).length !== 0) {
+            writeBlockMapping(state, level, state.dump, compact);
+            if (duplicate) {
+              state.dump = "&ref_" + duplicateIndex + state.dump;
+            }
+          } else {
+            writeFlowMapping(state, level, state.dump);
+            if (duplicate) {
+              state.dump = "&ref_" + duplicateIndex + " " + state.dump;
+            }
+          }
+        } else if (type === "[object Array]") {
+          if (block && state.dump.length !== 0) {
+            if (state.noArrayIndent && !isblockseq && level > 0) {
+              writeBlockSequence(state, level - 1, state.dump, compact);
+            } else {
+              writeBlockSequence(state, level, state.dump, compact);
+            }
+            if (duplicate) {
+              state.dump = "&ref_" + duplicateIndex + state.dump;
+            }
+          } else {
+            writeFlowSequence(state, level, state.dump);
+            if (duplicate) {
+              state.dump = "&ref_" + duplicateIndex + " " + state.dump;
+            }
+          }
+        } else if (type === "[object String]") {
+          if (state.tag !== "?") {
+            writeScalar(state, state.dump, level, iskey, inblock);
+          }
+        } else if (type === "[object Undefined]") {
+          return false;
+        } else {
+          if (state.skipInvalid)
+            return false;
+          throw new YAMLException("unacceptable kind of an object to dump " + type);
+        }
+        if (state.tag !== null && state.tag !== "?") {
+          tagStr = encodeURI(
+            state.tag[0] === "!" ? state.tag.slice(1) : state.tag
+          ).replace(/!/g, "%21");
+          if (state.tag[0] === "!") {
+            tagStr = "!" + tagStr;
+          } else if (tagStr.slice(0, 18) === "tag:yaml.org,2002:") {
+            tagStr = "!!" + tagStr.slice(18);
+          } else {
+            tagStr = "!<" + tagStr + ">";
+          }
+          state.dump = tagStr + " " + state.dump;
+        }
+      }
+      return true;
+    }
+    function getDuplicateReferences(object, state) {
+      var objects = [], duplicatesIndexes = [], index, length;
+      inspectNode(object, objects, duplicatesIndexes);
+      for (index = 0, length = duplicatesIndexes.length; index < length; index += 1) {
+        state.duplicates.push(objects[duplicatesIndexes[index]]);
+      }
+      state.usedDuplicates = new Array(length);
+    }
+    function inspectNode(object, objects, duplicatesIndexes) {
+      var objectKeyList, index, length;
+      if (object !== null && typeof object === "object") {
+        index = objects.indexOf(object);
+        if (index !== -1) {
+          if (duplicatesIndexes.indexOf(index) === -1) {
+            duplicatesIndexes.push(index);
+          }
+        } else {
+          objects.push(object);
+          if (Array.isArray(object)) {
+            for (index = 0, length = object.length; index < length; index += 1) {
+              inspectNode(object[index], objects, duplicatesIndexes);
+            }
+          } else {
+            objectKeyList = Object.keys(object);
+            for (index = 0, length = objectKeyList.length; index < length; index += 1) {
+              inspectNode(object[objectKeyList[index]], objects, duplicatesIndexes);
+            }
+          }
+        }
+      }
+    }
+    function dump(input, options) {
+      options = options || {};
+      var state = new State(options);
+      if (!state.noRefs)
+        getDuplicateReferences(input, state);
+      var value = input;
+      if (state.replacer) {
+        value = state.replacer.call({ "": value }, "", value);
+      }
+      if (writeNode(state, 0, value, true, true))
+        return state.dump + "\n";
+      return "";
+    }
+    module2.exports.dump = dump;
+  }
+});
+
+// ../shared/node_modules/js-yaml/index.js
+var require_js_yaml = __commonJS({
+  "../shared/node_modules/js-yaml/index.js"(exports2, module2) {
+    "use strict";
+    var loader = require_loader();
+    var dumper = require_dumper();
+    function renamed(from, to) {
+      return function() {
+        throw new Error("Function yaml." + from + " is removed in js-yaml 4. Use yaml." + to + " instead, which is now safe by default.");
+      };
+    }
+    module2.exports.Type = require_type();
+    module2.exports.Schema = require_schema();
+    module2.exports.FAILSAFE_SCHEMA = require_failsafe();
+    module2.exports.JSON_SCHEMA = require_json();
+    module2.exports.CORE_SCHEMA = require_core();
+    module2.exports.DEFAULT_SCHEMA = require_default();
+    module2.exports.load = loader.load;
+    module2.exports.loadAll = loader.loadAll;
+    module2.exports.dump = dumper.dump;
+    module2.exports.YAMLException = require_exception();
+    module2.exports.types = {
+      binary: require_binary(),
+      float: require_float(),
+      map: require_map(),
+      null: require_null(),
+      pairs: require_pairs(),
+      set: require_set(),
+      timestamp: require_timestamp(),
+      bool: require_bool(),
+      int: require_int(),
+      merge: require_merge(),
+      omap: require_omap(),
+      seq: require_seq(),
+      str: require_str()
+    };
+    module2.exports.safeLoad = renamed("safeLoad", "load");
+    module2.exports.safeLoadAll = renamed("safeLoadAll", "loadAll");
+    module2.exports.safeDump = renamed("safeDump", "dump");
+  }
+});
+
+// ../shared/dist/parsers/standards.js
+var require_standards = __commonJS({
+  "../shared/dist/parsers/standards.js"(exports2) {
+    "use strict";
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
+      if (k2 === void 0)
+        k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    } : function(o, m, k, k2) {
+      if (k2 === void 0)
+        k2 = k;
+      o[k2] = m[k];
+    });
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+      Object.defineProperty(o, "default", { enumerable: true, value: v });
+    } : function(o, v) {
+      o["default"] = v;
+    });
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+      var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function(o2) {
+          var ar = [];
+          for (var k in o2)
+            if (Object.prototype.hasOwnProperty.call(o2, k))
+              ar[ar.length] = k;
+          return ar;
+        };
+        return ownKeys(o);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule)
+          return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
+            if (k[i] !== "default")
+              __createBinding(result, mod, k[i]);
+        }
+        __setModuleDefault(result, mod);
+        return result;
+      };
+    }();
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.parseStandardDefinition = parseStandardDefinition;
+    exports2.readStandardDefinition = readStandardDefinition;
+    exports2.findRule = findRule;
+    exports2.findRuleLineRange = findRuleLineRange2;
+    exports2._clearStandardsCache = _clearStandardsCache;
+    var fs2 = __importStar(require("fs"));
+    var yaml = __importStar(require_js_yaml());
+    var conform_pending_js_1 = require_conform_pending();
+    var cache = /* @__PURE__ */ new Map();
+    var FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---/;
+    function coerceSeverity(s) {
+      if (s === "error" || s === "warn" || s === "info")
+        return s;
+      return null;
+    }
+    function coerceString(s) {
+      if (typeof s === "string" && s.length > 0)
+        return s;
+      return null;
+    }
+    function coerceArray(s) {
+      if (Array.isArray(s) && s.length > 0)
+        return s;
+      return null;
+    }
+    function parseRules(rawRules) {
+      if (!Array.isArray(rawRules))
+        return [];
+      const out = [];
+      for (const r of rawRules) {
+        if (!r || typeof r !== "object")
+          continue;
+        const rec = r;
+        const id = coerceString(rec.id);
+        if (!id)
+          continue;
+        out.push({
+          id,
+          title: coerceString(rec.title),
+          severity: coerceSeverity(rec.severity),
+          description: coerceString(rec.description),
+          why: coerceString(rec.why),
+          fixHint: coerceString(rec.fix_hint),
+          examples: coerceArray(rec.examples),
+          exceptions: coerceArray(rec.exceptions)
+        });
+      }
+      return out;
+    }
+    function parseStandardDefinition(content, filePath) {
+      const m = content.match(FRONTMATTER_RE);
+      if (!m)
+        return null;
+      let data;
+      try {
+        data = yaml.load(m[1]);
+      } catch {
+        return null;
+      }
+      if (!data || typeof data !== "object")
+        return null;
+      const rec = data;
+      if (rec.type !== "standard")
+        return null;
+      const id = coerceString(rec.id);
+      if (!id)
+        return null;
+      return {
+        id,
+        kind: coerceString(rec.kind),
+        appScope: coerceString(rec.app_scope),
+        topic: coerceString(rec.topic),
+        tags: Array.isArray(rec.tags) ? rec.tags.filter((t) => typeof t === "string") : [],
+        rules: parseRules(rec.rules),
+        filePath
+      };
+    }
+    function readStandardDefinition(kbRoot, standardId) {
+      if (!standardId)
+        return null;
+      const filePath = (0, conform_pending_js_1.resolveStandardPath)(kbRoot, standardId);
+      if (!filePath)
+        return null;
+      let stat;
+      try {
+        stat = fs2.statSync(filePath);
+      } catch {
+        return null;
+      }
+      const cached = cache.get(filePath);
+      if (cached && cached.mtimeMs === stat.mtimeMs)
+        return cached.def;
+      let def;
+      try {
+        def = parseStandardDefinition(fs2.readFileSync(filePath, "utf8"), filePath);
+      } catch {
+        def = null;
+      }
+      cache.set(filePath, { mtimeMs: stat.mtimeMs, def });
+      return def;
+    }
+    function findRule(def, ruleId) {
+      if (!def || !ruleId)
+        return null;
+      return def.rules.find((r) => r.id === ruleId) ?? null;
+    }
+    function findRuleLineRange2(filePath, ruleId) {
+      if (!ruleId)
+        return null;
+      let text;
+      try {
+        text = fs2.readFileSync(filePath, "utf8");
+      } catch {
+        return null;
+      }
+      const lines = text.split(/\r?\n/);
+      let inFrontmatter = false;
+      let frontmatterEnd = -1;
+      let rulesStart = -1;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (i === 0 && line.trim() === "---") {
+          inFrontmatter = true;
+          continue;
+        }
+        if (inFrontmatter && line.trim() === "---") {
+          frontmatterEnd = i;
+          break;
+        }
+        if (inFrontmatter && /^rules:\s*$/.test(line)) {
+          rulesStart = i;
+        }
+      }
+      if (rulesStart < 0)
+        return null;
+      const scanEnd = frontmatterEnd > 0 ? frontmatterEnd : lines.length;
+      const target = new RegExp(`^\\s+-\\s+id:\\s+${escapeRegex(ruleId)}\\s*$`);
+      let start = -1;
+      let end = scanEnd - 1;
+      for (let i = rulesStart + 1; i < scanEnd; i++) {
+        if (target.test(lines[i])) {
+          start = i;
+          for (let j = i + 1; j < scanEnd; j++) {
+            if (/^\s+-\s+id:\s+/.test(lines[j])) {
+              end = j - 1;
+              return { start, end };
+            }
+          }
+          end = scanEnd - 1;
+          return { start, end };
+        }
+      }
+      return null;
+    }
+    function escapeRegex(s) {
+      return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+    function _clearStandardsCache() {
+      cache.clear();
+    }
+  }
+});
+
 // ../shared/dist/status.js
 var require_status = __commonJS({
   "../shared/dist/status.js"(exports2) {
@@ -845,7 +3926,39 @@ var require_status = __commonJS({
     var conform_pending_js_1 = require_conform_pending();
     var promotions_js_1 = require_promotions();
     var lint_js_1 = require_lint();
+    var standards_js_1 = require_standards();
     var execFileP = (0, node_util_1.promisify)(node_child_process_1.execFile);
+    function enrichWithStandards(kbRoot, drifts, promotions, conformPendings) {
+      const defs = /* @__PURE__ */ new Map();
+      const lookup = (id) => {
+        if (!id)
+          return null;
+        if (defs.has(id))
+          return defs.get(id);
+        const def = (0, standards_js_1.readStandardDefinition)(kbRoot, id);
+        defs.set(id, def);
+        return def;
+      };
+      for (const e of drifts) {
+        const def = lookup(e.standardId);
+        e.resolvedRule = (0, standards_js_1.findRule)(def, e.ruleId);
+        e.resolvedStandard = def ? { id: def.id, kind: def.kind, topic: def.topic, filePath: def.filePath } : null;
+      }
+      for (const e of promotions) {
+        const def = lookup(e.standardId);
+        e.resolvedRule = (0, standards_js_1.findRule)(def, e.ruleId);
+        e.resolvedStandard = def ? { id: def.id, kind: def.kind, topic: def.topic, filePath: def.filePath } : null;
+      }
+      for (const p of conformPendings) {
+        if (!p)
+          continue;
+        for (const r of p.requested) {
+          const def = lookup(r.standard_id);
+          r.resolvedStandard = def ? { id: def.id, kind: def.kind, topic: def.topic, filePath: def.filePath } : null;
+          r.resolvedRules = def ? r.rule_ids.map((id) => (0, standards_js_1.findRule)(def, id)).filter((x) => !!x) : [];
+        }
+      }
+    }
     async function getCurrentHeadShort(kbRoot) {
       try {
         const { stdout } = await execFileP("git", ["rev-parse", "--short", "HEAD"], {
@@ -870,6 +3983,10 @@ var require_status = __commonJS({
       const stale = (recorded) => head !== null && recorded.length > 0 && !head.startsWith(recorded) && !recorded.startsWith(head);
       const conformCurrent = currentPending ? { ...currentPending, staleAgainstHead: stale(currentPending.head_sha_short) } : null;
       const conformAspirational = asp ? { ...asp, staleAgainstHead: stale(asp.head_sha_short) } : null;
+      enrichWithStandards(kbRoot, standardsDrift.entries, promotions, [
+        currentPending,
+        asp
+      ]);
       const driftCount = codeDrift.entries.length + kbDrift.entries.length + standardsDrift.entries.length;
       const conformPendingCount = (conformCurrent?.requested.length ?? 0) + (conformAspirational?.requested.length ?? 0);
       const lintErrors = lint.violations.filter((v) => v.severity === "error").length;
@@ -916,20 +4033,10 @@ var require_code_drift2 = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.codeDriftPrompt = codeDriftPrompt;
     function codeDriftPrompt(entry) {
-      const fileLines = entry.codeFiles.map((f) => {
-        const renamed = f.renamedFrom ? ` (renamed from \`${f.renamedFrom}\`)` : "";
-        const since = f.sinceCommit ? ` since \`${f.sinceCommit}\`` : "";
-        const latest = f.latestCommit && f.latestCommit !== f.sinceCommit ? `, latest \`${f.latestCommit}\`` : "";
-        return `- \`${f.path}\`${renamed}${since}${latest}`;
-      }).join("\n");
-      const sharedNote = entry.hasShared ? "\n\nNote: at least one of these files is a shared module \u2014 make sure the KB update reflects cross-cutting impact." : "";
-      return `Code drift: KB target \`${entry.kbTarget}\` is out of sync.
-
-The following code files changed without a matching KB update:
-
-${fileLines}${sharedNote}
-
-Please use the \`kb_drift\` tool to inspect the drift, decide whether the KB target needs updating, and resolve the entry. If the KB needs an update, draft it; if the code change is intentional and the KB already covers it, dismiss the entry with a reason.`;
+      const files = entry.codeFiles.map((f) => `\`${f.path}\``).join(", ");
+      const sharedSuffix = entry.hasShared ? ", shared module" : "";
+      return `Resolve code drift for \`${entry.kbTarget}\` via kb_drift.
+Files: ${files}${sharedSuffix}`;
     }
   }
 });
@@ -941,24 +4048,11 @@ var require_kb_drift2 = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.kbDriftPrompt = kbDriftPrompt;
     function kbDriftPrompt(entry) {
-      const renamed = entry.renamedFrom ? `
-
-Note: this KB file was renamed from \`${entry.renamedFrom}\`.` : "";
-      const codeAreas = entry.codeAreas.length > 0 ? entry.codeAreas.map((p) => `- \`${p}\``).join("\n") : "- _(no mapped code paths \u2014 the KB has no `code_path_patterns` for this file)_";
-      const refs = entry.refCount && entry.refCount.count > 0 ? `
-
-${entry.refCount.count} other KB file(s) reference this one via \`[[${entry.refCount.anchor}]]\`. They may need updating too.` : "";
+      const areas = entry.unmapped ? "(unmapped \u2014 verify manually)" : entry.codeAreas.map((a) => `\`${a}\``).join(", ");
       const since = entry.sinceCommit ? `
-
-Drift baseline: \`${entry.sinceCommit}\`` : "";
-      const unmapped = entry.unmapped ? "\n\nWarning: KB spec changed but no code paths are mapped to it \u2014 verify the implementation manually, then add `code_path_patterns` in `_rules.md` to enable future automatic tracking." : "";
-      return `KB drift: \`${entry.kbFile}\` was edited; code may be stale.${renamed}
-
-Code areas to review:
-
-${codeAreas}${refs}${since}${unmapped}
-
-Please use \`kb_drift\` to inspect the entry. Decide whether the implementation needs to catch up to the new KB spec. If yes, draft the code change; if no, dismiss with a reason.`;
+Since: \`${entry.sinceCommit}\`` : "";
+      return `Resolve KB drift for \`${entry.kbFile}\` via kb_drift.
+Code areas: ${areas}${since}`;
     }
   }
 });
@@ -971,39 +4065,22 @@ var require_standards_drift2 = __commonJS({
     exports2.standardsDriftPrompt = standardsDriftPrompt;
     function standardsDriftPrompt(entry) {
       const partyKeys = Object.keys(entry.filesByParty);
-      let filesBlock;
+      let filesLine;
       if (partyKeys.length === 0) {
-        filesBlock = "_(no files recorded)_";
+        filesLine = "(none)";
       } else if (partyKeys.length === 1 && partyKeys[0] === "_") {
-        filesBlock = entry.filesByParty["_"].map((f) => `- \`${f.path}\``).join("\n");
+        filesLine = entry.filesByParty["_"].map((f) => `\`${f.path}\``).join(", ");
       } else {
-        filesBlock = partyKeys.sort().map((party) => {
-          const label = party === "_" ? "Files" : `Files (party: ${party})`;
-          const lines = entry.filesByParty[party].map((f) => `  - \`${f.path}\``).join("\n");
-          return `**${label}:**
-${lines}`;
-        }).join("\n\n");
+        filesLine = partyKeys.sort().map((party) => {
+          const label = party === "_" ? "files" : party;
+          const paths = entry.filesByParty[party].map((f) => `\`${f.path}\``).join(", ");
+          return `${label}: ${paths}`;
+        }).join("; ");
       }
       const reason = entry.reason ? `
-
-Reason recorded: ${entry.reason}` : "";
-      const stdLine = `\`${entry.standardId}\`${entry.standardKind ? ` (${entry.standardKind})` : ""}`;
-      const ruleLine = `\`${entry.ruleId}\` \u2014 ${entry.severity ?? "warn"}`;
-      return `Standards drift: rule \`${entry.queueKey}\` is failing.
-
-- Standard: ${stdLine}
-- Rule: ${ruleLine}
-
-Affected files:
-
-${filesBlock}${reason}
-
-Please use \`kb_conform\` to resolve this entry. Pick one of:
-
-- \`applied\` \u2014 code was fixed to satisfy the rule
-- \`exempted\` \u2014 write an exception into the rule for these files
-- \`promoted\` \u2014 escalate to senior review (suppresses re-detection until the rule changes)
-- \`dismissed\` \u2014 false positive`;
+Reason: ${entry.reason}` : "";
+      return `Resolve \`${entry.queueKey}\` via kb_conform.
+Files: ${filesLine}${reason}`;
     }
   }
 });
@@ -1015,20 +4092,9 @@ var require_promotion = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.promotionPrompt = promotionPrompt;
     function promotionPrompt(entry) {
-      const fileLines = entry.files.map((f) => {
-        const note = f.note ? ` \u2014 note: "${f.note}"` : "";
-        return `- \`${f.path}\` (promoted ${f.promotedAt})${note}`;
-      }).join("\n");
-      return `Pending promotion: \`${entry.queueKey}\` is awaiting senior review.
-
-- Standard: \`${entry.standardId}\`${entry.standardKind ? ` (${entry.standardKind})` : ""}
-- Rule: \`${entry.ruleId}\` \u2014 ${entry.severity ?? "warn"}
-
-Promoted files:
-
-${fileLines}
-
-A senior reviewer should decide whether to update the rule itself or close the promotion. Use \`kb_conform\` with \`closed_promotion: [...]\` to close (writes an exception to the rule and removes the entry); update the rule definition directly to auto-close on fingerprint mismatch.`;
+      const files = entry.files.map((f) => `\`${f.path}\` (promoted ${f.promotedAt})`).join(", ");
+      return `Review promotion \`${entry.queueKey}\` via kb_conform.
+Files: ${files}`;
     }
   }
 });
@@ -1040,17 +4106,10 @@ var require_conform = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.conformPrompt = conformPrompt;
     function conformPrompt(entry) {
-      const scopeLine = entry.scope ? `
-- Scope: \`${entry.scope}\`` : "";
-      const reqLines = entry.requested.map((r) => `- \`${r.file}\` against \`${r.standard_id}\` (rules: ${r.rule_ids.map((x) => `\`${x}\``).join(", ")})`).join("\n");
-      const reqBlock = reqLines.length > 0 ? reqLines : "_(no pending evaluations)_";
-      return `Conform pending (mode: ${entry.mode}) at baseline \`${entry.head_sha_short}\` (${entry.head_date}).${scopeLine}
-
-The agent owes back judgments for these (file, standard, rule) triples:
-
-${reqBlock}
-
-Please call \`kb_conform\` with \`submit_judgments\` covering ALL of the requested triples in a single call (the tool validates completeness). For each triple, pick \`pass\`, \`fail\`, or \`n/a\` and supply a short reason for fails.`;
+      const lines = entry.requested.map((r) => `- \`${r.file}\` against \`${r.standard_id}\` (rules: ${r.rule_ids.map((x) => `\`${x}\``).join(", ")})`).join("\n");
+      const body = lines.length > 0 ? lines : "- (no pending evaluations)";
+      return `Submit judgments via kb_conform (mode: ${entry.mode}, baseline \`${entry.head_sha_short}\`):
+${body}`;
     }
   }
 });
@@ -1062,11 +4121,69 @@ var require_lint2 = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.lintPrompt = lintPrompt;
     function lintPrompt(entry) {
-      return `Lint ${entry.severity}: \`${entry.file}\`
+      return `Fix lint ${entry.severity} in \`${entry.file}\`: ${entry.message}`;
+    }
+  }
+});
 
-> ${entry.message}
+// ../shared/dist/prompts/standard-author.js
+var require_standard_author = __commonJS({
+  "../shared/dist/prompts/standard-author.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.standardAuthorPrompt = standardAuthorPrompt;
+    function standardAuthorPrompt(entry, mode) {
+      const files = Object.values(entry.filesByParty).flat().map((f) => `\`${f.path}\``).join(", ");
+      const filesLine = files.length > 0 ? files : "(no files recorded)";
+      const standardId = entry.standardId ?? "?";
+      const ruleId = entry.ruleId ?? "?";
+      const stdPath = entry.resolvedStandard?.filePath ? ` (\`${entry.resolvedStandard.filePath}\`)` : "";
+      const rule = entry.resolvedRule;
+      const ruleBlock = rule ? [
+        `Existing rule:`,
+        `- title: ${rule.title ?? "(missing)"}`,
+        `- severity: ${rule.severity ?? "(missing)"}`,
+        `- description: ${rule.description ?? "(missing)"}`,
+        `- why: ${rule.why ?? "(missing)"}`,
+        `- fix_hint: ${rule.fixHint ?? "(missing)"}`
+      ].join("\n") : "Existing rule: not resolvable from this workspace \u2014 load it from the standard file.";
+      const reasonLine = entry.reason ? `
+Drift reason: ${entry.reason}` : "";
+      if (mode === "exception") {
+        return `Author a new \`exceptions\` entry for rule \`${ruleId}\` in standard \`${standardId}\`${stdPath}.
 
-Please open the file, fix the issue, and re-run lint. Common fixes: add the missing front-matter field, resolve the wikilink target, remove the conflict markers, or move misplaced fields to \`_index.yaml\`.`;
+Triggering files: ${filesLine}${reasonLine}
+
+${ruleBlock}
+
+Task:
+1. Inspect the listed files and identify the legitimate pattern that should be exempted (do not weaken the rule for non-legitimate cases).
+2. Append a structured \`exceptions\` entry under the rule with: \`pattern\` (path glob or matcher), \`reason\` (why this case is intentional), and \`reviewed\` (today's date).
+3. Edit the standard YAML file in place. Keep all other rule fields untouched.`;
+      }
+      if (mode === "example") {
+        return `Add a good/bad example pair to rule \`${ruleId}\` in standard \`${standardId}\`${stdPath}.
+
+Triggering files: ${filesLine}${reasonLine}
+
+${ruleBlock}
+
+Task:
+1. Read the listed files and extract a minimal \`bad\` snippet that matches the violation.
+2. Author the corresponding \`good\` snippet that satisfies the rule.
+3. Append both as a structured \`examples\` entry on the rule (each with \`label\`, \`code\`, and a one-line \`note\`). Edit the standard YAML in place.`;
+      }
+      return `Refine rule \`${ruleId}\` in standard \`${standardId}\`${stdPath} based on real violations.
+
+Triggering files: ${filesLine}${reasonLine}
+
+${ruleBlock}
+
+Task:
+1. Read the listed files and identify the precise pattern the rule should catch.
+2. Rewrite the rule's \`description\`, \`why\`, and \`fix_hint\` so they (a) describe the violation in concrete terms, (b) explain the consequence, and (c) point at the fix shape. Keep wording terse.
+3. Adjust \`severity\` only if the new evidence justifies it; otherwise leave it untouched.
+4. Edit the standard YAML file in place. Do not touch other rules in the same file.`;
     }
   }
 });
@@ -1076,7 +4193,7 @@ var require_prompts = __commonJS({
   "../shared/dist/prompts/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.lintPrompt = exports2.conformPrompt = exports2.promotionPrompt = exports2.standardsDriftPrompt = exports2.kbDriftPrompt = exports2.codeDriftPrompt = void 0;
+    exports2.standardAuthorPrompt = exports2.lintPrompt = exports2.conformPrompt = exports2.promotionPrompt = exports2.standardsDriftPrompt = exports2.kbDriftPrompt = exports2.codeDriftPrompt = void 0;
     exports2.getActionPrompt = getActionPrompt2;
     var code_drift_js_1 = require_code_drift2();
     Object.defineProperty(exports2, "codeDriftPrompt", { enumerable: true, get: function() {
@@ -1102,6 +4219,10 @@ var require_prompts = __commonJS({
     Object.defineProperty(exports2, "lintPrompt", { enumerable: true, get: function() {
       return lint_js_1.lintPrompt;
     } });
+    var standard_author_js_1 = require_standard_author();
+    Object.defineProperty(exports2, "standardAuthorPrompt", { enumerable: true, get: function() {
+      return standard_author_js_1.standardAuthorPrompt;
+    } });
     function getActionPrompt2(input) {
       switch (input.kind) {
         case "code-drift":
@@ -1116,6 +4237,251 @@ var require_prompts = __commonJS({
           return (0, conform_js_1.conformPrompt)(input.entry);
         case "lint":
           return (0, lint_js_1.lintPrompt)(input.entry);
+        case "standard-author":
+          return (0, standard_author_js_1.standardAuthorPrompt)(input.entry, input.mode);
+      }
+    }
+  }
+});
+
+// ../shared/dist/section-guide.js
+var require_section_guide = __commonJS({
+  "../shared/dist/section-guide.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.SECTION_GUIDE = void 0;
+    exports2.primaryActionLabel = primaryActionLabel2;
+    exports2.copyActionLabel = copyActionLabel2;
+    exports2.SECTION_GUIDE = {
+      "code-drift": {
+        label: "Code Drift",
+        what: "Code changed since the last KB sync.",
+        todo: "Update the KB to reflect the change.",
+        primaryVerb: "Update"
+      },
+      "kb-drift": {
+        label: "KB Drift",
+        what: "KB content changed but the mapped code wasn't touched.",
+        todo: "Verify the code still matches, or revise the KB.",
+        primaryVerb: "Update"
+      },
+      "standards-drift": {
+        label: "Standards Drift",
+        what: "Code that broke a standard's rule.",
+        todo: "Resolve via kb_conform: apply, exempt, promote, or dismiss.",
+        primaryVerb: "Resolve"
+      },
+      "conform-pending": {
+        label: "Conform Pending",
+        what: "Standards rules waiting for your judgment.",
+        todo: "Submit your judgment for these rules.",
+        primaryVerb: "Submit"
+      },
+      promotions: {
+        label: "Pending Promotions",
+        what: "Violations promoted on a previous run \u2014 the rule probably needs tightening.",
+        todo: "Review the promotion: refine the rule, accept, or dismiss.",
+        primaryVerb: "Review"
+      },
+      lint: {
+        label: "Lint Issues",
+        what: "Schema-level problems in the KB itself.",
+        todo: "Fix the lint issue in the source file.",
+        primaryVerb: "Fix"
+      }
+    };
+    function primaryActionLabel2(section) {
+      return `${exports2.SECTION_GUIDE[section].primaryVerb} via Agent`;
+    }
+    function copyActionLabel2(section) {
+      return `Copy ${exports2.SECTION_GUIDE[section].primaryVerb} Prompt`;
+    }
+  }
+});
+
+// ../shared/dist/grouping.js
+var require_grouping = __commonJS({
+  "../shared/dist/grouping.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.buildEntryHandles = buildEntryHandles2;
+    exports2.groupEntries = groupEntries2;
+    exports2.pipelineSegments = pipelineSegments2;
+    var entry_id_js_1 = require_entry_id();
+    var section_guide_js_1 = require_section_guide();
+    var LIFECYCLE_LABEL = {
+      drift: "Drift detected",
+      conform: "Conform pending",
+      promotion: "Promotions to review",
+      lint: "Lint to fix"
+    };
+    var LIFECYCLE_HINT = {
+      drift: "Code, KB, or standards have diverged. Reconcile to clear these.",
+      conform: "Rules waiting for your judgment via kb_conform.",
+      promotion: "Past judgments accepted a violation \u2014 revisit the rule before the next run.",
+      lint: "Schema-level issues that will block kb_lint."
+    };
+    function buildEntryHandles2(status) {
+      const out = [];
+      status.codeDrift.entries.forEach((e, i) => out.push({
+        section: "code-drift",
+        id: (0, entry_id_js_1.stableEntryId)(e.kbTarget, i),
+        sourceFile: `knowledge/${e.kbTarget}`,
+        standardId: null,
+        lifecycle: "drift"
+      }));
+      status.kbDrift.entries.forEach((e, i) => out.push({
+        section: "kb-drift",
+        id: (0, entry_id_js_1.stableEntryId)(e.kbFile, i),
+        sourceFile: `knowledge/${e.kbFile}`,
+        standardId: null,
+        lifecycle: "drift"
+      }));
+      status.standardsDrift.entries.forEach((e, i) => out.push({
+        section: "standards-drift",
+        id: (0, entry_id_js_1.stableEntryId)(e.queueKey, i),
+        sourceFile: Object.values(e.filesByParty).flat()[0]?.path,
+        standardId: e.standardId,
+        lifecycle: "drift"
+      }));
+      for (const p of [status.conformPending.current, status.conformPending.aspirational]) {
+        if (!p)
+          continue;
+        p.requested.forEach((r, i) => out.push({
+          section: "conform-pending",
+          id: (0, entry_id_js_1.stableEntryId)(`${p.mode}:${r.file}:${r.standard_id}`, i),
+          sourceFile: r.file,
+          standardId: r.standard_id,
+          lifecycle: "conform"
+        }));
+      }
+      status.promotions.forEach((e, i) => out.push({
+        section: "promotions",
+        id: (0, entry_id_js_1.stableEntryId)(e.queueKey, i),
+        sourceFile: e.files[0]?.path,
+        standardId: e.standardId,
+        lifecycle: "promotion"
+      }));
+      status.lint.violations.forEach((v, i) => out.push({
+        section: "lint",
+        id: (0, entry_id_js_1.stableEntryId)(`${v.file}:${v.message.slice(0, 40)}`, i),
+        sourceFile: v.file,
+        standardId: null,
+        lifecycle: "lint"
+      }));
+      return out;
+    }
+    var SECTION_ORDER = [
+      "code-drift",
+      "kb-drift",
+      "standards-drift",
+      "conform-pending",
+      "promotions",
+      "lint"
+    ];
+    var LIFECYCLE_ORDER = ["drift", "conform", "promotion", "lint"];
+    function groupEntries2(handles, mode) {
+      switch (mode) {
+        case "section":
+          return groupBySection(handles);
+        case "file":
+          return groupByFile(handles);
+        case "standard":
+          return groupByStandard(handles);
+        case "lifecycle":
+          return groupByLifecycle(handles);
+      }
+    }
+    function groupBySection(handles) {
+      const buckets = /* @__PURE__ */ new Map();
+      for (const h of handles) {
+        if (!buckets.has(h.section))
+          buckets.set(h.section, []);
+        buckets.get(h.section).push(h);
+      }
+      return SECTION_ORDER.map((section) => {
+        const guide = section_guide_js_1.SECTION_GUIDE[section];
+        return {
+          key: `section:${section}`,
+          label: guide.label,
+          hint: guide.what,
+          entries: buckets.get(section) ?? []
+        };
+      });
+    }
+    function groupByFile(handles) {
+      const buckets = /* @__PURE__ */ new Map();
+      for (const h of handles) {
+        const key = h.sourceFile ?? "(no file)";
+        if (!buckets.has(key))
+          buckets.set(key, []);
+        buckets.get(key).push(h);
+      }
+      return [...buckets.entries()].sort((a, b) => {
+        if (a[0] === "(no file)")
+          return 1;
+        if (b[0] === "(no file)")
+          return -1;
+        return a[0].localeCompare(b[0]);
+      }).map(([key, entries]) => ({
+        key: `file:${key}`,
+        label: key,
+        hint: `${entries.length} entr${entries.length === 1 ? "y" : "ies"} touching this file`,
+        entries
+      }));
+    }
+    function groupByStandard(handles) {
+      const buckets = /* @__PURE__ */ new Map();
+      for (const h of handles) {
+        const key = h.standardId || "(no standard)";
+        if (!buckets.has(key))
+          buckets.set(key, []);
+        buckets.get(key).push(h);
+      }
+      return [...buckets.entries()].sort((a, b) => {
+        if (a[0] === "(no standard)")
+          return 1;
+        if (b[0] === "(no standard)")
+          return -1;
+        return a[0].localeCompare(b[0]);
+      }).map(([key, entries]) => ({
+        key: `standard:${key}`,
+        label: key === "(no standard)" ? key : key,
+        hint: key === "(no standard)" ? "Drift / lint entries not tied to a standard." : `All entries tied to standard \`${key}\` \u2014 drift, conform, and promotions together.`,
+        entries
+      }));
+    }
+    function groupByLifecycle(handles) {
+      const buckets = /* @__PURE__ */ new Map();
+      for (const h of handles) {
+        if (!buckets.has(h.lifecycle))
+          buckets.set(h.lifecycle, []);
+        buckets.get(h.lifecycle).push(h);
+      }
+      return LIFECYCLE_ORDER.map((stage) => ({
+        key: `lifecycle:${stage}`,
+        label: LIFECYCLE_LABEL[stage],
+        hint: LIFECYCLE_HINT[stage],
+        entries: buckets.get(stage) ?? []
+      }));
+    }
+    function pipelineSegments2(status) {
+      return LIFECYCLE_ORDER.map((stage) => ({
+        stage,
+        label: LIFECYCLE_LABEL[stage],
+        count: countForStage(status, stage)
+      }));
+    }
+    function countForStage(status, stage) {
+      switch (stage) {
+        case "drift":
+          return status.codeDrift.entries.length + status.kbDrift.entries.length + status.standardsDrift.entries.length;
+        case "conform":
+          return (status.conformPending.current?.requested.length ?? 0) + (status.conformPending.aspirational?.requested.length ?? 0);
+        case "promotion":
+          return status.promotions.length;
+        case "lint":
+          return status.lint.violations.length;
       }
     }
   }
@@ -1146,7 +4512,7 @@ var require_dist = __commonJS({
           __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.getActionPrompt = exports2.runLint = exports2.parseLintStderr = exports2.readPromotions = exports2.parsePromotions = exports2.resolveStandardPath = exports2.readConformPending = exports2.parseConformPending = exports2.readStandardsDrift = exports2.parseStandardsDrift = exports2.readKbDrift = exports2.parseKbDrift = exports2.readCodeDrift = exports2.parseCodeDrift = exports2.stableEntryId = void 0;
+    exports2.pipelineSegments = exports2.groupEntries = exports2.buildEntryHandles = exports2.copyActionLabel = exports2.primaryActionLabel = exports2.SECTION_GUIDE = exports2.getActionPrompt = exports2.findRuleLineRange = exports2.findRule = exports2.readStandardDefinition = exports2.parseStandardDefinition = exports2.runLint = exports2.parseLintStderr = exports2.readPromotions = exports2.parsePromotions = exports2.resolveStandardPath = exports2.readConformPending = exports2.parseConformPending = exports2.readStandardsDrift = exports2.parseStandardsDrift = exports2.readKbDrift = exports2.parseKbDrift = exports2.readCodeDrift = exports2.parseCodeDrift = exports2.stableEntryId = void 0;
     __exportStar(require_types(), exports2);
     __exportStar(require_kb_root(), exports2);
     __exportStar(require_status(), exports2);
@@ -1199,9 +4565,42 @@ var require_dist = __commonJS({
     Object.defineProperty(exports2, "runLint", { enumerable: true, get: function() {
       return lint_js_1.runLint;
     } });
+    var standards_js_1 = require_standards();
+    Object.defineProperty(exports2, "parseStandardDefinition", { enumerable: true, get: function() {
+      return standards_js_1.parseStandardDefinition;
+    } });
+    Object.defineProperty(exports2, "readStandardDefinition", { enumerable: true, get: function() {
+      return standards_js_1.readStandardDefinition;
+    } });
+    Object.defineProperty(exports2, "findRule", { enumerable: true, get: function() {
+      return standards_js_1.findRule;
+    } });
+    Object.defineProperty(exports2, "findRuleLineRange", { enumerable: true, get: function() {
+      return standards_js_1.findRuleLineRange;
+    } });
     var index_js_1 = require_prompts();
     Object.defineProperty(exports2, "getActionPrompt", { enumerable: true, get: function() {
       return index_js_1.getActionPrompt;
+    } });
+    var section_guide_js_1 = require_section_guide();
+    Object.defineProperty(exports2, "SECTION_GUIDE", { enumerable: true, get: function() {
+      return section_guide_js_1.SECTION_GUIDE;
+    } });
+    Object.defineProperty(exports2, "primaryActionLabel", { enumerable: true, get: function() {
+      return section_guide_js_1.primaryActionLabel;
+    } });
+    Object.defineProperty(exports2, "copyActionLabel", { enumerable: true, get: function() {
+      return section_guide_js_1.copyActionLabel;
+    } });
+    var grouping_js_1 = require_grouping();
+    Object.defineProperty(exports2, "buildEntryHandles", { enumerable: true, get: function() {
+      return grouping_js_1.buildEntryHandles;
+    } });
+    Object.defineProperty(exports2, "groupEntries", { enumerable: true, get: function() {
+      return grouping_js_1.groupEntries;
+    } });
+    Object.defineProperty(exports2, "pipelineSegments", { enumerable: true, get: function() {
+      return grouping_js_1.pipelineSegments;
     } });
   }
 });
@@ -1218,6 +4617,7 @@ var import_shared2 = __toESM(require_dist());
 // src/view.ts
 var import_obsidian = require("obsidian");
 var path2 = __toESM(require("path"));
+var import_node_child_process = require("child_process");
 var import_shared = __toESM(require_dist());
 
 // src/watcher.ts
@@ -1323,6 +4723,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
   filterSearch = "";
   hiddenSections = /* @__PURE__ */ new Set();
   severityFilter = /* @__PURE__ */ new Set();
+  groupBy = "section";
   getViewType() {
     return VIEW_TYPE_INSTRUMENTALITY;
   }
@@ -1380,9 +4781,31 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       return;
     }
     this.renderHeader(root);
-    this.renderTotals(root);
+    this.renderPipelineStrip(root);
     this.renderFilterBar(root);
     this.renderSections(root);
+  }
+  /**
+   * Workflow at-a-glance: drift → conform → promotion → lint with counts.
+   * Replaces the older five-tile totals row; the lifecycle ordering tells
+   * users where their backlog actually sits.
+   */
+  renderPipelineStrip(parent) {
+    if (!this.status)
+      return;
+    const strip = parent.createDiv({ cls: "instrumentality-pipeline-strip" });
+    const segs = (0, import_shared.pipelineSegments)(this.status);
+    segs.forEach((s, i) => {
+      const cell = strip.createDiv({
+        cls: `instrumentality-pipeline-cell ${s.count > 0 ? "active" : "dim"}`,
+        attr: { "data-pipeline-stage": s.stage }
+      });
+      cell.createDiv({ cls: "pipeline-count", text: String(s.count) });
+      cell.createDiv({ cls: "pipeline-label", text: s.label });
+      if (i < segs.length - 1) {
+        strip.createSpan({ cls: "pipeline-arrow", text: "\u2192" });
+      }
+    });
   }
   renderHeader(parent) {
     const header = parent.createDiv({ cls: "instrumentality-header" });
@@ -1394,35 +4817,6 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     const tools = header.createDiv({ cls: "instrumentality-tools" });
     const refresh = tools.createEl("button", { text: "Refresh", cls: "mod-cta" });
     refresh.addEventListener("click", () => void this.refresh());
-  }
-  renderTotals(parent) {
-    const totals = this.status.totals;
-    const grid = parent.createDiv({ cls: "instrumentality-totals" });
-    this.totalCard(grid, "Drifts", totals.drifts, totals.drifts > 0 ? "warn" : "ok");
-    this.totalCard(
-      grid,
-      "Conform Pending",
-      totals.conformPending,
-      totals.conformPending > 0 ? "warn" : "ok"
-    );
-    this.totalCard(grid, "Promotions", totals.promotions, "");
-    this.totalCard(
-      grid,
-      "Lint Errors",
-      totals.lintErrors,
-      totals.lintErrors > 0 ? "error" : "ok"
-    );
-    this.totalCard(
-      grid,
-      "Lint Warnings",
-      totals.lintWarnings,
-      totals.lintWarnings > 0 ? "warn" : "ok"
-    );
-  }
-  totalCard(parent, label, n, cls) {
-    const card = parent.createDiv({ cls: `instrumentality-total-card ${cls}` });
-    card.createDiv({ cls: "n", text: String(n) });
-    card.createDiv({ cls: "l", text: label });
   }
   renderFilterBar(parent) {
     const bar = parent.createDiv({ cls: "instrumentality-filter-bar" });
@@ -1450,28 +4844,24 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
         this.applyFilterDom();
       });
     }
-    const sectionGroup = bar.createDiv({ cls: "instrumentality-chip-group" });
-    const sections = [
-      { key: "code-drift", label: "Code" },
-      { key: "kb-drift", label: "KB" },
-      { key: "standards-drift", label: "Standards" },
-      { key: "conform-pending", label: "Conform" },
-      { key: "promotions", label: "Promotions" },
-      { key: "lint", label: "Lint" }
+    const groupBox = bar.createDiv({ cls: "instrumentality-chip-group" });
+    groupBox.createSpan({ cls: "group-by-label", text: "Group:" });
+    const modes = [
+      { key: "section", label: "Section" },
+      { key: "file", label: "File" },
+      { key: "standard", label: "Standard" },
+      { key: "lifecycle", label: "Lifecycle" }
     ];
-    for (const s of sections) {
-      const visible = !this.hiddenSections.has(s.key);
-      const chip = sectionGroup.createSpan({
-        cls: "instrumentality-chip section" + (visible ? " on" : ""),
-        text: s.label
+    for (const m of modes) {
+      const chip = groupBox.createSpan({
+        cls: "instrumentality-chip group-by-chip" + (this.groupBy === m.key ? " on" : ""),
+        text: m.label
       });
       chip.addEventListener("click", () => {
-        if (this.hiddenSections.has(s.key))
-          this.hiddenSections.delete(s.key);
-        else
-          this.hiddenSections.add(s.key);
-        chip.toggleClass("on", !this.hiddenSections.has(s.key));
-        this.applyFilterDom();
+        if (this.groupBy === m.key)
+          return;
+        this.groupBy = m.key;
+        this.render();
       });
     }
     const clear = bar.createEl("button", { text: "Clear", cls: "instrumentality-link" });
@@ -1484,15 +4874,98 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
   }
   renderSections(parent) {
     const grid = parent.createDiv({ cls: "instrumentality-section-grid" });
-    this.renderCodeDriftCard(grid);
-    this.renderKbDriftCard(grid);
-    this.renderStandardsDriftCard(grid);
-    this.renderConformCard(grid);
-    this.renderPromotionsCard(grid);
-    this.renderLintCard(grid);
+    if (this.groupBy === "section") {
+      this.renderCodeDriftCard(grid);
+      this.renderKbDriftCard(grid);
+      this.renderStandardsDriftCard(grid);
+      this.renderConformCard(grid);
+      this.renderPromotionsCard(grid);
+      this.renderLintCard(grid);
+    } else {
+      this.renderGenericGroups(grid);
+    }
     this.applyFilterDom();
   }
-  sectionShell(parent, kind, title, count, badgeText) {
+  /**
+   * Render top-level groups for non-section group-by modes via the shared
+   * `groupEntries` projection. Entries are rebuilt by handle so each
+   * surface keeps its own row formatting.
+   */
+  renderGenericGroups(parent) {
+    const handles = (0, import_shared.buildEntryHandles)(this.status);
+    const groups = (0, import_shared.groupEntries)(handles, this.groupBy);
+    for (const g of groups) {
+      const card = parent.createDiv({
+        cls: "instrumentality-section-card",
+        attr: { "data-section": g.key }
+      });
+      const header = card.createEl("header");
+      const h2 = header.createEl("h2");
+      h2.createSpan({ text: g.label });
+      h2.createSpan({ cls: "count", text: String(g.entries.length) });
+      if (g.hint) {
+        header.createDiv({ cls: "group-hint", text: g.hint });
+      }
+      const body = card.createDiv({ cls: "body" });
+      if (g.entries.length === 0) {
+        this.placeholder(body, "No entries");
+        continue;
+      }
+      for (const h of g.entries) {
+        this.renderEntryByHandle(body, h);
+      }
+    }
+  }
+  renderEntryByHandle(parent, h) {
+    const s = this.status;
+    switch (h.section) {
+      case "code-drift": {
+        const i = s.codeDrift.entries.findIndex((e, idx) => (0, import_shared.stableEntryId)(e.kbTarget, idx) === h.id);
+        if (i >= 0)
+          this.renderCodeDriftRow(parent, s.codeDrift.entries[i], i);
+        return;
+      }
+      case "kb-drift": {
+        const i = s.kbDrift.entries.findIndex((e, idx) => (0, import_shared.stableEntryId)(e.kbFile, idx) === h.id);
+        if (i >= 0)
+          this.renderKbDriftRow(parent, s.kbDrift.entries[i], i);
+        return;
+      }
+      case "standards-drift": {
+        const i = s.standardsDrift.entries.findIndex((e, idx) => (0, import_shared.stableEntryId)(e.queueKey, idx) === h.id);
+        if (i >= 0)
+          this.renderStandardsDriftRow(parent, s.standardsDrift.entries[i], i);
+        return;
+      }
+      case "conform-pending": {
+        for (const p of [s.conformPending.current, s.conformPending.aspirational]) {
+          if (!p)
+            continue;
+          const idx = p.requested.findIndex((r, j) => (0, import_shared.stableEntryId)(`${p.mode}:${r.file}:${r.standard_id}`, j) === h.id);
+          if (idx >= 0) {
+            this.renderConformRow(parent, p, p.requested[idx], idx);
+            return;
+          }
+        }
+        return;
+      }
+      case "promotions": {
+        const i = s.promotions.findIndex((e, idx) => (0, import_shared.stableEntryId)(e.queueKey, idx) === h.id);
+        if (i >= 0)
+          this.renderPromotionRow(parent, s.promotions[i], i);
+        return;
+      }
+      case "lint": {
+        const i = s.lint.violations.findIndex(
+          (v, idx) => (0, import_shared.stableEntryId)(`${v.file}:${v.message.slice(0, 40)}`, idx) === h.id
+        );
+        if (i >= 0)
+          this.renderLintRow(parent, s.lint.violations[i], i);
+        return;
+      }
+    }
+  }
+  sectionShell(parent, kind, title, count, badgeText, hint) {
     const card = parent.createDiv({ cls: "instrumentality-section-card", attr: { "data-section": kind } });
     const header = card.createEl("header");
     const h2 = header.createEl("h2");
@@ -1500,6 +4973,8 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     h2.createSpan({ cls: "count", text: String(count) });
     if (badgeText)
       h2.createSpan({ cls: "badge", text: badgeText });
+    if (hint)
+      header.createDiv({ cls: "group-hint", text: hint });
     return card.createDiv({ cls: "body" });
   }
   placeholder(parent, text) {
@@ -1511,9 +4986,10 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     const body = this.sectionShell(
       parent,
       "code-drift",
-      "Code Drifts",
+      import_shared.SECTION_GUIDE["code-drift"].label + "s",
       entries.length,
-      baseline ? baseline.slice(0, 7) : void 0
+      baseline ? baseline.slice(0, 7) : void 0,
+      import_shared.SECTION_GUIDE["code-drift"].what
     );
     if (entries.length === 0)
       return this.placeholder(body, "No code drift");
@@ -1544,12 +5020,20 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       summary,
       meta,
       detail,
-      sourceFile: path2.join("knowledge", e.kbTarget)
+      sourceFile: path2.join("knowledge", e.kbTarget),
+      diffableFiles: e.codeFiles.filter((f) => !!f.sinceCommit).map((f) => ({ relPath: f.path, sinceCommit: f.sinceCommit, latestCommit: f.latestCommit }))
     });
   }
   renderKbDriftCard(parent) {
     const entries = this.status.kbDrift.entries;
-    const body = this.sectionShell(parent, "kb-drift", "KB Drifts", entries.length);
+    const body = this.sectionShell(
+      parent,
+      "kb-drift",
+      import_shared.SECTION_GUIDE["kb-drift"].label + "s",
+      entries.length,
+      void 0,
+      import_shared.SECTION_GUIDE["kb-drift"].what
+    );
     if (entries.length === 0)
       return this.placeholder(body, "No KB drift");
     entries.forEach((e, i) => this.renderKbDriftRow(body, e, i));
@@ -1598,12 +5082,20 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       summary,
       meta,
       detail,
-      sourceFile: path2.join("knowledge", e.kbFile)
+      sourceFile: path2.join("knowledge", e.kbFile),
+      diffableFiles: e.sinceCommit ? [{ relPath: path2.join("knowledge", e.kbFile), sinceCommit: e.sinceCommit, latestCommit: e.latestCommit }] : []
     });
   }
   renderStandardsDriftCard(parent) {
     const entries = this.status.standardsDrift.entries;
-    const body = this.sectionShell(parent, "standards-drift", "Standards Drifts", entries.length);
+    const body = this.sectionShell(
+      parent,
+      "standards-drift",
+      import_shared.SECTION_GUIDE["standards-drift"].label,
+      entries.length,
+      void 0,
+      import_shared.SECTION_GUIDE["standards-drift"].what
+    );
     if (entries.length === 0)
       return this.placeholder(body, "No standards drift");
     entries.forEach((e, i) => this.renderStandardsDriftRow(body, e, i));
@@ -1613,18 +5105,32 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     const sev = e.severity ?? null;
     const fileCount = Object.values(e.filesByParty).reduce((s, fs2) => s + fs2.length, 0);
     const firstFile = Object.values(e.filesByParty).flat()[0]?.path;
-    const text = e.queueKey + " " + (e.standardId ?? "") + " " + (e.reason ?? "");
+    const ruleHint = e.resolvedRule?.title ? ` \xB7 ${e.resolvedRule.title}` : "";
+    const text = e.queueKey + " " + (e.standardId ?? "") + " " + (e.reason ?? "") + " " + (e.resolvedRule?.title ?? "");
     const summary = (h2) => {
       h2.createSpan({ cls: "title", text: e.queueKey });
       if (sev)
         h2.createSpan({ cls: `badge sev-${sev}`, text: sev });
     };
-    const meta = `${e.standardId ?? "?"}${e.standardKind ? ` (${e.standardKind})` : ""} \xB7 ${fileCount} file(s)`;
+    const meta = `${e.standardId ?? "?"}${e.standardKind ? ` (${e.standardKind})` : ""} \xB7 ${fileCount} file(s)${ruleHint}`;
     const detail = (d) => {
       const div = d.createDiv({ cls: "detail-meta" });
+      if (e.standardId) {
+        const row = div.createDiv();
+        row.createSpan({ text: "Standard: " });
+        row.createEl("code", { text: e.standardId });
+        if (e.standardKind)
+          row.appendText(` (${e.standardKind})`);
+      }
+      if (e.ruleId) {
+        const row = div.createDiv();
+        row.createSpan({ text: "Rule id: " });
+        row.createEl("code", { text: e.ruleId });
+      }
+      this.appendRuleBlock(div, e.resolvedRule);
       if (e.reason) {
         const row = div.createDiv();
-        row.createSpan({ text: "Reason: " });
+        row.createEl("strong", { text: "Drift reason: " });
         row.appendText(e.reason);
       }
       for (const [party, files] of Object.entries(e.filesByParty)) {
@@ -1639,6 +5145,14 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
         }
       }
     };
+    const diffableFiles = [];
+    for (const files of Object.values(e.filesByParty)) {
+      for (const f of files) {
+        if (!f.sinceCommit)
+          continue;
+        diffableFiles.push({ relPath: f.path, sinceCommit: f.sinceCommit, latestCommit: f.latestCommit });
+      }
+    }
     this.entryShell({
       parent,
       section: "standards-drift",
@@ -1649,8 +5163,52 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       meta,
       detail,
       sourceFile: firstFile,
-      standardId: e.standardId
+      standardId: e.standardId,
+      ruleId: e.ruleId,
+      authorEntry: e,
+      diffableFiles
     });
+  }
+  appendRuleBlock(parent, rule) {
+    if (!rule)
+      return;
+    const block = parent.createDiv({ cls: "rule-block" });
+    if (rule.title) {
+      const row = block.createDiv({ cls: "rule-row" });
+      row.createSpan({ cls: "rule-label", text: "Rule:" });
+      row.createSpan({ cls: "rule-title", text: ` ${rule.title}` });
+    }
+    if (rule.severity) {
+      const row = block.createDiv({ cls: "rule-row" });
+      row.createSpan({ cls: "rule-label", text: "Severity:" });
+      row.appendText(" ");
+      row.createSpan({ cls: `badge sev-${rule.severity}`, text: rule.severity });
+    }
+    if (rule.description) {
+      const row = block.createDiv({ cls: "rule-row" });
+      row.createSpan({ cls: "rule-label", text: "What:" });
+      row.appendText(` ${rule.description}`);
+    }
+    if (rule.why) {
+      const row = block.createDiv({ cls: "rule-row" });
+      row.createSpan({ cls: "rule-label", text: "Why:" });
+      row.appendText(` ${rule.why}`);
+    }
+    if (rule.fixHint) {
+      const row = block.createDiv({ cls: "rule-row" });
+      row.createSpan({ cls: "rule-label", text: "Fix:" });
+      row.appendText(` ${rule.fixHint}`);
+    }
+    if (rule.examples?.length) {
+      const row = block.createDiv({ cls: "rule-row rule-aside" });
+      row.createSpan({ cls: "rule-label", text: "Examples:" });
+      row.appendText(` ${rule.examples.length} attached (open the standard to view)`);
+    }
+    if (rule.exceptions?.length) {
+      const row = block.createDiv({ cls: "rule-row rule-aside" });
+      row.createSpan({ cls: "rule-label", text: "Exceptions:" });
+      row.appendText(` ${rule.exceptions.length} recorded`);
+    }
   }
   renderConformCard(parent) {
     const c = this.status.conformPending.current;
@@ -1660,9 +5218,10 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     const body = this.sectionShell(
       parent,
       "conform-pending",
-      "Conform Pending",
+      import_shared.SECTION_GUIDE["conform-pending"].label,
       total,
-      stale ? "baseline stale" : void 0
+      stale ? "baseline stale" : void 0,
+      import_shared.SECTION_GUIDE["conform-pending"].what
     );
     if (total === 0)
       return this.placeholder(body, "No conform pending");
@@ -1675,13 +5234,14 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
   renderConformRow(parent, p, r, i) {
     const id = (0, import_shared.stableEntryId)(`${p.mode}:${r.file}:${r.standard_id}`, i);
     const sev = p.staleAgainstHead ? "warn" : "info";
-    const text = r.file + " " + r.standard_id + " " + r.rule_ids.join(" ");
+    const ruleHint = r.resolvedRules && r.resolvedRules.length > 0 ? ` \xB7 ${r.resolvedRules.map((rr) => rr.title ?? rr.id).join(", ")}` : "";
+    const text = r.file + " " + r.standard_id + " " + r.rule_ids.join(" ") + " " + (r.resolvedRules?.map((rr) => rr.title ?? "").join(" ") ?? "");
     const summary = (h2) => {
       h2.createSpan({ cls: "title", text: r.file });
       if (p.staleAgainstHead)
         h2.createSpan({ cls: "badge sev-warn", text: "stale" });
     };
-    const meta = `${r.standard_id} \xB7 ${r.rule_ids.join(", ")} (${p.mode} @ ${p.head_sha_short})`;
+    const meta = `${r.standard_id} \xB7 ${r.rule_ids.join(", ")} (${p.mode} @ ${p.head_sha_short})${ruleHint}`;
     const detail = (d) => {
       const div = d.createDiv({ cls: "detail-meta" });
       div.createDiv({ text: `Mode: ${p.mode}` });
@@ -1704,6 +5264,10 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
           rules.appendText(", ");
         rules.createEl("code", { text: x });
       });
+      if (r.resolvedRules) {
+        for (const rr of r.resolvedRules)
+          this.appendRuleBlock(div, rr);
+      }
     };
     this.entryShell({
       parent,
@@ -1715,12 +5279,20 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       meta,
       detail,
       sourceFile: r.file,
-      standardId: r.standard_id
+      standardId: r.standard_id,
+      ruleId: r.rule_ids[0] ?? null
     });
   }
   renderPromotionsCard(parent) {
     const entries = this.status.promotions;
-    const body = this.sectionShell(parent, "promotions", "Pending Promotions", entries.length);
+    const body = this.sectionShell(
+      parent,
+      "promotions",
+      import_shared.SECTION_GUIDE.promotions.label,
+      entries.length,
+      void 0,
+      import_shared.SECTION_GUIDE.promotions.what
+    );
     if (entries.length === 0)
       return this.placeholder(body, "No pending promotions");
     entries.forEach((e, i) => this.renderPromotionRow(body, e, i));
@@ -1728,13 +5300,14 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
   renderPromotionRow(parent, e, i) {
     const id = (0, import_shared.stableEntryId)(e.queueKey, i);
     const sev = e.severity ?? "info";
-    const text = e.queueKey + " " + (e.standardId ?? "") + " " + e.files.map((f) => f.path).join(" ");
+    const ruleHint = e.resolvedRule?.title ? ` \xB7 ${e.resolvedRule.title}` : "";
+    const text = e.queueKey + " " + (e.standardId ?? "") + " " + e.files.map((f) => f.path).join(" ") + " " + (e.resolvedRule?.title ?? "");
     const summary = (h2) => {
       h2.createSpan({ cls: "title", text: e.queueKey });
       if (e.severity)
         h2.createSpan({ cls: `badge sev-${e.severity}`, text: e.severity });
     };
-    const meta = `${e.files.length} file(s) \xB7 ${e.standardId ?? "?"}`;
+    const meta = `${e.files.length} file(s) \xB7 ${e.standardId ?? "?"}${ruleHint}`;
     const detail = (d) => {
       const div = d.createDiv({ cls: "detail-meta" });
       const rule = div.createDiv();
@@ -1745,6 +5318,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
         fp.createSpan({ text: "Fingerprint: " });
         fp.createEl("code", { text: e.ruleFingerprint });
       }
+      this.appendRuleBlock(div, e.resolvedRule);
       const filesBlock = div.createDiv();
       filesBlock.createEl("strong", { text: "Files:" });
       const ul = filesBlock.createEl("ul");
@@ -1768,7 +5342,8 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       meta,
       detail,
       sourceFile: e.files[0]?.path,
-      standardId: e.standardId
+      standardId: e.standardId,
+      ruleId: e.ruleId
     });
   }
   renderLintCard(parent) {
@@ -1777,9 +5352,10 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     const body = this.sectionShell(
       parent,
       "lint",
-      "Lint Issues",
+      import_shared.SECTION_GUIDE.lint.label,
       v.length,
-      ran ? void 0 : "unavailable"
+      ran ? void 0 : "unavailable",
+      import_shared.SECTION_GUIDE.lint.what
     );
     if (!ran) {
       return this.placeholder(
@@ -1835,19 +5411,15 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     summary.createDiv({ cls: "entry-meta", text: opts.meta });
     const detail = row.createDiv({ cls: "entry-detail" });
     opts.detail(detail);
-    const promptPre = detail.createEl("pre", { cls: "entry-prompt" });
-    promptPre.empty();
-    const indexed = this.entryIndex.get(`${opts.section}:${opts.id}`);
-    promptPre.appendText(indexed?.prompt ?? "(no prompt available)");
     const actions = detail.createDiv({ cls: "entry-actions" });
-    const copyBtn = actions.createEl("button", { text: "Copy Prompt", cls: "mod-cta" });
-    copyBtn.addEventListener("click", async (e) => {
+    const sendBtn = actions.createEl("button", { text: (0, import_shared.copyActionLabel)(opts.section), cls: "mod-cta" });
+    sendBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const indexed2 = this.entryIndex.get(`${opts.section}:${opts.id}`);
       if (!indexed2)
         return;
       await navigator.clipboard.writeText(indexed2.prompt);
-      new import_obsidian.Notice("Instrumentality: prompt copied to clipboard.");
+      new import_obsidian.Notice(`Instrumentality: ${(0, import_shared.primaryActionLabel)(opts.section).toLowerCase()} prompt copied.`);
     });
     const openBtn = actions.createEl("button", { text: "Open Source" });
     openBtn.addEventListener("click", (e) => {
@@ -1860,8 +5432,99 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
         e.stopPropagation();
         void this.openStandard(opts.standardId);
       });
+      if (opts.ruleId) {
+        const editBtn = actions.createEl("button", { text: "Edit Rule" });
+        editBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void this.editRule(opts.standardId, opts.ruleId);
+        });
+      }
+      if (opts.authorEntry) {
+        const refineBtn = actions.createEl("button", { text: "Refine with Agent" });
+        refineBtn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const prompt = (0, import_shared.getActionPrompt)({
+            kind: "standard-author",
+            entry: opts.authorEntry,
+            mode: "refine"
+          });
+          await navigator.clipboard.writeText(prompt);
+          new import_obsidian.Notice("Instrumentality: refine prompt copied to clipboard.");
+        });
+      }
     }
+    if (opts.diffableFiles && opts.diffableFiles.length > 0) {
+      this.appendDiffDisclosure(detail, opts.diffableFiles);
+    }
+    const disclosure = detail.createEl("details", { cls: "prompt-disclosure" });
+    disclosure.createEl("summary", { text: "Show prompt" });
+    const promptPre = disclosure.createEl("pre", { cls: "entry-prompt" });
+    const indexed = this.entryIndex.get(`${opts.section}:${opts.id}`);
+    promptPre.appendText(indexed?.prompt ?? "(no prompt available)");
     summary.addEventListener("click", () => row.toggleClass("open", !row.hasClass("open")));
+  }
+  /**
+   * Lazy git-diff disclosure. We don't run git on render — only when the
+   * user expands a file's `<details>` block. Cache the resolved text on
+   * the disclosure element so re-toggling doesn't re-shell.
+   */
+  appendDiffDisclosure(parent, files) {
+    const wrap = parent.createDiv({ cls: "diff-actions" });
+    const top = wrap.createEl("details", { cls: "diff-disclosure" });
+    top.createEl("summary", {
+      text: `Show diffs (${files.length} file${files.length === 1 ? "" : "s"})`
+    });
+    const list = top.createEl("ul", { cls: "diff-list" });
+    for (const f of files) {
+      const li = list.createEl("li");
+      const fileDetail = li.createEl("details", { cls: "diff-file" });
+      const summary = fileDetail.createEl("summary");
+      summary.createEl("code", { text: f.relPath });
+      summary.appendText(
+        ` (${f.sinceCommit.slice(0, 7)}${f.latestCommit ? ` \u2192 ${f.latestCommit.slice(0, 7)}` : " \u2192 working tree"})`
+      );
+      const out = fileDetail.createEl("pre", { cls: "diff-block" });
+      let loaded = false;
+      fileDetail.addEventListener("toggle", async () => {
+        if (!fileDetail.open || loaded)
+          return;
+        loaded = true;
+        try {
+          const text = await this.gitDiffFor(f);
+          out.empty();
+          this.renderDiffText(out, text);
+        } catch (err) {
+          out.empty();
+          out.appendText(`error: ${err?.message ?? err}`);
+        }
+      });
+    }
+  }
+  async gitDiffFor(f) {
+    if (!this.kbRoot)
+      return "(kb root not detected)";
+    const range = f.latestCommit ? `${f.sinceCommit}..${f.latestCommit}` : f.sinceCommit;
+    return new Promise((resolve, reject) => {
+      (0, import_node_child_process.execFile)(
+        "git",
+        ["diff", "--no-color", range, "--", f.relPath],
+        { cwd: this.kbRoot, maxBuffer: 8 * 1024 * 1024 },
+        (err, stdout) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(stdout || "(no changes)");
+        }
+      );
+    });
+  }
+  renderDiffText(parent, text) {
+    const lines = text.split("\n");
+    for (const line of lines) {
+      const cls = line.startsWith("+++") || line.startsWith("---") ? "diff-meta" : line.startsWith("+") ? "diff-add" : line.startsWith("-") ? "diff-del" : line.startsWith("@@") ? "diff-hunk" : "diff-ctx";
+      parent.createDiv({ cls, text: line });
+    }
   }
   async openSource(sourceFile) {
     if (!sourceFile || !this.kbRoot) {
@@ -1881,12 +5544,26 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     }
     await this.openPath(filePath);
   }
+  async editRule(standardId, ruleId) {
+    if (!this.kbRoot)
+      return;
+    const filePath = (0, import_shared.resolveStandardPath)(this.kbRoot, standardId);
+    if (!filePath) {
+      new import_obsidian.Notice(`Instrumentality: standard '${standardId}' not found.`);
+      return;
+    }
+    const range = (0, import_shared.findRuleLineRange)(filePath, ruleId);
+    await this.openPath(filePath, range?.start);
+  }
   /**
    * Open via Obsidian when the file lives inside the vault (preferred — keeps
    * navigation, backlinks, and tabs working). Fall back to Electron's shell
    * for code files outside the vault.
+   *
+   * If `line` is given and the file opens inside the vault, position the
+   * editor cursor on that line (0-indexed). Used by Edit Rule.
    */
-  async openPath(absPath) {
+  async openPath(absPath, line) {
     const vault = this.app.vault;
     const adapter = vault.adapter;
     const basePath = adapter.basePath ?? adapter.getBasePath?.();
@@ -1894,7 +5571,16 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       const rel = absPath.slice(basePath.length + 1);
       const file = vault.getAbstractFileByPath(rel);
       if (file instanceof import_obsidian.TFile) {
-        await this.app.workspace.getLeaf(false).openFile(file);
+        const leaf = this.app.workspace.getLeaf(false);
+        await leaf.openFile(file);
+        if (typeof line === "number" && line >= 0) {
+          const view = leaf.view;
+          if (view.editor) {
+            const pos = { line, ch: 0 };
+            view.editor.setCursor(pos);
+            view.editor.scrollIntoView({ from: pos, to: pos }, true);
+          }
+        }
         return;
       }
     }

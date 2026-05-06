@@ -30,6 +30,34 @@ export interface KbDriftEntry {
   unmapped: boolean;
 }
 
+export interface StandardRule {
+  id: string;
+  title: string | null;
+  severity: "error" | "warn" | "info" | null;
+  description: string | null;
+  why: string | null;
+  fixHint: string | null;
+  examples: unknown[] | null;
+  exceptions: unknown[] | null;
+}
+
+export interface StandardDefinition {
+  id: string;
+  kind: string | null;
+  appScope: string | null;
+  topic: string | null;
+  tags: string[];
+  rules: StandardRule[];
+  filePath: string;
+}
+
+export interface ResolvedStandardRef {
+  id: string;
+  kind: string | null;
+  topic: string | null;
+  filePath: string;
+}
+
 export interface StandardsDriftEntry {
   kind: "standards-drift";
   queueKey: string;
@@ -39,6 +67,8 @@ export interface StandardsDriftEntry {
   severity: string | null;
   reason: string | null;
   filesByParty: Record<string, FileRef[]>;
+  resolvedRule?: StandardRule | null;
+  resolvedStandard?: ResolvedStandardRef | null;
 }
 
 export interface PromotionEntry {
@@ -49,12 +79,22 @@ export interface PromotionEntry {
   severity: string | null;
   ruleFingerprint: string | null;
   files: { path: string; promotedAt: string; note?: string }[];
+  resolvedRule?: StandardRule | null;
+  resolvedStandard?: ResolvedStandardRef | null;
+}
+
+export interface ConformRequest {
+  file: string;
+  standard_id: string;
+  rule_ids: string[];
+  resolvedStandard?: ResolvedStandardRef | null;
+  resolvedRules?: StandardRule[];
 }
 
 export interface ConformPending {
   mode: "current" | "aspirational";
   scope: string | null;
-  requested: { file: string; standard_id: string; rule_ids: string[] }[];
+  requested: ConformRequest[];
   head_sha_short: string;
   head_date: string;
 }
