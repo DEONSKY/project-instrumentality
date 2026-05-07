@@ -230,7 +230,12 @@ test('writing a malformed standard skips the aspirational sweep', withRepo(async
 
   assert.equal(res.written, true)
   assert.ok(res.lint_errors > 0, 'malformed standard should produce lint errors')
-  assert.equal(res.aspirational_sweep, undefined, 'sweep should be skipped on lint errors')
+  // write.js surfaces the skip as a structured object so the caller knows
+  // *why* no requested_evaluations came back, rather than leaving the field
+  // unset and ambiguous.
+  assert.ok(res.aspirational_sweep, 'sweep result should be present (as a skip object)')
+  assert.equal(res.aspirational_sweep.skipped, 'lint_errors', 'sweep should be marked skipped due to lint errors')
+  assert.equal(res.aspirational_sweep.requested_evaluations, undefined, 'no evaluations should be produced when skipped')
 }))
 
 // ── Non-standard write does not trigger sweep ─────────────────────────────

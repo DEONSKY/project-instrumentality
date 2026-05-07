@@ -2,7 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const simpleGit = require('simple-git')
 const { loadRules } = require('../lib/rules')
-const { matchAllPatterns, resolveKbTarget, expandGlob } = require('../lib/patterns')
+const { pickBestMatch, resolveKbTarget, expandGlob } = require('../lib/patterns')
 const { loadGraph, getDependents } = require('../lib/graph')
 
 const KB_ROOT = 'knowledge'
@@ -151,6 +151,10 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
   const codeState = readCodeDriftEntries()
   const kbState = readKbDriftEntries()
 
+  // Re-bootstrap events collected here so they can be surfaced in the API
+  // response (`re_bootstrapped[]`), not just stderr + drift-log/.
+  const rebootstrapEvents = []
+
   // Resolve per-queue baselines. Explicit `since` overrides both; otherwise
   // read from the header, falling back to resolveLastSyncRef for bootstrap.
   let bCode, bKb
@@ -171,6 +175,7 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
       bCode = await resolveLastSyncRef(mainGit, remote, meta)
       process.stderr.write(`[kb-drift] warning: code-drift baseline ${old} unreachable in parent repo (likely squash-merged or never fetched); re-bootstrapping. New baseline: ${bCode || '(none — skipping)'}\n`)
       appendToDriftLog([{ event_type: 're-bootstrap', repo: 'parent', queue: 'code-drift', old_sha: old, new_sha: bCode, resolver_used: meta.via }])
+      rebootstrapEvents.push({ repo: 'parent', queue: 'code-drift', old_sha: old, new_sha: bCode, resolver_used: meta.via })
     }
     if (bKb && !(await baselineReachable(mainGit, bKb))) {
       const old = bKb
@@ -178,6 +183,7 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
       bKb = await resolveLastSyncRef(mainGit, remote, meta)
       process.stderr.write(`[kb-drift] warning: kb-drift baseline ${old} unreachable in parent repo (likely squash-merged or never fetched); re-bootstrapping. New baseline: ${bKb || '(none — skipping)'}\n`)
       appendToDriftLog([{ event_type: 're-bootstrap', repo: 'parent', queue: 'kb-drift', old_sha: old, new_sha: bKb, resolver_used: meta.via }])
+      rebootstrapEvents.push({ repo: 'parent', queue: 'kb-drift', old_sha: old, new_sha: bKb, resolver_used: meta.via })
     }
 
     if (!bCode) bCode = await resolveLastSyncRef(mainGit, remote)
@@ -228,18 +234,14 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
     for (const sub of submodules) {
       try {
         const subGit = simpleGit(sub.fullPath)
-        let subCommit = 'unknown'
-        let subDate = headDate
-        try {
-          const subLog = await subGit.log({ maxCount: 1 })
-          if (subLog.latest) {
-            subCommit = subLog.latest.hash.slice(0, 7)
-            subDate = subLog.latest.date.split('T')[0]
-          }
-        } catch { /* non-fatal */ }
-        // Parent's B_code is the anchor for submodule drift. Read the submodule
-        // pointer at B_code; fall back to per-submodule bootstrap if unavailable
-        // or unreachable in the local submodule clone.
+        // Anchor both ends of the submodule diff at the parent's recorded
+        // gitlinks: subRef = pointer at parent's last-sync baseline (bCode),
+        // subHeadRef = pointer at parent's current HEAD. Drift only surfaces
+        // for commits that the parent gitlink has actually moved to — local
+        // submodule commits without a parent pointer bump are invisible.
+        // This keeps the parent gitlink as the single source of truth and
+        // prevents the same submodule commit from being detected twice
+        // (once mid-work, once after the parent bump).
         let subRef = null
         if (bCode) subRef = await getSubmodulePointerAt(mainGit, bCode, sub.path)
         if (subRef && !(await baselineReachable(subGit, subRef))) {
@@ -248,6 +250,7 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
           try { subRef = await resolveLastSyncRef(subGit, remote, meta) } catch { subRef = null }
           process.stderr.write(`[kb-drift] warning: submodule ${sub.path} baseline ${old} unreachable (likely squash-merged or never fetched); re-bootstrapping. New baseline: ${subRef || '(none — skipping)'}\n`)
           appendToDriftLog([{ event_type: 're-bootstrap', repo: `submodule:${sub.path}`, queue: 'code-drift', old_sha: old, new_sha: subRef, resolver_used: meta.via }])
+          rebootstrapEvents.push({ repo: `submodule:${sub.path}`, queue: 'code-drift', old_sha: old, new_sha: subRef, resolver_used: meta.via })
         }
         if (subRef === null) {
           try { subRef = await resolveLastSyncRef(subGit, remote) } catch { subRef = null }
@@ -256,8 +259,39 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
           process.stderr.write(`[kb-drift] warning: no sync baseline for submodule ${sub.path} — skipping\n`)
           continue
         }
-        const subFiles = await getChangedFiles(subGit, subRef)
-        const subIndex = await buildCommitIndex(subGit, subRef)
+
+        // Resolve the parent's current gitlink for this submodule. If it's
+        // unreachable in the local clone (parent points at an unfetched
+        // commit), fall back to the submodule's working HEAD so we don't
+        // silently skip a real drift.
+        let subHeadRef = null
+        if (headSha) subHeadRef = await getSubmodulePointerAt(mainGit, headSha, sub.path)
+        if (subHeadRef && !(await baselineReachable(subGit, subHeadRef))) {
+          process.stderr.write(`[kb-drift] warning: submodule ${sub.path} parent gitlink ${subHeadRef.slice(0, 7)} unreachable in local clone — falling back to working HEAD\n`)
+          subHeadRef = null
+        }
+        if (!subHeadRef) {
+          // Either no parent HEAD or unreachable pointer; use working HEAD.
+          try {
+            const log = await subGit.log({ maxCount: 1 })
+            if (log.latest) subHeadRef = log.latest.hash
+          } catch { /* leave null — diff will be skipped */ }
+        }
+        if (!subHeadRef) continue
+        // Pointer hasn't moved → parent doesn't see any submodule drift.
+        if (subHeadRef === subRef) continue
+
+        let subCommit = 'unknown'
+        let subDate = headDate
+        try {
+          const info = (await subGit.raw(['show', '-s', '--format=%H%n%cI', subHeadRef])).trim()
+          const [hash, date] = info.split('\n')
+          if (hash) subCommit = hash.slice(0, 7)
+          if (date) subDate = date.split('T')[0]
+        } catch { /* non-fatal */ }
+
+        const subFiles = await getChangedFiles(subGit, subRef, subHeadRef)
+        const subIndex = await buildCommitIndex(subGit, subRef, subHeadRef)
         codeChanges.push(...subFiles.map(f => ({
           file: `${sub.path}/${f.path}`,
           oldFile: f.oldPath ? `${sub.path}/${f.oldPath}` : null,
@@ -293,9 +327,9 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
       continue
     }
 
-    const matches = matchAllPatterns(file, patterns)
-    if (matches.length > 0) {
-      const kbTarget = resolveKbTarget(matches[0], file)
+    const best = pickBestMatch(file, patterns)
+    if (best) {
+      const kbTarget = resolveKbTarget(best, file)
       const outcome = upsertCodeDriftEntry(codeState, kbTarget, file, sinceCommit, sinceDate, latestCommit, latestDate, isShared)
       if (outcome === 'new') codeEntriesNew++
       else if (outcome === 're_detected') codeEntriesReDetected++
@@ -394,6 +428,7 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
     submodules_owned: ownedSubs,
     submodules_shared: sharedSubs,
     ...(stalePatterns.length > 0 && { stale_patterns: stalePatterns }),
+    ...(rebootstrapEvents.length > 0 && { re_bootstrapped: rebootstrapEvents }),
     message: noDrift
       ? `No drift detected.${subInfo}`
       : `${totalCodeOpen} code→KB entry(s) in sync/code-drift.md, ${totalKbOpen} KB→code entry(s) in sync/kb-drift.md${pendingNote}.${subInfo}`
@@ -1088,10 +1123,10 @@ function upsertKbDriftEntry(state, kbFile, codeAreas, sinceCommit, sinceDate, la
  * Returns { outcome: 'new'|'re_detected'|null, stalePattern }.
  */
 function handleCodeRename(state, newPath, oldPath, sinceCommit, sinceDate, latestCommit, latestDate, isShared, patterns) {
-  const oldMatches = matchAllPatterns(oldPath, patterns)
-  const newMatches = matchAllPatterns(newPath, patterns)
-  const oldTarget = oldMatches.length > 0 ? resolveKbTarget(oldMatches[0], oldPath) : null
-  const newTarget = newMatches.length > 0 ? resolveKbTarget(newMatches[0], newPath) : null
+  const oldBest = pickBestMatch(oldPath, patterns)
+  const newBest = pickBestMatch(newPath, patterns)
+  const oldTarget = oldBest ? resolveKbTarget(oldBest, oldPath) : null
+  const newTarget = newBest ? resolveKbTarget(newBest, newPath) : null
 
   let outcome = null
   let stalePattern = null
@@ -1108,7 +1143,7 @@ function handleCodeRename(state, newPath, oldPath, sinceCommit, sinceDate, lates
 
   if (!newTarget && oldTarget) {
     stalePattern = {
-      intent: oldMatches[0].intent,
+      intent: oldBest.intent,
       kb_target: oldTarget,
       moved: { from: oldPath, to: newPath }
     }
@@ -1394,13 +1429,13 @@ async function baselineReachable(git, sha) {
   } catch { return false }
 }
 
-async function getChangedFiles(git, ref) {
+async function getChangedFiles(git, ref, toRef = 'HEAD') {
   try {
-    const result = await git.diff(['--name-status', '-M', ref, 'HEAD'])
+    const result = await git.diff(['--name-status', '-M', ref, toRef])
     return parseNameStatus(result)
   } catch {
     try {
-      const result = await git.diff(['--name-status', '-M', '4b825dc642cb6eb9a060e54bf899d15f7dcb6820', 'HEAD'])
+      const result = await git.diff(['--name-status', '-M', '4b825dc642cb6eb9a060e54bf899d15f7dcb6820', toRef])
       return parseNameStatus(result)
     } catch {
       return []
@@ -1413,13 +1448,13 @@ async function getChangedFiles(git, ref) {
 // --name-status reports on that line); pre-rename history under the old path
 // is retained under the old path key — resolveCommitRange merges both.
 // Returns an empty Map when the range has no commits or git fails.
-async function buildCommitIndex(git, baseline) {
+async function buildCommitIndex(git, baseline, toRef = 'HEAD') {
   if (!baseline) return new Map()
   const index = new Map()
   let output
   try {
     output = await git.raw(['log', '--name-status', '-M', '--reverse',
-      '--pretty=format:__C %H %cI', `${baseline}..HEAD`])
+      '--pretty=format:__C %H %cI', `${baseline}..${toRef}`])
   } catch { return index }
   if (!output) return index
 

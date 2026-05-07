@@ -116,6 +116,22 @@ function lintFile(filePath, rules, graph) {
     if (data.kind === 'contract' && !relativePath.startsWith('standards/contracts/')) {
       violations.push({ file: filePath, line: 1, severity: 'warn', message: `[standard] kind: contract should live under standards/contracts/` })
     }
+    // Cost/coverage check: kind:llm rules without a detect.pre_filter regex
+    // dispatch the LLM for every changed file matching applies_to.paths. A
+    // regex hint (e.g. a field-name literal for contract drift) lets MCP's
+    // cheap pre-filter skip irrelevant files in current mode.
+    if (Array.isArray(data.rules)) {
+      for (const rule of data.rules) {
+        if (rule && rule.detect && rule.detect.kind === 'llm' && !rule.detect.pre_filter) {
+          violations.push({
+            file: filePath,
+            line: 1,
+            severity: 'warn',
+            message: `[standard] rule "${rule.id}" uses detect.kind: llm without a detect.pre_filter regex — every changed file matching applies_to.paths will be sent to the LLM. Add a regex hint matching a likely-violation literal to gate dispatch.`
+          })
+        }
+      }
+    }
   }
 
   // No status fields allowed

@@ -59,6 +59,49 @@ test('validateRule allows missing applies_to for contracts (intersect filter is 
   assert.equal(r.valid, true, JSON.stringify(r.errors))
 })
 
+test('validateRule accepts detect.pre_filter for kind: llm', () => {
+  const r = validateRule({
+    id: 'rule-a', title: 't', severity: 'warn', description: 'd',
+    applies_to: { paths: ['src/**'] },
+    detect: { kind: 'llm', pre_filter: '\\buserName\\b' }
+  }, { kind: 'stack-local' })
+  assert.equal(r.valid, true, JSON.stringify(r.errors))
+})
+
+test('validateRule rejects invalid pre_filter regex', () => {
+  const r = validateRule({
+    id: 'rule-a', title: 't', severity: 'warn', description: 'd',
+    applies_to: { paths: ['src/**'] },
+    detect: { kind: 'llm', pre_filter: '[unclosed' }
+  }, { kind: 'stack-local' })
+  assert.ok(r.errors.some(e => e.includes('pre_filter is not a valid regex')))
+})
+
+test('validateRule rejects pre_filter on non-llm detect.kind', () => {
+  const r = validateRule({
+    id: 'rule-a', title: 't', severity: 'warn', description: 'd',
+    applies_to: { paths: ['src/**'] },
+    detect: { kind: 'regex', pattern: 'foo', pre_filter: 'bar' }
+  }, { kind: 'stack-local' })
+  assert.ok(r.errors.some(e => e.includes('pre_filter only valid when detect.kind is "llm"')))
+})
+
+test('validateRule rejects empty/non-string pre_filter', () => {
+  const r1 = validateRule({
+    id: 'rule-a', title: 't', severity: 'warn', description: 'd',
+    applies_to: { paths: ['src/**'] },
+    detect: { kind: 'llm', pre_filter: '' }
+  }, { kind: 'stack-local' })
+  assert.ok(r1.errors.some(e => e.includes('pre_filter must be a non-empty regex string')))
+
+  const r2 = validateRule({
+    id: 'rule-a', title: 't', severity: 'warn', description: 'd',
+    applies_to: { paths: ['src/**'] },
+    detect: { kind: 'llm', pre_filter: 42 }
+  }, { kind: 'stack-local' })
+  assert.ok(r2.errors.some(e => e.includes('pre_filter must be a non-empty regex string')))
+})
+
 test('validateRule validates exceptions[].paths and reason', () => {
   const r = validateRule({
     id: 'rule-a', title: 't', severity: 'warn', description: 'd',

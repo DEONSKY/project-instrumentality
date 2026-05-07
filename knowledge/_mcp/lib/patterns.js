@@ -41,6 +41,52 @@ function matchAllPatterns(codeFile, patterns) {
   return matches
 }
 
+/**
+ * Score how specific a glob path is. Literal characters count as 1, wildcards
+ * (`*`, `?`) count as 0. So `**\/userdefinition\/**` (16 literals incl. slashes)
+ * beats `*RequestDto.java` (15 literals): a path-anchored feature pattern
+ * outranks a basename-only file-type pattern when both match the same file.
+ *
+ * Limitation: a deeply-prefixed file-type pattern like
+ * `src/main/java/**\/*Repository.java` (26 literals) will still outrank a
+ * shorter feature pattern. That's a tradeoff for keeping the heuristic static
+ * and free of filesystem I/O — declaration order in `_rules.md` is the
+ * tiebreaker for cases the score can't disambiguate.
+ */
+function globSpecificity(globPath) {
+  let n = 0
+  for (const ch of globPath) {
+    if (ch !== '*' && ch !== '?') n++
+  }
+  return n
+}
+
+/**
+ * Pick the single best-matching pattern for a file. Among matching patterns,
+ * the one with the most-specific matching path wins (see `globSpecificity`).
+ * Declaration order in `_rules.md` breaks ties — preserves backwards-compat
+ * behavior for non-overlapping patterns.
+ *
+ * Returns `null` when no pattern matches.
+ */
+function pickBestMatch(codeFile, patterns) {
+  let best = null
+  let bestScore = -1
+  for (const pattern of patterns) {
+    let patternBest = -1
+    for (const p of (pattern.paths || [])) {
+      if (!globMatch(codeFile, p)) continue
+      const score = globSpecificity(p)
+      if (score > patternBest) patternBest = score
+    }
+    if (patternBest > bestScore) {
+      bestScore = patternBest
+      best = pattern
+    }
+  }
+  return best
+}
+
 /** Resolve a KB target path, replacing {name} with extracted name from code file */
 function resolveKbTarget(pattern, codeFile) {
   let target = pattern.kb_target
@@ -151,4 +197,4 @@ function expandGlob(pattern, opts = {}) {
   return { files, matchedCount: files.length, truncated }
 }
 
-module.exports = { globMatch, matchAllPatterns, resolveKbTarget, extractName, expandGlob }
+module.exports = { globMatch, matchAllPatterns, pickBestMatch, globSpecificity, resolveKbTarget, extractName, expandGlob }

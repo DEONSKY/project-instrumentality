@@ -122,6 +122,27 @@ function runAstGrep(rule, filePath) {
 }
 
 /**
+ * detect.pre_filter — optional regex gate for `kind: llm` rules. When present,
+ * MCP runs the regex against file content; if it doesn't match, the rule short-
+ * circuits to `na` without an LLM round-trip. Use case: BE↔FE contract rules
+ * that only matter when a specific field literal appears in the file. Without
+ * a pre_filter, every changed file matching applies_to.paths goes to the LLM.
+ *
+ * Returns { kind: 'pre_filter', verdict: 'match'|'no-match'|'error', error? }.
+ */
+function runLlmPreFilter(rule, fileContent) {
+  const pattern = rule.detect && rule.detect.pre_filter
+  if (!pattern) return { kind: 'pre_filter', verdict: 'absent' }
+  let re
+  try { re = new RegExp(pattern, 'm') } catch (e) {
+    return { kind: 'pre_filter', verdict: 'error', error: `invalid pre_filter regex: ${e.message}` }
+  }
+  return re.test(fileContent || '')
+    ? { kind: 'pre_filter', verdict: 'match' }
+    : { kind: 'pre_filter', verdict: 'no-match' }
+}
+
+/**
  * Run the full pre-filter cascade for a single rule against a file. Encodes the
  * documented order so callers don't have to: path → exceptions → min_lines →
  * regex/ast-grep. Returns one of:
@@ -167,8 +188,14 @@ function preFilter(rule, filePath, fileContent) {
     return { decision: 'llm', verdict: v }
   }
 
-  // detect.kind: llm (or unset) → caller must invoke LLM via conform-check
-  return { decision: 'llm' }
+  // detect.kind: llm (or unset) → optional pre_filter gates LLM dispatch.
+  // Absent pre_filter falls through to LLM (backwards-compat); errors fall
+  // through too so a bad regex doesn't silently drop the rule.
+  const pf = runLlmPreFilter(rule, fileContent || '')
+  if (pf.verdict === 'no-match') {
+    return { decision: 'na', reason: 'detect.pre_filter regex did not match', verdict: pf }
+  }
+  return { decision: 'llm', ...(pf.verdict !== 'absent' && { verdict: pf }) }
 }
 
 module.exports = {
@@ -177,6 +204,7 @@ module.exports = {
   applyMinLines,
   runRegex,
   runAstGrep,
+  runLlmPreFilter,
   isAstGrepAvailable,
   preFilter
 }

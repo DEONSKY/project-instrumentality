@@ -920,20 +920,47 @@ export class InstrumentalityView extends ItemView {
     latestCommit?: string;
   }): Promise<string> {
     if (!this.kbRoot) return "(kb root not detected)";
+    // `sinceCommit` is the FIRST post-baseline commit that touched the file,
+    // so the change introduced BY it is part of the drift. Diff from its
+    // parent (`<since>^`) — not from `<since>` — to capture that change.
     const range = f.latestCommit
-      ? `${f.sinceCommit}..${f.latestCommit}`
-      : f.sinceCommit; // diff against working tree when no latest
+      ? `${f.sinceCommit}^..${f.latestCommit}`
+      : `${f.sinceCommit}^`; // diff against working tree when no latest
+    // The KB may be a superproject with submodules. Resolve the actual repo
+    // containing this file so the SHA range is valid for `git diff`.
+    const absPath = path.isAbsolute(f.relPath)
+      ? f.relPath
+      : path.join(this.kbRoot, f.relPath);
+    const repoRoot = await this.resolveRepoRoot(absPath);
+    const relInRepo = path.relative(repoRoot, absPath);
     return new Promise((resolve, reject) => {
       execFile(
         "git",
-        ["diff", "--no-color", range, "--", f.relPath],
-        { cwd: this.kbRoot!, maxBuffer: 8 * 1024 * 1024 },
+        ["diff", "--no-color", range, "--", relInRepo],
+        { cwd: repoRoot, maxBuffer: 8 * 1024 * 1024 },
         (err, stdout) => {
           if (err) {
             reject(err);
             return;
           }
           resolve(stdout || "(no changes)");
+        }
+      );
+    });
+  }
+
+  private resolveRepoRoot(absPath: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      execFile(
+        "git",
+        ["rev-parse", "--show-toplevel"],
+        { cwd: path.dirname(absPath) },
+        (err, stdout) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(stdout.trim());
         }
       );
     });

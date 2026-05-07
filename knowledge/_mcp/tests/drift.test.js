@@ -1326,3 +1326,152 @@ test('patterns.js: name_regex that does not match leaves basename untouched', ()
   )
   assert.equal(out, 'user')
 })
+
+// ── pickBestMatch: specificity-based pattern precedence ──────────────────────
+
+test('pickBestMatch: path-anchored feature pattern beats basename-only file-type pattern', () => {
+  const { pickBestMatch } = require('../lib/patterns')
+  const patterns = [
+    { intent: 'validation', kb_target: 'validation/common.md', paths: ['*RequestDto.java'] },
+    { intent: 'feature', kb_target: 'features/user-definition.md', paths: ['**/userdefinition/**'] }
+  ]
+  const file = 'src/main/java/com/example/userdefinition/UserDefinitionRequestDto.java'
+  const winner = pickBestMatch(file, patterns)
+  assert.equal(winner.intent, 'feature', 'feature pattern (more literal chars) should win')
+})
+
+test('pickBestMatch: declaration order tiebreaks when scores are equal', () => {
+  const { pickBestMatch } = require('../lib/patterns')
+  const patterns = [
+    { intent: 'first', kb_target: 'a.md', paths: ['src/**/*.java'] },
+    { intent: 'second', kb_target: 'b.md', paths: ['src/**/*.java'] }
+  ]
+  const winner = pickBestMatch('src/foo/Bar.java', patterns)
+  assert.equal(winner.intent, 'first', 'first declared wins on a tie')
+})
+
+test('pickBestMatch: returns null when nothing matches', () => {
+  const { pickBestMatch } = require('../lib/patterns')
+  const patterns = [{ intent: 'x', kb_target: 'x.md', paths: ['src/foo/**'] }]
+  assert.equal(pickBestMatch('docs/README.md', patterns), null)
+})
+
+test('pickBestMatch: picks the most specific path within a multi-path pattern', () => {
+  const { pickBestMatch } = require('../lib/patterns')
+  // Two patterns both match; the deeper-prefixed one wins via globSpecificity.
+  const patterns = [
+    { intent: 'generic', kb_target: 'generic.md', paths: ['**/*.java'] },
+    { intent: 'scoped', kb_target: 'scoped.md', paths: ['src/main/java/com/payments/**'] }
+  ]
+  const winner = pickBestMatch('src/main/java/com/payments/PaymentService.java', patterns)
+  assert.equal(winner.intent, 'scoped')
+})
+
+test('pickBestMatch: drift uses specificity — feature pattern wins over validation', withRepo(async (dir) => {
+  const rules = `---
+version: "1.0"
+code_path_patterns:
+  - intent: validation
+    kb_target: "validation/common.md"
+    paths:
+      - "*RequestDto.java"
+  - intent: feature
+    kb_target: "features/user-definition.md"
+    paths:
+      - "**/userdefinition/**"
+---
+`
+  writeFile(dir, 'knowledge/_rules.md', rules)
+  writeFile(dir, 'README.md', 'seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+
+  await DRIFT.runTool({})
+
+  writeFile(dir, 'src/main/java/com/example/userdefinition/UserDefinitionRequestDto.java', 'class X {}\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m "add dto"')
+
+  const result = await DRIFT.runTool({})
+  assert.ok(!result.error, `unexpected error: ${result.error}`)
+  const code = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
+  assert.match(code, /## features\/user-definition\.md/, 'entry should be routed to feature kb_target')
+  assert.doesNotMatch(code, /## validation\/common\.md/, 'entry should NOT be routed to validation/common.md')
+}))
+
+// ── 1B: submodule diff is anchored at parent gitlink, not working HEAD ───────
+
+test('submodule: drift only fires on parent-pointer bump, not on submodule-local commits', withRepo(async (parent) => {
+  const subSource = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-drift-sub-'))
+  sh(subSource, 'git init -q -b main')
+  sh(subSource, 'git config user.email "test@test"')
+  sh(subSource, 'git config user.name "test"')
+  sh(subSource, 'git config commit.gpgsign false')
+  writeFile(subSource, 'src/validators/email.js', '// initial\n')
+  sh(subSource, 'git add .')
+  sh(subSource, 'git commit -q -m seed-sub')
+
+  try {
+    writeFile(parent, 'knowledge/_rules.md', RULES)
+    sh(parent, 'git add .')
+    sh(parent, 'git commit -q -m seed-parent')
+    sh(parent, `git -c protocol.file.allow=always submodule add -q "${subSource}" sub`)
+    sh(parent, 'git commit -q -m "add submodule"')
+
+    await DRIFT.runTool({})
+
+    // Commit inside the submodule but DO NOT bump the parent pointer.
+    writeFile(path.join(parent, 'sub'), 'src/validators/email.js', '// updated\n')
+    sh(path.join(parent, 'sub'), 'git add .')
+    sh(path.join(parent, 'sub'), 'git commit -q -m "edit email validator"')
+
+    const first = await DRIFT.runTool({})
+    assert.ok(!first.error, `unexpected error: ${first.error}`)
+    assert.equal(first.code_entries_new, 0,
+      'drift must not surface submodule-local commits before parent gitlink is bumped')
+    const codeAfterFirst = fs.readFileSync(path.join(parent, 'knowledge/sync/code-drift.md'), 'utf8')
+    assert.doesNotMatch(codeAfterFirst, /sub\/src\/validators\/email\.js/,
+      'queue must not contain submodule file before parent bump')
+
+    // Now bump the parent pointer — the same commit should surface.
+    sh(parent, 'git add sub')
+    sh(parent, 'git commit -q -m "bump submodule pointer"')
+
+    const second = await DRIFT.runTool({})
+    assert.ok(!second.error, `unexpected error: ${second.error}`)
+    assert.equal(second.code_entries_new, 1,
+      'drift surfaces once parent gitlink moves')
+    const codeAfterSecond = fs.readFileSync(path.join(parent, 'knowledge/sync/code-drift.md'), 'utf8')
+    assert.match(codeAfterSecond, /sub\/src\/validators\/email\.js/,
+      'queue contains submodule file after parent bump')
+  } finally {
+    rmTempRepo(subSource)
+  }
+}))
+
+// ── 1F: re-bootstrap surfaces in API response, not just stderr/drift-log ─────
+
+test('re-bootstrap: stale parent baseline produces re_bootstrapped[] in result', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', RULES)
+  writeFile(dir, 'README.md', 'seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+
+  // Bootstrap baselines.
+  await DRIFT.runTool({})
+
+  // Hand-edit code-drift.md baseline to a SHA that does not exist.
+  const codePath = path.join(dir, 'knowledge/sync/code-drift.md')
+  const ghost = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
+  fs.writeFileSync(codePath,
+    fs.readFileSync(codePath, 'utf8').replace(/<!-- baseline: [a-f0-9]{40} -->/, `<!-- baseline: ${ghost} -->`))
+
+  const result = await DRIFT.runTool({})
+  assert.ok(!result.error, `unexpected error: ${result.error}`)
+  assert.ok(Array.isArray(result.re_bootstrapped),
+    're_bootstrapped[] field present in result')
+  assert.equal(result.re_bootstrapped.length, 1, 'one re-bootstrap event')
+  assert.equal(result.re_bootstrapped[0].repo, 'parent')
+  assert.equal(result.re_bootstrapped[0].queue, 'code-drift')
+  assert.equal(result.re_bootstrapped[0].old_sha, ghost)
+}))

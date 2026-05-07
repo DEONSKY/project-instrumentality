@@ -198,61 +198,51 @@ test('uncovered_files: respects scope glob', withProject(async (dir) => {
 
 // ── Pending promotions ─────────────────────────────────────────────────────
 
-test('pending_promotions: parses CONFORMED · promoted entries from drift-log', withProject(async (dir) => {
+test('pending_promotions: surfaces entries from the ledger, one row per (queue_key, file)', withProject(async (dir) => {
   bootstrapKb(dir, { standards: [], codeFiles: {} })
-  const month = new Date().toISOString().slice(0, 7)
-  writeFile(dir, `knowledge/sync/drift-log/${month}.md`, `<!-- AUTO-GENERATED audit trail -->
+  // Source of truth for promotions is sync/standards-promotions.md (the ledger).
+  // Write the file directly in the on-disk format so we exercise the parser
+  // rather than the addPromotions() write path.
+  writeFile(dir, 'knowledge/sync/standards-promotions.md', `<!-- AUTO-GENERATED -->
 
-# Drift Log
+# Standards Promotions Ledger
 
-## 2026-04-26 · CONFORMED · promoted
+## s1.r1
 
-- **Queue key:** \`s1.r1\`
-- **Originating files:** \`src/x.js\`, \`src/y.js\`
-- **Note:** rule should narrow scope
+- **Standard:** \`s1\`
+- **Rule:** \`r1\` — warn
+- **Rule fingerprint:** \`sha256:abc\`
+- **Files:**
+  - \`src/x.js\` — promoted \`2026-04-26\`, note: "rule should narrow scope"
+  - \`src/y.js\` — promoted \`2026-04-26\`, note: "rule should narrow scope"
 
-## 2026-04-26 · CONFORMED · applied
+## s3.r3
 
-- **Queue key:** \`s2.r2\`
-- **Reason:** fixed
-
-## 2026-04-25 · CONFORMED · promoted
-
-- **Queue key:** \`s3.r3\`
-- **Originating files:** \`lib/z.js\`
+- **Standard:** \`s3\`
+- **Rule:** \`r3\` — warn
+- **Rule fingerprint:** \`sha256:def\`
+- **Files:**
+  - \`lib/z.js\` — promoted \`2026-04-25\`
 `)
 
   const res = await INVENTORY.runTool({})
-  assert.equal(res.pending_promotions.length, 2, JSON.stringify(res.pending_promotions))
-  // Most recent first
+  assert.equal(res.pending_promotions.length, 3, JSON.stringify(res.pending_promotions))
+  // Most recent first; multi-file s1.r1 produces one row per file
   assert.equal(res.pending_promotions[0].queue_key, 's1.r1')
   assert.equal(res.pending_promotions[0].standard_id, 's1')
   assert.equal(res.pending_promotions[0].rule_id, 'r1')
-  assert.deepEqual(res.pending_promotions[0].originating_files, ['src/x.js', 'src/y.js'])
+  assert.deepEqual(res.pending_promotions[0].originating_files, ['src/x.js'])
   assert.equal(res.pending_promotions[0].note, 'rule should narrow scope')
-  assert.equal(res.pending_promotions[1].queue_key, 's3.r3')
+  assert.equal(res.pending_promotions[1].queue_key, 's1.r1')
+  assert.deepEqual(res.pending_promotions[1].originating_files, ['src/y.js'])
+  assert.equal(res.pending_promotions[2].queue_key, 's3.r3')
+  assert.deepEqual(res.pending_promotions[2].originating_files, ['lib/z.js'])
 }))
 
-test('pending_promotions: empty list when no drift-log exists', withProject(async (dir) => {
+test('pending_promotions: empty list when no ledger exists', withProject(async (dir) => {
   bootstrapKb(dir, { standards: [], codeFiles: {} })
   const res = await INVENTORY.runTool({})
   assert.deepEqual(res.pending_promotions, [])
-}))
-
-test('pending_promotions: lookback_months bounds the scan window', withProject(async (dir) => {
-  bootstrapKb(dir, { standards: [], codeFiles: {} })
-  // Write a promotion in a month that's outside any reasonable lookback
-  writeFile(dir, 'knowledge/sync/drift-log/2020-01.md', `<!-- AUTO-GENERATED audit trail -->
-
-# Drift Log
-
-## 2020-01-15 · CONFORMED · promoted
-
-- **Queue key:** \`old.rule\`
-- **Originating files:** \`x\`
-`)
-  const res = await INVENTORY.runTool({ lookback_months: 3 })
-  assert.equal(res.pending_promotions.length, 0)
 }))
 
 // ── Read-only ───────────────────────────────────────────────────────────────

@@ -185,6 +185,18 @@ function validateRule(rule, ctx = {}) {
   if (rule.detect) {
     if (!rule.detect.kind) errors.push('rule.detect.kind missing')
     else if (!VALID_DETECT_KINDS.has(rule.detect.kind)) errors.push(`rule.detect.kind "${rule.detect.kind}" not in llm|regex|ast-grep`)
+    if (rule.detect.pre_filter !== undefined) {
+      if (typeof rule.detect.pre_filter !== 'string' || !rule.detect.pre_filter) {
+        errors.push('rule.detect.pre_filter must be a non-empty regex string')
+      } else {
+        try { new RegExp(rule.detect.pre_filter) } catch (e) {
+          errors.push(`rule.detect.pre_filter is not a valid regex: ${e.message}`)
+        }
+      }
+      if (rule.detect.kind && rule.detect.kind !== 'llm') {
+        errors.push(`rule.detect.pre_filter only valid when detect.kind is "llm" (got "${rule.detect.kind}")`)
+      }
+    }
   }
 
   // For stack-local kind, applies_to.paths is required (and must be string globs)

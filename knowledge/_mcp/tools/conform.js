@@ -277,6 +277,11 @@ async function getChangedFiles(git, ref) {
 
 // Walk files and replace submodule pointer entries with the actual files changed
 // inside the submodule between the parent's old and new pointer SHAs.
+//
+// Boundary: this only fires when the parent's pointer SHA actually moves.
+// Submodule-internal commits that haven't been bumped into the parent are
+// invisible to current-mode drift — the parent's diff is the source of truth.
+// Run kb_conform inside the submodule, or bump the pointer first.
 async function expandSubmoduleEntries(git, files, ref) {
   const out = []
   for (const f of files) {
@@ -363,6 +368,47 @@ async function detect(opts) {
   const rules = loadRules(KB_ROOT)
   const graph = loadGraph(KB_ROOT)
   const standardsIndex = loadStandardsIndex(graph)
+
+  // Footgun guard: if any standard has a non-`all` app_scope but
+  // _rules.md has no app_root_patterns, every file's inferred scope is
+  // null and `appScopeMatches` rejects every scoped standard silently —
+  // the user sees 0 evaluations with no explanation. Surface it.
+  const configWarnings = []
+  const rawRules = typeof rules.getRaw === 'function' ? rules.getRaw() : rules
+  const hasAppRootPatterns = rawRules && rawRules.app_root_patterns && Object.keys(rawRules.app_root_patterns).length > 0
+  if (!hasAppRootPatterns) {
+    const scopedStandards = standardsIndex.filter(s => {
+      const sc = s.app_scope
+      if (!sc) return false
+      if (sc === 'all') return false
+      if (Array.isArray(sc)) return !sc.includes('all') && sc.length > 0
+      return true
+    })
+    if (scopedStandards.length > 0) {
+      const sample = scopedStandards.slice(0, 3).map(s => `${s.id} (app_scope: ${Array.isArray(s.app_scope) ? s.app_scope.join(',') : s.app_scope})`).join('; ')
+      configWarnings.push(
+        `${scopedStandards.length} standard(s) declare a non-\`all\` app_scope but knowledge/_rules.md has no \`app_root_patterns\` block — `
+        + `every file's inferred scope is null, so these standards never match. `
+        + `Example: ${sample}. `
+        + `Fix: add an \`app_root_patterns\` map to _rules.md mapping path globs to app names (e.g. \`ms-linestop-admin-be/**: admin-be\`).`
+      )
+    }
+  }
+
+  // Stale-index check: the standards index drives rule fingerprints used by
+  // promotion auto-close. If a reviewer edits a standard manually (outside
+  // kb_write) the on-disk file changes but `_index.yaml` doesn't — the
+  // fingerprint stays the same and auto-close silently no-ops. Compare mtimes
+  // and surface a warning rather than auto-reindexing, so the workflow stays
+  // explicit.
+  const staleStandards = findStaleStandards()
+  if (staleStandards.length > 0) {
+    const sample = staleStandards.slice(0, 3).join(', ')
+    configWarnings.push(
+      `${staleStandards.length} standard file(s) modified after last kb_reindex (${sample}${staleStandards.length > 3 ? ', …' : ''}). `
+      + `Promotion auto-close compares rule fingerprints from _index.yaml — if you just edited a standard, run kb_reindex before kb_conform so fingerprint mismatches are detected.`
+    )
+  }
 
   const queueState = readQueue(queuePath, queueHeader)
   const ledgerState = readLedger()
@@ -529,7 +575,12 @@ async function detect(opts) {
     for (const std of standardsIndex) {
       if (!appScopeMatches(std.app_scope, appScope)) continue
 
-      // Sprawl warning: surface once per oversize standard
+      // Sprawl warning: surface once per oversize standard. Counts *parsed*
+      // rules from the standards index, not raw frontmatter entries — malformed
+      // rules are dropped by validateStandard before they reach here, so a
+      // file with 50 broken rules won't trip this. That's intentional: sprawl
+      // measures enforcement load, and lint already reports each invalid rule
+      // individually.
       const threshold = rules.getStandardsThreshold()
       if (Array.isArray(std.rules) && std.rules.length > threshold && !sprawlWarnings.find(w => w.standard_id === std.id)) {
         sprawlWarnings.push({ standard_id: std.id, rule_count: std.rules.length, threshold })
@@ -670,6 +721,7 @@ async function detect(opts) {
     n_a_count: naCount.count,
     sprawl_warnings: sprawlWarnings,
     auto_dismissed: autoDismissed.length,
+    ...(configWarnings.length > 0 && { config_warnings: configWarnings }),
     ...(diffs && { _diffs: diffs })
   }
 }
@@ -742,6 +794,36 @@ function appScopeMatches(scope, appScope) {
   if (scope === 'all' || scope === appScope) return true
   if (Array.isArray(scope)) return scope.includes(appScope) || scope.includes('all')
   return false
+}
+
+// Walk knowledge/standards/** and report .md files whose mtime is newer than
+// _index.yaml. Returned paths are relative to KB_ROOT. Empty array if the
+// index is missing or up-to-date — the caller treats either as "nothing to
+// warn about".
+function findStaleStandards() {
+  const indexPath = path.join(KB_ROOT, '_index.yaml')
+  if (!fs.existsSync(indexPath)) return []
+  const indexMtime = fs.statSync(indexPath).mtimeMs
+  const standardsDir = path.join(KB_ROOT, 'standards')
+  if (!fs.existsSync(standardsDir)) return []
+  const stale = []
+  const stack = [standardsDir]
+  while (stack.length > 0) {
+    const dir = stack.pop()
+    let entries
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { continue }
+    for (const ent of entries) {
+      const abs = path.join(dir, ent.name)
+      if (ent.isDirectory()) { stack.push(abs); continue }
+      if (!ent.isFile() || !ent.name.endsWith('.md')) continue
+      try {
+        if (fs.statSync(abs).mtimeMs > indexMtime) {
+          stale.push(path.relative(process.cwd(), abs))
+        }
+      } catch { /* skip unreadable entries */ }
+    }
+  }
+  return stale
 }
 
 // Tracked-file enumeration via git. Honors .gitignore and submodule boundaries

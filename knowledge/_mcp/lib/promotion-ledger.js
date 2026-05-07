@@ -76,15 +76,14 @@ function computeRuleFingerprint(rule, standard) {
 
 // ── Read / write ─────────────────────────────────────────────────────────────
 
-function ensureFile() {
-  if (!fs.existsSync(STANDARDS_PROMOTIONS_PATH)) {
-    fs.mkdirSync(path.dirname(STANDARDS_PROMOTIONS_PATH), { recursive: true })
-    fs.writeFileSync(STANDARDS_PROMOTIONS_PATH, STANDARDS_PROMOTIONS_HEADER, 'utf8')
-  }
-}
-
 function readLedger() {
-  ensureFile()
+  // Read-only: callers like kb_inventory document themselves as side-effect-free,
+  // so we must not materialize the ledger file just because someone asked what's
+  // in it. writeLedger() creates the file when there's actually something to
+  // persist.
+  if (!fs.existsSync(STANDARDS_PROMOTIONS_PATH)) {
+    return { header: STANDARDS_PROMOTIONS_HEADER, entries: [] }
+  }
   const content = fs.readFileSync(STANDARDS_PROMOTIONS_PATH, 'utf8')
   const headerEnd = content.indexOf('\n## ')
   const hdr = headerEnd === -1 ? content : content.slice(0, headerEnd)
@@ -143,6 +142,7 @@ function writeLedger(state) {
     return `## ${entry.queueKey}\n\n- **Standard:** \`${entry.standardId}\`${kindNote}\n- **Rule:** \`${entry.ruleId}\` — ${severity}\n- **Rule fingerprint:** \`${entry.ruleFingerprint || ''}\`\n- **Files:**\n${fileLines}`
   }).join('\n\n')
 
+  fs.mkdirSync(path.dirname(STANDARDS_PROMOTIONS_PATH), { recursive: true })
   fs.writeFileSync(STANDARDS_PROMOTIONS_PATH, state.header + (body ? '\n' + body + '\n' : ''), 'utf8')
 }
 
