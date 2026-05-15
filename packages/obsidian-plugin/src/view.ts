@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, Notice, TFile } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice, TFile, Modal, App } from "obsidian";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
 import {
@@ -19,6 +19,12 @@ import {
   dismissedPrompt,
   closedPromotionPrompt,
   rerunPhase1Prompt,
+  buildPushPlan,
+  syncSubmoduleBranch,
+  runPushPlan,
+  hasUpstream,
+  listRemotes,
+  detectPushRemote,
   type StatusSummary,
   type CodeDriftEntry,
   type KbDriftEntry,
@@ -33,6 +39,7 @@ import {
   type GroupBy,
   type EntryHandle,
   type SectionKind,
+  type SubmoduleEntry,
 } from "@instrumentality/shared";
 import { SyncWatcher } from "./watcher";
 
@@ -40,6 +47,10 @@ export interface InstrumentalityViewCallbacks {
   getKbRoot: () => string | null;
   getDismissedBanners: () => ReadonlySet<SectionKind>;
   dismissBanner: (kind: SectionKind) => void;
+  getOpenSection: () => string | undefined;
+  setOpenSection: (key: string) => void;
+  getSubmodulesCollapsed: () => boolean;
+  setSubmodulesCollapsed: (flag: boolean) => void;
 }
 
 type VerdictKey =
@@ -169,6 +180,8 @@ export class InstrumentalityView extends ItemView {
   private viewMode: "pending" | "activity" = "pending";
   private activityGroupBy: "date" | "queueKey" | "eventType" = "date";
   private showSystemEvents = true;
+  private openSection: string | undefined;
+  private submodulesCollapsed = false;
   private cb: InstrumentalityViewCallbacks;
   private getKbRoot: () => string | null;
 
@@ -176,6 +189,8 @@ export class InstrumentalityView extends ItemView {
     super(leaf);
     this.cb = callbacks;
     this.getKbRoot = callbacks.getKbRoot;
+    this.openSection = callbacks.getOpenSection();
+    this.submodulesCollapsed = callbacks.getSubmodulesCollapsed();
   }
 
   getViewType(): string {
@@ -222,6 +237,18 @@ export class InstrumentalityView extends ItemView {
       this.status = null;
     }
     this.entryIndex = this.buildEntryIndex(this.status);
+    // Refresh submodule HEAD watchers so branch switches inside a
+    // submodule push the UI without waiting for the 5s poll fallback.
+    if (this.watcher && this.status?.submodules) {
+      const extras: string[] = [];
+      if (this.status.submodules.parentGitdirHeadPath) {
+        extras.push(this.status.submodules.parentGitdirHeadPath);
+      }
+      for (const e of this.status.submodules.entries) {
+        if (e.gitdirHeadPath) extras.push(e.gitdirHeadPath);
+      }
+      this.watcher.setExtraPaths(extras);
+    }
     this.render();
   }
 
@@ -246,6 +273,7 @@ export class InstrumentalityView extends ItemView {
     }
 
     this.renderHeader(root);
+    this.renderSubmodulesPinned(root);
     this.renderPipelineStrip(root);
     this.renderViewModeTabs(root);
     if (this.viewMode === "activity") {
@@ -337,10 +365,45 @@ export class InstrumentalityView extends ItemView {
     const meta = left.createDiv({ cls: "instrumentality-head-meta" });
     meta.createSpan({ text: "HEAD: " });
     meta.createEl("code", { text: this.status?.currentHeadShort ?? "?" });
+    this.renderHooksBadge(meta);
 
     const tools = header.createDiv({ cls: "instrumentality-tools" });
     const refresh = tools.createEl("button", { text: "Refresh", cls: "mod-cta" });
     refresh.addEventListener("click", () => void this.refresh());
+  }
+
+  private renderHooksBadge(parent: HTMLElement): void {
+    const h = this.status?.hooks;
+    if (!h) return;
+    const labels: Record<string, string> = {
+      managed: "Hooks: ✓ managed",
+      partial: "Hooks: ⚠ partial",
+      missing: "Hooks: ✗ missing",
+    };
+    const sevClass =
+      h.health === "managed"
+        ? "sev-info"
+        : h.health === "partial"
+        ? "sev-warn"
+        : "sev-error";
+    const tip = h.hooks
+      .map(
+        (f) =>
+          `${f.name}: ${
+            f.managed
+              ? "managed"
+              : f.present
+              ? "present (not managed)"
+              : "missing"
+          }`
+      )
+      .join("\n");
+    parent.appendText(" ");
+    parent.createSpan({
+      cls: `badge ${sevClass} hooks-badge`,
+      text: labels[h.health],
+      attr: { title: tip },
+    });
   }
 
   private renderFilterBar(parent: HTMLElement): void {
@@ -404,16 +467,114 @@ export class InstrumentalityView extends ItemView {
   private renderSections(parent: HTMLElement): void {
     const grid = parent.createDiv({ cls: "instrumentality-section-grid" });
     if (this.groupBy === "section") {
-      this.renderCodeDriftCard(grid);
-      this.renderKbDriftCard(grid);
-      this.renderStandardsDriftCard(grid);
-      this.renderConformCard(grid);
-      this.renderPromotionsCard(grid);
-      this.renderLintCard(grid);
+      this.renderAccordionSections(grid);
     } else {
       this.renderGenericGroups(grid);
     }
     this.applyFilterDom();
+  }
+
+  /**
+   * Render the section cards in accordion mode: only one card body is
+   * visible at a time, sections re-ordered so non-empty ones float to
+   * the top, canonical order as stable tiebreak. Mirrors VSCode's
+   * sidebar accordion (buildSectionsForOrder + orderSections +
+   * pickOpenSection in webview-render.ts).
+   */
+  private renderAccordionSections(grid: HTMLElement): void {
+    const s = this.status!;
+    const conformCount =
+      (s.conformPending.current?.requested.length ?? 0) +
+      (s.conformPending.aspirational?.requested.length ?? 0);
+    const sections: {
+      key: string;
+      count: number;
+      build: (parent: HTMLElement) => void;
+    }[] = [
+      {
+        key: "code-drift",
+        count: s.codeDrift.entries.length,
+        build: (p) => this.renderCodeDriftCard(p),
+      },
+      {
+        key: "kb-drift",
+        count: s.kbDrift.entries.length,
+        build: (p) => this.renderKbDriftCard(p),
+      },
+      {
+        key: "standards-drift",
+        count: s.standardsDrift.entries.length,
+        build: (p) => this.renderStandardsDriftCard(p),
+      },
+      {
+        key: "conform-pending",
+        count: conformCount,
+        build: (p) => this.renderConformCard(p),
+      },
+      {
+        key: "promotions",
+        count: s.promotions.length,
+        build: (p) => this.renderPromotionsCard(p),
+      },
+      {
+        key: "lint",
+        count: s.lint.violations.length,
+        build: (p) => this.renderLintCard(p),
+      },
+    ];
+
+    const canonical = new Map(sections.map((sec, i) => [sec.key, i]));
+    const ordered = [...sections].sort((a, b) => {
+      const aHas = a.count > 0;
+      const bHas = b.count > 0;
+      if (aHas !== bHas) return aHas ? -1 : 1;
+      return (canonical.get(a.key) ?? 0) - (canonical.get(b.key) ?? 0);
+    });
+
+    // Honor stored choice if still present; otherwise first non-empty;
+    // otherwise first card.
+    let openKey: string | null = null;
+    if (this.openSection && ordered.some((sec) => sec.key === this.openSection)) {
+      openKey = this.openSection;
+    } else {
+      openKey =
+        (ordered.find((sec) => sec.count > 0) ?? ordered[0])?.key ?? null;
+    }
+
+    for (const sec of ordered) {
+      sec.build(grid);
+    }
+
+    // Decorate the chosen section's card. sectionShell tags every card
+    // with data-section so we can find it post-render.
+    if (openKey) {
+      const card = grid.querySelector(
+        `.instrumentality-section-card[data-section="${cssEscape(openKey)}"]`
+      );
+      card?.setAttribute("data-open", "true");
+    }
+
+    // Header click swaps the open card. Skip clicks on inner controls
+    // (buttons, chips, the `?` icon) so existing interactions still work.
+    grid.addEventListener("click", (ev) => {
+      const target = ev.target as HTMLElement;
+      const headerEl = target.closest(
+        ".instrumentality-section-card > header"
+      );
+      if (!headerEl) return;
+      const card = headerEl.closest(".instrumentality-section-card");
+      if (!card) return;
+      const key = card.getAttribute("data-section");
+      if (!key) return;
+      if (target.closest("button, a, input")) return;
+      if (card.getAttribute("data-open") === "true") return;
+      grid
+        .querySelectorAll('.instrumentality-section-card[data-open="true"]')
+        .forEach((el) => el.removeAttribute("data-open"));
+      card.setAttribute("data-open", "true");
+      this.openSection = key;
+      this.cb.setOpenSection(key);
+    });
   }
 
   /**
@@ -1116,6 +1277,344 @@ export class InstrumentalityView extends ItemView {
       detail,
       sourceFile: v.file,
     });
+  }
+
+  // ── Submodules pinned card ─────────────────────────────────────────────
+  //
+  // Structurally distinct from accordion cards — git state is an
+  // orient-yourself glance, not a work queue. Header dots stay visible
+  // even when the body is collapsed so health is always readable.
+
+  private renderSubmodulesPinned(parent: HTMLElement): void {
+    const sub = this.status?.submodules;
+    if (!sub || sub.entries.length === 0) return;
+
+    const collapsed = this.submodulesCollapsed;
+    const card = parent.createDiv({
+      cls: "instrumentality-submodules-pinned",
+      attr: { "data-collapsed": String(collapsed) },
+    });
+
+    const header = card.createDiv({ cls: "submodules-pinned-header" });
+    header.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    const chevron = header.createSpan({
+      cls: "submodules-pinned-chevron",
+      text: collapsed ? "▸" : "▾",
+    });
+    header.createSpan({ cls: "submodules-pinned-title", text: "Submodules" });
+    header.createSpan({ cls: "count", text: String(sub.entries.length) });
+
+    const dots = header.createSpan({ cls: "submodules-pinned-dots" });
+    for (const e of sub.entries) {
+      const align = classifyBranch(e, sub.parentBranch);
+      dots.createSpan({
+        cls: `submodule-dot-summary submodule-dot-${align}`,
+        text: "●",
+        attr: { title: `${e.path} · ${e.branch ?? "detached"}` },
+      });
+    }
+
+    const metaSpan = header.createSpan({ cls: "submodules-pinned-meta" });
+    if (sub.parentBranch) {
+      metaSpan.appendText("parent on ");
+      metaSpan.createEl("code", { text: sub.parentBranch });
+    } else {
+      metaSpan.createSpan({ cls: "sev-warn", text: "parent HEAD detached" });
+    }
+
+    if (sub.wouldBlock) {
+      header.createSpan({
+        cls: "badge sev-error",
+        text: "would block push",
+        attr: {
+          title:
+            "Pre-push hook will block. Submodules need to match the parent branch.",
+        },
+      });
+    }
+
+    // Click header (but not on inner controls) to toggle collapsed state.
+    header.addEventListener("click", (ev) => {
+      const target = ev.target as HTMLElement;
+      if (target.closest("button, a, input")) return;
+      const next = !this.submodulesCollapsed;
+      this.submodulesCollapsed = next;
+      this.cb.setSubmodulesCollapsed(next);
+      card.setAttribute("data-collapsed", String(next));
+      chevron.setText(next ? "▸" : "▾");
+      header.setAttribute("aria-expanded", next ? "false" : "true");
+      body.style.display = next ? "none" : "";
+    });
+
+    const body = card.createDiv({ cls: "submodule-pinned-body" });
+    if (collapsed) body.style.display = "none";
+
+    if (sub.sharedPointerChanged.length > 0) {
+      const warn = body.createDiv({ cls: "submodule-shared-warn" });
+      warn.appendText("⚠ Shared submodule pointer changed: ");
+      sub.sharedPointerChanged.forEach((p, i) => {
+        if (i > 0) warn.appendText(", ");
+        warn.createEl("code", { text: p });
+      });
+      warn.appendText(" — affects all consumers.");
+    }
+
+    const list = body.createDiv({ cls: "submodule-list" });
+    for (const e of sub.entries) {
+      this.renderSubmoduleRow(list, e, sub.parentBranch);
+    }
+
+    const actions = body.createDiv({ cls: "submodule-actions" });
+    const pushBtn = actions.createEl("button", {
+      cls: sub.wouldBlock
+        ? "instrumentality-submodule-push-btn danger"
+        : "instrumentality-submodule-push-btn mod-cta",
+      text: sub.wouldBlock ? "Run push (will block)" : "Run push",
+    });
+    pushBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      void this.handleSubmodulePush();
+    });
+  }
+
+  private renderSubmoduleRow(
+    parent: HTMLElement,
+    e: SubmoduleEntry,
+    parentBranch: string | null
+  ): void {
+    const align = classifyBranch(e, parentBranch);
+    const row = parent.createDiv({
+      cls: `submodule-row submodule-row-${align}`,
+    });
+
+    const main = row.createDiv({ cls: "submodule-main" });
+    const title = main.createDiv({ cls: "submodule-title" });
+    title.createEl("code", { text: e.path });
+    title.appendText(" ");
+    if (e.type === "shared") {
+      title.createSpan({
+        cls: "badge sev-info",
+        text: "shared",
+        attr: { title: "kb-shared = true in .gitmodules" },
+      });
+    } else {
+      title.createSpan({
+        cls: "badge",
+        text: "owned",
+        attr: { title: "owned by this superproject" },
+      });
+    }
+    if (e.pointerChanged) {
+      title.appendText(" ");
+      title.createSpan({
+        cls: "submodule-dot pointer",
+        text: "●",
+        attr: { title: "Pointer changed vs upstream" },
+      });
+    }
+
+    const meta = main.createDiv({ cls: "submodule-meta" });
+    meta.appendText("on ");
+    const branchChipTitle =
+      align === "aligned"
+        ? "Same branch as parent — push will sail through."
+        : align === "blocking"
+        ? "Owned submodule on a different branch than parent — the pre-push hook will block this combination."
+        : align === "advisory"
+        ? "Shared submodule on its own branch — informational, not blocking."
+        : "Detached HEAD — no branch to compare.";
+    if (e.branch) {
+      meta.createEl("code", {
+        cls: `branch-chip branch-${align}`,
+        text: e.branch,
+        attr: { title: branchChipTitle },
+      });
+    } else {
+      const chip = meta.createSpan({
+        cls: `branch-chip branch-detached`,
+        attr: { title: branchChipTitle },
+      });
+      chip.createEl("em", { text: "detached" });
+    }
+    meta.appendText(" ");
+    if (e.branchMismatch && parentBranch) {
+      meta.createSpan({
+        cls: "badge sev-error",
+        text: "mismatch",
+        attr: {
+          title:
+            "Submodule branch differs from parent — the pre-push hook will block this combination.",
+        },
+      });
+    } else if (e.pointerChanged) {
+      meta.createSpan({
+        cls: "badge sev-info",
+        text: "to push",
+        attr: {
+          title:
+            "Pointer changed since upstream — will be included in the next push.",
+        },
+      });
+    } else {
+      meta.createSpan({
+        cls: "badge",
+        text: "clean",
+        attr: { title: "In sync with upstream." },
+      });
+    }
+
+    const rowActions = row.createDiv({ cls: "submodule-row-actions" });
+    if (e.branchMismatch && parentBranch) {
+      const btn = rowActions.createEl("button", {
+        cls: "instrumentality-submodule-sync-btn danger",
+      });
+      btn.appendText("Sync to ");
+      btn.createEl("code", { text: parentBranch });
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        void this.handleSubmoduleSync(e.path, parentBranch);
+      });
+    }
+  }
+
+  // ── Submodule actions ──────────────────────────────────────────────────
+
+  private async handleSubmoduleSync(
+    subPath: string,
+    parentBranch: string
+  ): Promise<void> {
+    if (!this.kbRoot) {
+      new Notice("Instrumentality: knowledge base not detected.");
+      return;
+    }
+    const ok = await confirmModal(this.app, {
+      title: `Sync submodule '${subPath}' → ${parentBranch}?`,
+      detail: `Runs \`git -C ${subPath} checkout ${parentBranch}\`. Uncommitted changes in the submodule will block the checkout.`,
+      confirmLabel: "Sync",
+    });
+    if (!ok) return;
+    const result = await syncSubmoduleBranch(this.kbRoot, subPath, parentBranch);
+    if (result.success) {
+      new Notice(
+        `Instrumentality: synced ${subPath} → ${parentBranch}.`
+      );
+      void this.refresh();
+    } else {
+      new Notice(
+        `Instrumentality: sync failed: ${result.output || "unknown error"}`
+      );
+    }
+  }
+
+  private async handleSubmodulePush(): Promise<void> {
+    if (!this.kbRoot) {
+      new Notice("Instrumentality: knowledge base not detected.");
+      return;
+    }
+    const sub = this.status?.submodules;
+    if (!sub) {
+      new Notice("Instrumentality: no submodule data — refresh first.");
+      return;
+    }
+
+    if (sub.wouldBlock) {
+      const detail = [
+        `Pre-push hook will reject this push.`,
+        ``,
+        `Submodules on a different branch than the parent (${
+          sub.parentBranch ?? "?"
+        }):`,
+        ...sub.blockingPaths.map((p) => `  • ${p}`),
+        ``,
+        `Fix: sync each submodule to '${
+          sub.parentBranch ?? "<parent>"
+        }' (use the Sync button on each row),`,
+        `or unstage the submodule pointer change if it isn't part of this feature.`,
+      ].join("\n");
+      await confirmModal(this.app, {
+        title: "Push blocked by submodule branch mismatch",
+        detail,
+        confirmLabel: "Dismiss",
+        hideCancel: true,
+      });
+      return;
+    }
+
+    const plan = buildPushPlan(this.kbRoot, sub);
+
+    let parentRemote: string | undefined;
+    const parentStep = plan.find((s) => s.type === "parent");
+    if (parentStep?.branch && !(await hasUpstream(parentStep.fullPath))) {
+      const remotes = await listRemotes(parentStep.fullPath);
+      if (remotes.length === 0) {
+        new Notice(
+          "Instrumentality: parent repo has no git remote configured."
+        );
+        return;
+      }
+      const defaultRemote = await detectPushRemote(
+        parentStep.fullPath,
+        parentStep.branch,
+        remotes
+      );
+      if (remotes.length === 1) {
+        parentRemote = remotes[0];
+      } else {
+        const pick = await selectModal(this.app, {
+          title: `Set upstream for '${parentStep.branch}' — pick a remote`,
+          placeholder: `Default: ${defaultRemote}`,
+          options: [
+            defaultRemote,
+            ...remotes.filter((r) => r !== defaultRemote),
+          ].map((r) => ({
+            value: r,
+            label: r,
+            description: r === defaultRemote ? "default" : undefined,
+          })),
+        });
+        if (!pick) return;
+        parentRemote = pick;
+      }
+    }
+
+    const planLines = plan.map((s) => {
+      if (s.type === "parent" && parentRemote && s.branch) {
+        return `${s.order}. parent — git push -u ${parentRemote} ${s.branch}`;
+      }
+      return `${s.order}. ${
+        s.type === "parent" ? "parent" : s.path
+      } — git ${s.action}`;
+    });
+    const sharedWarn =
+      sub.sharedPointerChanged.length > 0
+        ? `\n\n⚠ Shared submodule pointer changed:\n${sub.sharedPointerChanged
+            .map((p) => `  • ${p}`)
+            .join(
+              "\n"
+            )}\nThese affect all projects consuming the module.`
+        : "";
+
+    const ok = await confirmModal(this.app, {
+      title: "Push submodules and parent in order?",
+      detail: planLines.join("\n") + sharedWarn,
+      confirmLabel: "Push",
+    });
+    if (!ok) return;
+
+    const result = await runPushPlan(plan, { parentRemote });
+    void this.refresh();
+    if (result.allSuccess) {
+      new Notice(
+        `Instrumentality: pushed ${result.steps.length} step(s) successfully.`
+      );
+      return;
+    }
+    const failed = result.steps.find((s) => !s.success);
+    new Notice(
+      `Instrumentality: push failed at ${failed?.step.path}: ${
+        failed?.output?.slice(0, 200) ?? "unknown error"
+      }`
+    );
   }
 
   // ── Entry shell + actions ──────────────────────────────────────────────
@@ -1921,5 +2420,167 @@ export class InstrumentalityView extends ItemView {
       })
     );
     return out;
+  }
+}
+
+// Minimal CSS.escape — Obsidian's Electron has window.CSS.escape, but
+// using it directly inside the class requires DOM-only contexts. This
+// inline form is enough for our known-safe section keys.
+function cssEscape(s: string): string {
+  return s.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+}
+
+// ── Branch alignment ─────────────────────────────────────────────────────
+//
+// Encodes what the branch relationship MEANS for the user, not just
+// match/mismatch. Drives the branch chip color and the row's left-border
+// accent so the row is scannable at a glance.
+type BranchAlignment = "aligned" | "blocking" | "advisory" | "detached";
+
+function classifyBranch(
+  e: SubmoduleEntry,
+  parentBranch: string | null
+): BranchAlignment {
+  if (!e.branch) return "detached";
+  if (parentBranch && e.branch === parentBranch) return "aligned";
+  // Different from parent. Owned = blocking (pre-push hook rejects);
+  // shared = advisory (shared modules legitimately live on their own
+  // branches and don't enforce alignment).
+  return e.type === "owned" ? "blocking" : "advisory";
+}
+
+// ── Modals ───────────────────────────────────────────────────────────────
+//
+// Thin promise-returning wrappers around Obsidian's Modal class. We use
+// these instead of VSCode's quick-pick / modal info messages so the push
+// + sync UX matches the VSCode extension closely.
+
+interface ConfirmModalOpts {
+  title: string;
+  detail: string;
+  confirmLabel: string;
+  hideCancel?: boolean;
+}
+
+function confirmModal(app: App, opts: ConfirmModalOpts): Promise<boolean> {
+  return new Promise((resolve) => {
+    const modal = new ConfirmModal(app, opts, resolve);
+    modal.open();
+  });
+}
+
+class ConfirmModal extends Modal {
+  private resolved = false;
+
+  constructor(
+    app: App,
+    private opts: ConfirmModalOpts,
+    private done: (v: boolean) => void
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.titleEl.setText(this.opts.title);
+    const detail = this.contentEl.createEl("pre", {
+      cls: "instrumentality-modal-detail",
+      text: this.opts.detail,
+    });
+    detail.style.whiteSpace = "pre-wrap";
+
+    const actions = this.contentEl.createDiv({
+      cls: "instrumentality-modal-actions",
+    });
+    if (!this.opts.hideCancel) {
+      const cancel = actions.createEl("button", { text: "Cancel" });
+      cancel.addEventListener("click", () => {
+        this.resolved = true;
+        this.done(false);
+        this.close();
+      });
+    }
+    const ok = actions.createEl("button", {
+      cls: "mod-cta",
+      text: this.opts.confirmLabel,
+    });
+    ok.addEventListener("click", () => {
+      this.resolved = true;
+      this.done(true);
+      this.close();
+    });
+  }
+
+  onClose(): void {
+    if (!this.resolved) this.done(false);
+    this.contentEl.empty();
+  }
+}
+
+interface SelectOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+interface SelectModalOpts {
+  title: string;
+  placeholder?: string;
+  options: SelectOption[];
+}
+
+function selectModal(
+  app: App,
+  opts: SelectModalOpts
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    const modal = new SelectModal(app, opts, resolve);
+    modal.open();
+  });
+}
+
+class SelectModal extends Modal {
+  private resolved = false;
+
+  constructor(
+    app: App,
+    private opts: SelectModalOpts,
+    private done: (v: string | null) => void
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.titleEl.setText(this.opts.title);
+    if (this.opts.placeholder) {
+      this.contentEl.createDiv({
+        cls: "instrumentality-modal-placeholder",
+        text: this.opts.placeholder,
+      });
+    }
+    const list = this.contentEl.createDiv({
+      cls: "instrumentality-modal-select-list",
+    });
+    for (const opt of this.opts.options) {
+      const btn = list.createEl("button", {
+        cls: "instrumentality-modal-select-item",
+      });
+      btn.createSpan({ text: opt.label });
+      if (opt.description) {
+        btn.createSpan({
+          cls: "instrumentality-modal-select-desc",
+          text: opt.description,
+        });
+      }
+      btn.addEventListener("click", () => {
+        this.resolved = true;
+        this.done(opt.value);
+        this.close();
+      });
+    }
+  }
+
+  onClose(): void {
+    if (!this.resolved) this.done(null);
+    this.contentEl.empty();
   }
 }

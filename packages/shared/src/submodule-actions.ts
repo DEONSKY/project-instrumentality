@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { PushPlanStep } from "@instrumentality/shared";
+import type { PushPlanStep } from "./submodule-status.js";
 
 const execFileP = promisify(execFile);
 

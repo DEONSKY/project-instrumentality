@@ -4,6 +4,8 @@ import { InstrumentalityView, VIEW_TYPE_INSTRUMENTALITY, ICON_ID } from "./view"
 
 interface InstrumentalityPluginData {
   dismissedBanners?: SectionKind[];
+  openSection?: string;
+  submodulesCollapsed?: boolean;
 }
 
 // Same SVG as the VSCode activity-bar icon. Obsidian renders it with
@@ -19,6 +21,8 @@ const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fi
 
 export default class InstrumentalityPlugin extends Plugin {
   private dismissedBanners: Set<SectionKind> = new Set();
+  private openSection: string | undefined = undefined;
+  private submodulesCollapsed = false;
 
   async onload(): Promise<void> {
     addIcon(ICON_ID, ICON_SVG);
@@ -31,6 +35,12 @@ export default class InstrumentalityPlugin extends Plugin {
     if (data && Array.isArray(data.dismissedBanners)) {
       this.dismissedBanners = new Set(data.dismissedBanners);
     }
+    if (data && typeof data.openSection === "string") {
+      this.openSection = data.openSection;
+    }
+    if (data && data.submodulesCollapsed === true) {
+      this.submodulesCollapsed = true;
+    }
 
     this.registerView(
       VIEW_TYPE_INSTRUMENTALITY,
@@ -39,6 +49,11 @@ export default class InstrumentalityPlugin extends Plugin {
           getKbRoot: () => this.detectKbRoot(),
           getDismissedBanners: () => this.dismissedBanners,
           dismissBanner: (kind) => void this.persistDismissedBanner(kind),
+          getOpenSection: () => this.openSection,
+          setOpenSection: (key) => void this.persistOpenSection(key),
+          getSubmodulesCollapsed: () => this.submodulesCollapsed,
+          setSubmodulesCollapsed: (flag) =>
+            void this.persistSubmodulesCollapsed(flag),
         })
     );
 
@@ -65,8 +80,26 @@ export default class InstrumentalityPlugin extends Plugin {
   private async persistDismissedBanner(kind: SectionKind): Promise<void> {
     if (this.dismissedBanners.has(kind)) return;
     this.dismissedBanners.add(kind);
+    await this.persistAll();
+  }
+
+  private async persistOpenSection(key: string): Promise<void> {
+    if (this.openSection === key) return;
+    this.openSection = key;
+    await this.persistAll();
+  }
+
+  private async persistSubmodulesCollapsed(flag: boolean): Promise<void> {
+    if (this.submodulesCollapsed === flag) return;
+    this.submodulesCollapsed = flag;
+    await this.persistAll();
+  }
+
+  private async persistAll(): Promise<void> {
     await this.saveData({
       dismissedBanners: [...this.dismissedBanners],
+      openSection: this.openSection,
+      submodulesCollapsed: this.submodulesCollapsed,
     } satisfies InstrumentalityPluginData);
   }
 

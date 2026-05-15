@@ -13,15 +13,13 @@ import {
   dismissedPrompt,
   closedPromotionPrompt,
   buildPushPlan,
-  type StatusSummary,
-} from "@instrumentality/shared";
-import {
   syncSubmoduleBranch,
   runPushPlan,
   hasUpstream,
   listRemotes,
   detectPushRemote,
-} from "./submodule-actions";
+  type StatusSummary,
+} from "@instrumentality/shared";
 import {
   openDashboard,
   refreshDashboardIfOpen,

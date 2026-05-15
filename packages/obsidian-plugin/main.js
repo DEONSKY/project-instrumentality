@@ -4090,6 +4090,294 @@ var require_drift_log = __commonJS({
   }
 });
 
+// ../shared/dist/submodule-status.js
+var require_submodule_status = __commonJS({
+  "../shared/dist/submodule-status.js"(exports2) {
+    "use strict";
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
+      if (k2 === void 0)
+        k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    } : function(o, m, k, k2) {
+      if (k2 === void 0)
+        k2 = k;
+      o[k2] = m[k];
+    });
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+      Object.defineProperty(o, "default", { enumerable: true, value: v });
+    } : function(o, v) {
+      o["default"] = v;
+    });
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+      var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function(o2) {
+          var ar = [];
+          for (var k in o2)
+            if (Object.prototype.hasOwnProperty.call(o2, k))
+              ar[ar.length] = k;
+          return ar;
+        };
+        return ownKeys(o);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule)
+          return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
+            if (k[i] !== "default")
+              __createBinding(result, mod, k[i]);
+        }
+        __setModuleDefault(result, mod);
+        return result;
+      };
+    }();
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.getSubmoduleStatus = getSubmoduleStatus;
+    exports2.buildPushPlan = buildPushPlan2;
+    var fs2 = __importStar(require("fs"));
+    var path3 = __importStar(require("path"));
+    var node_child_process_1 = require("child_process");
+    var node_util_1 = require("util");
+    var execFileP = (0, node_util_1.promisify)(node_child_process_1.execFile);
+    async function gitOut(cwd, args) {
+      try {
+        const { stdout } = await execFileP("git", args, { cwd, encoding: "utf8" });
+        return stdout.trim();
+      } catch {
+        return null;
+      }
+    }
+    function resolveGitdirHead(absSubPath) {
+      const dotGit = path3.join(absSubPath, ".git");
+      let st;
+      try {
+        st = fs2.statSync(dotGit);
+      } catch {
+        return null;
+      }
+      if (st.isDirectory()) {
+        const head = path3.join(dotGit, "HEAD");
+        return fs2.existsSync(head) ? head : null;
+      }
+      if (st.isFile()) {
+        try {
+          const content = fs2.readFileSync(dotGit, "utf8");
+          const m = content.match(/^gitdir:\s*(.+)\s*$/m);
+          if (!m)
+            return null;
+          const gitdir = path3.isAbsolute(m[1]) ? m[1] : path3.resolve(absSubPath, m[1]);
+          const head = path3.join(gitdir, "HEAD");
+          return fs2.existsSync(head) ? head : null;
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+    function parseGitmodules(text) {
+      const out = [];
+      const blocks = text.split(/(?=\[submodule\s+"[^"]+"\])/).filter((b) => b.trim());
+      for (const block of blocks) {
+        const nameMatch = block.match(/\[submodule\s+"([^"]+)"\]/);
+        const pathMatch = block.match(/^\s*path\s*=\s*(.+)\s*$/m);
+        if (!nameMatch || !pathMatch)
+          continue;
+        out.push({
+          name: nameMatch[1].trim(),
+          path: pathMatch[1].trim(),
+          isShared: /^\s*kb-shared\s*=\s*true\s*$/m.test(block)
+        });
+      }
+      return out;
+    }
+    async function pointerChanged(repoRoot, subPath) {
+      const localTree = await gitOut(repoRoot, ["ls-tree", "HEAD", subPath]);
+      const localSha = localTree?.split(/\s+/)[2] ?? "";
+      let upstream = await gitOut(repoRoot, ["rev-parse", "@{upstream}"]);
+      if (!upstream) {
+        upstream = await gitOut(repoRoot, ["rev-parse", "origin/main"]) || await gitOut(repoRoot, ["rev-parse", "origin/master"]);
+      }
+      if (!upstream) {
+        return false;
+      }
+      const remoteTree = await gitOut(repoRoot, ["ls-tree", upstream, subPath]);
+      const remoteSha = remoteTree?.split(/\s+/)[2] ?? "";
+      return localSha !== remoteSha;
+    }
+    async function getSubmoduleStatus(kbRoot, opts = {}) {
+      const repoRoot = opts.repoRoot ?? kbRoot;
+      const gitmodulesPath = path3.join(repoRoot, ".gitmodules");
+      if (!fs2.existsSync(gitmodulesPath))
+        return null;
+      let text;
+      try {
+        text = fs2.readFileSync(gitmodulesPath, "utf8");
+      } catch {
+        return null;
+      }
+      const parsed = parseGitmodules(text);
+      const parentBranch = await gitOut(repoRoot, ["symbolic-ref", "--short", "HEAD"]);
+      const parentGitdirHeadPath = resolveGitdirHead(repoRoot);
+      const entries = [];
+      for (const p of parsed) {
+        const fullPath = path3.resolve(repoRoot, p.path);
+        if (!fs2.existsSync(fullPath))
+          continue;
+        const type = p.isShared ? "shared" : "owned";
+        const branch = await gitOut(fullPath, ["symbolic-ref", "--short", "HEAD"]);
+        const ptr = await pointerChanged(repoRoot, p.path);
+        const branchMismatch = type === "owned" && ptr && branch !== null && parentBranch !== null && branch !== parentBranch;
+        entries.push({
+          name: p.name,
+          path: p.path,
+          fullPath,
+          type,
+          branch,
+          pointerChanged: ptr,
+          branchMismatch,
+          gitdirHeadPath: resolveGitdirHead(fullPath)
+        });
+      }
+      const blockingPaths = entries.filter((e) => e.branchMismatch).map((e) => e.path);
+      const sharedPointerChanged = entries.filter((e) => e.type === "shared" && e.pointerChanged).map((e) => e.path);
+      return {
+        parentBranch,
+        parentGitdirHeadPath,
+        entries,
+        wouldBlock: blockingPaths.length > 0,
+        blockingPaths,
+        sharedPointerChanged
+      };
+    }
+    function buildPushPlan2(repoRoot, status) {
+      const plan = [];
+      const owned = status.entries.filter((e) => e.type === "owned" && e.pointerChanged);
+      const shared = status.entries.filter((e) => e.type === "shared" && e.pointerChanged);
+      let order = 1;
+      for (const e of [...owned, ...shared]) {
+        const branch = e.type === "shared" ? e.branch ?? status.parentBranch : status.parentBranch;
+        plan.push({
+          order: order++,
+          type: e.type,
+          path: e.path,
+          fullPath: e.fullPath,
+          branch,
+          action: branch ? `push -u origin ${branch}` : "push"
+        });
+      }
+      plan.push({
+        order,
+        type: "parent",
+        path: ".",
+        fullPath: repoRoot,
+        branch: status.parentBranch,
+        action: "push"
+      });
+      return plan;
+    }
+  }
+});
+
+// ../shared/dist/hooks-status.js
+var require_hooks_status = __commonJS({
+  "../shared/dist/hooks-status.js"(exports2) {
+    "use strict";
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
+      if (k2 === void 0)
+        k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    } : function(o, m, k, k2) {
+      if (k2 === void 0)
+        k2 = k;
+      o[k2] = m[k];
+    });
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+      Object.defineProperty(o, "default", { enumerable: true, value: v });
+    } : function(o, v) {
+      o["default"] = v;
+    });
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+      var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function(o2) {
+          var ar = [];
+          for (var k in o2)
+            if (Object.prototype.hasOwnProperty.call(o2, k))
+              ar[ar.length] = k;
+          return ar;
+        };
+        return ownKeys(o);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule)
+          return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
+            if (k[i] !== "default")
+              __createBinding(result, mod, k[i]);
+        }
+        __setModuleDefault(result, mod);
+        return result;
+      };
+    }();
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.getHooksStatus = getHooksStatus;
+    var fs2 = __importStar(require("fs"));
+    var path3 = __importStar(require("path"));
+    var node_child_process_1 = require("child_process");
+    var node_util_1 = require("util");
+    var execFileP = (0, node_util_1.promisify)(node_child_process_1.execFile);
+    var MANAGED_HOOKS = ["pre-commit", "pre-push", "post-merge", "post-checkout"];
+    var MARKER = "# kb-mcp managed";
+    async function resolveHooksDir(repoRoot) {
+      try {
+        const { stdout } = await execFileP("git", ["rev-parse", "--git-path", "hooks"], { cwd: repoRoot, encoding: "utf8" });
+        const rel = stdout.trim();
+        if (!rel)
+          return null;
+        return path3.isAbsolute(rel) ? rel : path3.resolve(repoRoot, rel);
+      } catch {
+        return null;
+      }
+    }
+    async function getHooksStatus(repoRoot) {
+      const hooksDir = await resolveHooksDir(repoRoot);
+      if (!hooksDir)
+        return null;
+      const hooks = MANAGED_HOOKS.map((name) => {
+        const file = path3.join(hooksDir, name);
+        let present = false;
+        let managed = false;
+        try {
+          const content = fs2.readFileSync(file, "utf8");
+          present = true;
+          managed = content.includes(MARKER);
+        } catch {
+          present = false;
+        }
+        return { name, present, managed };
+      });
+      const allManaged = hooks.every((h) => h.managed);
+      const anyManaged = hooks.some((h) => h.managed);
+      const health = allManaged ? "managed" : anyManaged ? "partial" : "missing";
+      return { health, hooks };
+    }
+  }
+});
+
 // ../shared/dist/status.js
 var require_status = __commonJS({
   "../shared/dist/status.js"(exports2) {
@@ -4106,6 +4394,8 @@ var require_status = __commonJS({
     var lint_js_1 = require_lint();
     var standards_js_1 = require_standards();
     var drift_log_js_1 = require_drift_log();
+    var submodule_status_js_1 = require_submodule_status();
+    var hooks_status_js_1 = require_hooks_status();
     var execFileP = (0, node_util_1.promisify)(node_child_process_1.execFile);
     function enrichWithStandards(kbRoot, drifts, promotions, conformPendings) {
       const defs = /* @__PURE__ */ new Map();
@@ -4149,7 +4439,7 @@ var require_status = __commonJS({
       }
     }
     async function getStatus2(kbRoot, opts = {}) {
-      const [codeDrift, kbDrift, standardsDriftCurrent, standardsBacklog, currentPending, asp, promotions, driftLogEvents, lint, head] = await Promise.all([
+      const [codeDrift, kbDrift, standardsDriftCurrent, standardsBacklog, currentPending, asp, promotions, driftLogEvents, lint, head, submodules, hooks] = await Promise.all([
         Promise.resolve((0, code_drift_js_1.readCodeDrift)(kbRoot)),
         Promise.resolve((0, kb_drift_js_1.readKbDrift)(kbRoot)),
         Promise.resolve((0, standards_drift_js_1.readStandardsDrift)(kbRoot)),
@@ -4159,7 +4449,9 @@ var require_status = __commonJS({
         Promise.resolve((0, promotions_js_1.readPromotions)(kbRoot)),
         Promise.resolve((0, drift_log_js_1.readDriftLog)(kbRoot, (0, drift_log_js_1.currentAndPreviousMonth)())),
         opts.skipLint ? Promise.resolve({ violations: [], ran: false }) : (0, lint_js_1.runLint)(kbRoot, { commandOverride: opts.lintCommand }),
-        getCurrentHeadShort(kbRoot)
+        getCurrentHeadShort(kbRoot),
+        (0, submodule_status_js_1.getSubmoduleStatus)(kbRoot).catch(() => null),
+        (0, hooks_status_js_1.getHooksStatus)(kbRoot).catch(() => null)
       ]);
       const standardsDrift = {
         entries: [...standardsDriftCurrent.entries, ...standardsBacklog.entries],
@@ -4186,6 +4478,8 @@ var require_status = __commonJS({
         promotions,
         driftLogEvents,
         lint,
+        submodules: submodules ?? void 0,
+        hooks: hooks ?? void 0,
         totals: {
           drifts: driftCount,
           conformPending: conformPendingCount,
@@ -4867,6 +5161,111 @@ var require_grouping = __commonJS({
   }
 });
 
+// ../shared/dist/submodule-actions.js
+var require_submodule_actions = __commonJS({
+  "../shared/dist/submodule-actions.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.syncSubmoduleBranch = syncSubmoduleBranch2;
+    exports2.hasUpstream = hasUpstream2;
+    exports2.listRemotes = listRemotes2;
+    exports2.detectPushRemote = detectPushRemote2;
+    exports2.runPushPlan = runPushPlan2;
+    var node_child_process_1 = require("child_process");
+    var node_util_1 = require("util");
+    var execFileP = (0, node_util_1.promisify)(node_child_process_1.execFile);
+    async function syncSubmoduleBranch2(repoRoot, subPath, branch) {
+      try {
+        const { stdout, stderr } = await execFileP("git", ["-C", subPath, "checkout", branch], { cwd: repoRoot, encoding: "utf8" });
+        return { success: true, output: (stdout + stderr).trim() };
+      } catch (err) {
+        const out = (err?.stdout ?? "") + (err?.stderr ?? "") || err?.message || String(err);
+        return { success: false, output: String(out).trim() };
+      }
+    }
+    async function hasUpstream2(cwd) {
+      try {
+        await execFileP("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], { cwd, encoding: "utf8" });
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    async function listRemotes2(cwd) {
+      try {
+        const { stdout } = await execFileP("git", ["remote"], {
+          cwd,
+          encoding: "utf8"
+        });
+        return stdout.split("\n").map((s) => s.trim()).filter(Boolean);
+      } catch {
+        return [];
+      }
+    }
+    async function detectPushRemote2(cwd, branch, remotes) {
+      for (const key of [`branch.${branch}.pushRemote`, "remote.pushDefault"]) {
+        try {
+          const { stdout } = await execFileP("git", ["config", "--get", key], {
+            cwd,
+            encoding: "utf8"
+          });
+          const value = stdout.trim();
+          if (value)
+            return value;
+        } catch {
+        }
+      }
+      const known = remotes ?? await listRemotes2(cwd);
+      if (known.length === 1)
+        return known[0];
+      if (known.includes("origin"))
+        return "origin";
+      if (known.length > 0)
+        return known[0];
+      return "origin";
+    }
+    async function runPushPlan2(plan, opts = {}) {
+      const steps = [];
+      let allSuccess = true;
+      for (const step of plan) {
+        if (!allSuccess) {
+          steps.push({
+            step,
+            success: false,
+            output: "Skipped \u2014 earlier step failed"
+          });
+          continue;
+        }
+        let args;
+        if (step.type === "parent") {
+          if (step.branch && !await hasUpstream2(step.fullPath)) {
+            const remote = opts.parentRemote ?? await detectPushRemote2(step.fullPath, step.branch);
+            args = ["push", "-u", remote, step.branch];
+          } else {
+            args = ["push"];
+          }
+        } else if (step.branch) {
+          args = ["push", "-u", "origin", step.branch];
+        } else {
+          args = ["push"];
+        }
+        try {
+          const { stdout, stderr } = await execFileP("git", args, {
+            cwd: step.fullPath,
+            encoding: "utf8"
+          });
+          steps.push({ step, success: true, output: (stdout + stderr).trim() });
+        } catch (err) {
+          const out = (err?.stdout ?? "") + (err?.stderr ?? "") || err?.message || String(err);
+          steps.push({ step, success: false, output: String(out).trim() });
+          allSuccess = false;
+        }
+      }
+      return { steps, allSuccess };
+    }
+  }
+});
+
 // ../shared/dist/index.js
 var require_dist = __commonJS({
   "../shared/dist/index.js"(exports2) {
@@ -4892,7 +5291,7 @@ var require_dist = __commonJS({
           __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.pipelineSegments = exports2.groupEntries = exports2.buildEntryHandles = exports2.copyActionLabel = exports2.primaryActionLabel = exports2.SECTION_GUIDE = exports2.rerunPhase1Prompt = exports2.closedPromotionPrompt = exports2.dismissedPrompt = exports2.promotedPrompt = exports2.exemptedPrompt = exports2.appliedPrompt = exports2.getActionPrompt = exports2.findRuleLineRange = exports2.findRule = exports2.readStandardDefinition = exports2.parseStandardDefinition = exports2.currentAndPreviousMonth = exports2.readDriftLog = exports2.parseDriftLog = exports2.runLint = exports2.parseLintStderr = exports2.readPromotions = exports2.parsePromotions = exports2.resolveStandardPath = exports2.readConformPending = exports2.parseConformPending = exports2.readStandardsBacklog = exports2.readStandardsDrift = exports2.parseStandardsDrift = exports2.readKbDrift = exports2.parseKbDrift = exports2.readCodeDrift = exports2.parseCodeDrift = exports2.stableEntryId = void 0;
+    exports2.getHooksStatus = exports2.detectPushRemote = exports2.listRemotes = exports2.hasUpstream = exports2.runPushPlan = exports2.syncSubmoduleBranch = exports2.buildPushPlan = exports2.getSubmoduleStatus = exports2.pipelineSegments = exports2.groupEntries = exports2.buildEntryHandles = exports2.copyActionLabel = exports2.primaryActionLabel = exports2.SECTION_GUIDE = exports2.rerunPhase1Prompt = exports2.closedPromotionPrompt = exports2.dismissedPrompt = exports2.promotedPrompt = exports2.exemptedPrompt = exports2.appliedPrompt = exports2.getActionPrompt = exports2.findRuleLineRange = exports2.findRule = exports2.readStandardDefinition = exports2.parseStandardDefinition = exports2.currentAndPreviousMonth = exports2.readDriftLog = exports2.parseDriftLog = exports2.runLint = exports2.parseLintStderr = exports2.readPromotions = exports2.parsePromotions = exports2.resolveStandardPath = exports2.readConformPending = exports2.parseConformPending = exports2.readStandardsBacklog = exports2.readStandardsDrift = exports2.parseStandardsDrift = exports2.readKbDrift = exports2.parseKbDrift = exports2.readCodeDrift = exports2.parseCodeDrift = exports2.stableEntryId = void 0;
     __exportStar(require_types(), exports2);
     __exportStar(require_kb_root(), exports2);
     __exportStar(require_status(), exports2);
@@ -5015,6 +5414,33 @@ var require_dist = __commonJS({
     Object.defineProperty(exports2, "pipelineSegments", { enumerable: true, get: function() {
       return grouping_js_1.pipelineSegments;
     } });
+    var submodule_status_js_1 = require_submodule_status();
+    Object.defineProperty(exports2, "getSubmoduleStatus", { enumerable: true, get: function() {
+      return submodule_status_js_1.getSubmoduleStatus;
+    } });
+    Object.defineProperty(exports2, "buildPushPlan", { enumerable: true, get: function() {
+      return submodule_status_js_1.buildPushPlan;
+    } });
+    var submodule_actions_js_1 = require_submodule_actions();
+    Object.defineProperty(exports2, "syncSubmoduleBranch", { enumerable: true, get: function() {
+      return submodule_actions_js_1.syncSubmoduleBranch;
+    } });
+    Object.defineProperty(exports2, "runPushPlan", { enumerable: true, get: function() {
+      return submodule_actions_js_1.runPushPlan;
+    } });
+    Object.defineProperty(exports2, "hasUpstream", { enumerable: true, get: function() {
+      return submodule_actions_js_1.hasUpstream;
+    } });
+    Object.defineProperty(exports2, "listRemotes", { enumerable: true, get: function() {
+      return submodule_actions_js_1.listRemotes;
+    } });
+    Object.defineProperty(exports2, "detectPushRemote", { enumerable: true, get: function() {
+      return submodule_actions_js_1.detectPushRemote;
+    } });
+    var hooks_status_js_1 = require_hooks_status();
+    Object.defineProperty(exports2, "getHooksStatus", { enumerable: true, get: function() {
+      return hooks_status_js_1.getHooksStatus;
+    } });
   }
 });
 
@@ -5044,35 +5470,80 @@ var SyncWatcher = class {
     this.onChange = onChange;
   }
   fsWatcher = null;
+  extraWatchers = [];
   pollHandle = null;
   debounceTimer = null;
   lastMtimeSum = 0;
-  start() {
+  /**
+   * `extraPaths` is an optional list of additional files to watch — used
+   * for submodule gitdir HEAD files so branch switches inside a
+   * submodule refresh the UI without polling. The set is reset on every
+   * call: pass the current desired set and we'll diff against existing
+   * watchers, disposing any that aren't requested anymore.
+   */
+  start(extraPaths = []) {
     const dir = path.join(this.kbRoot, "knowledge", "sync");
-    if (!fs.existsSync(dir))
-      return;
-    try {
-      this.fsWatcher = fs.watch(dir, { recursive: true }, () => this.scheduleFire());
-    } catch {
+    if (fs.existsSync(dir) && !this.fsWatcher) {
       try {
-        this.fsWatcher = fs.watch(dir, () => this.scheduleFire());
+        this.fsWatcher = fs.watch(
+          dir,
+          { recursive: true },
+          () => this.scheduleFire()
+        );
+      } catch {
+        try {
+          this.fsWatcher = fs.watch(dir, () => this.scheduleFire());
+        } catch {
+        }
+      }
+      this.lastMtimeSum = this.computeMtimeSum(dir);
+      this.pollHandle = setInterval(() => {
+        const next = this.computeMtimeSum(dir);
+        if (next !== this.lastMtimeSum) {
+          this.lastMtimeSum = next;
+          this.scheduleFire();
+        }
+      }, POLL_FALLBACK_MS);
+    }
+    this.reconcileExtraWatchers(extraPaths);
+  }
+  /**
+   * Refresh the set of extra (submodule HEAD) watchers. Cheaper than
+   * stopping and restarting the whole watcher, which would re-arm the
+   * poll loop too.
+   */
+  setExtraPaths(extraPaths) {
+    this.reconcileExtraWatchers(extraPaths);
+  }
+  reconcileExtraWatchers(extraPaths) {
+    for (const w of this.extraWatchers) {
+      try {
+        w.close();
       } catch {
       }
     }
-    this.lastMtimeSum = this.computeMtimeSum(dir);
-    this.pollHandle = setInterval(() => {
-      const next = this.computeMtimeSum(dir);
-      if (next !== this.lastMtimeSum) {
-        this.lastMtimeSum = next;
-        this.scheduleFire();
+    this.extraWatchers = [];
+    for (const p of extraPaths) {
+      try {
+        if (!fs.existsSync(p))
+          continue;
+        this.extraWatchers.push(fs.watch(p, () => this.scheduleFire()));
+      } catch {
       }
-    }, POLL_FALLBACK_MS);
+    }
   }
   stop() {
     if (this.fsWatcher) {
       this.fsWatcher.close();
       this.fsWatcher = null;
     }
+    for (const w of this.extraWatchers) {
+      try {
+        w.close();
+      } catch {
+      }
+    }
+    this.extraWatchers = [];
     if (this.pollHandle) {
       clearInterval(this.pollHandle);
       this.pollHandle = null;
@@ -5220,12 +5691,16 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
   viewMode = "pending";
   activityGroupBy = "date";
   showSystemEvents = true;
+  openSection;
+  submodulesCollapsed = false;
   cb;
   getKbRoot;
   constructor(leaf, callbacks) {
     super(leaf);
     this.cb = callbacks;
     this.getKbRoot = callbacks.getKbRoot;
+    this.openSection = callbacks.getOpenSection();
+    this.submodulesCollapsed = callbacks.getSubmodulesCollapsed();
   }
   getViewType() {
     return VIEW_TYPE_INSTRUMENTALITY;
@@ -5266,6 +5741,17 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       this.status = null;
     }
     this.entryIndex = this.buildEntryIndex(this.status);
+    if (this.watcher && this.status?.submodules) {
+      const extras = [];
+      if (this.status.submodules.parentGitdirHeadPath) {
+        extras.push(this.status.submodules.parentGitdirHeadPath);
+      }
+      for (const e of this.status.submodules.entries) {
+        if (e.gitdirHeadPath)
+          extras.push(e.gitdirHeadPath);
+      }
+      this.watcher.setExtraPaths(extras);
+    }
     this.render();
   }
   // ── rendering ──────────────────────────────────────────────────────────
@@ -5284,6 +5770,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       return;
     }
     this.renderHeader(root);
+    this.renderSubmodulesPinned(root);
     this.renderPipelineStrip(root);
     this.renderViewModeTabs(root);
     if (this.viewMode === "activity") {
@@ -5372,9 +5859,30 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     const meta = left.createDiv({ cls: "instrumentality-head-meta" });
     meta.createSpan({ text: "HEAD: " });
     meta.createEl("code", { text: this.status?.currentHeadShort ?? "?" });
+    this.renderHooksBadge(meta);
     const tools = header.createDiv({ cls: "instrumentality-tools" });
     const refresh = tools.createEl("button", { text: "Refresh", cls: "mod-cta" });
     refresh.addEventListener("click", () => void this.refresh());
+  }
+  renderHooksBadge(parent) {
+    const h = this.status?.hooks;
+    if (!h)
+      return;
+    const labels = {
+      managed: "Hooks: \u2713 managed",
+      partial: "Hooks: \u26A0 partial",
+      missing: "Hooks: \u2717 missing"
+    };
+    const sevClass = h.health === "managed" ? "sev-info" : h.health === "partial" ? "sev-warn" : "sev-error";
+    const tip = h.hooks.map(
+      (f) => `${f.name}: ${f.managed ? "managed" : f.present ? "present (not managed)" : "missing"}`
+    ).join("\n");
+    parent.appendText(" ");
+    parent.createSpan({
+      cls: `badge ${sevClass} hooks-badge`,
+      text: labels[h.health],
+      attr: { title: tip }
+    });
   }
   renderFilterBar(parent) {
     const bar = parent.createDiv({ cls: "instrumentality-filter-bar" });
@@ -5433,16 +5941,99 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
   renderSections(parent) {
     const grid = parent.createDiv({ cls: "instrumentality-section-grid" });
     if (this.groupBy === "section") {
-      this.renderCodeDriftCard(grid);
-      this.renderKbDriftCard(grid);
-      this.renderStandardsDriftCard(grid);
-      this.renderConformCard(grid);
-      this.renderPromotionsCard(grid);
-      this.renderLintCard(grid);
+      this.renderAccordionSections(grid);
     } else {
       this.renderGenericGroups(grid);
     }
     this.applyFilterDom();
+  }
+  /**
+   * Render the section cards in accordion mode: only one card body is
+   * visible at a time, sections re-ordered so non-empty ones float to
+   * the top, canonical order as stable tiebreak. Mirrors VSCode's
+   * sidebar accordion (buildSectionsForOrder + orderSections +
+   * pickOpenSection in webview-render.ts).
+   */
+  renderAccordionSections(grid) {
+    const s = this.status;
+    const conformCount = (s.conformPending.current?.requested.length ?? 0) + (s.conformPending.aspirational?.requested.length ?? 0);
+    const sections = [
+      {
+        key: "code-drift",
+        count: s.codeDrift.entries.length,
+        build: (p) => this.renderCodeDriftCard(p)
+      },
+      {
+        key: "kb-drift",
+        count: s.kbDrift.entries.length,
+        build: (p) => this.renderKbDriftCard(p)
+      },
+      {
+        key: "standards-drift",
+        count: s.standardsDrift.entries.length,
+        build: (p) => this.renderStandardsDriftCard(p)
+      },
+      {
+        key: "conform-pending",
+        count: conformCount,
+        build: (p) => this.renderConformCard(p)
+      },
+      {
+        key: "promotions",
+        count: s.promotions.length,
+        build: (p) => this.renderPromotionsCard(p)
+      },
+      {
+        key: "lint",
+        count: s.lint.violations.length,
+        build: (p) => this.renderLintCard(p)
+      }
+    ];
+    const canonical = new Map(sections.map((sec, i) => [sec.key, i]));
+    const ordered = [...sections].sort((a, b) => {
+      const aHas = a.count > 0;
+      const bHas = b.count > 0;
+      if (aHas !== bHas)
+        return aHas ? -1 : 1;
+      return (canonical.get(a.key) ?? 0) - (canonical.get(b.key) ?? 0);
+    });
+    let openKey = null;
+    if (this.openSection && ordered.some((sec) => sec.key === this.openSection)) {
+      openKey = this.openSection;
+    } else {
+      openKey = (ordered.find((sec) => sec.count > 0) ?? ordered[0])?.key ?? null;
+    }
+    for (const sec of ordered) {
+      sec.build(grid);
+    }
+    if (openKey) {
+      const card = grid.querySelector(
+        `.instrumentality-section-card[data-section="${cssEscape(openKey)}"]`
+      );
+      card?.setAttribute("data-open", "true");
+    }
+    grid.addEventListener("click", (ev) => {
+      const target = ev.target;
+      const headerEl = target.closest(
+        ".instrumentality-section-card > header"
+      );
+      if (!headerEl)
+        return;
+      const card = headerEl.closest(".instrumentality-section-card");
+      if (!card)
+        return;
+      const key = card.getAttribute("data-section");
+      if (!key)
+        return;
+      if (target.closest("button, a, input"))
+        return;
+      if (card.getAttribute("data-open") === "true")
+        return;
+      grid.querySelectorAll('.instrumentality-section-card[data-open="true"]').forEach((el) => el.removeAttribute("data-open"));
+      card.setAttribute("data-open", "true");
+      this.openSection = key;
+      this.cb.setOpenSection(key);
+    });
   }
   /**
    * Render top-level groups for non-section group-by modes via the shared
@@ -6085,6 +6676,297 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       detail,
       sourceFile: v.file
     });
+  }
+  // ── Submodules pinned card ─────────────────────────────────────────────
+  //
+  // Structurally distinct from accordion cards — git state is an
+  // orient-yourself glance, not a work queue. Header dots stay visible
+  // even when the body is collapsed so health is always readable.
+  renderSubmodulesPinned(parent) {
+    const sub = this.status?.submodules;
+    if (!sub || sub.entries.length === 0)
+      return;
+    const collapsed = this.submodulesCollapsed;
+    const card = parent.createDiv({
+      cls: "instrumentality-submodules-pinned",
+      attr: { "data-collapsed": String(collapsed) }
+    });
+    const header = card.createDiv({ cls: "submodules-pinned-header" });
+    header.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    const chevron = header.createSpan({
+      cls: "submodules-pinned-chevron",
+      text: collapsed ? "\u25B8" : "\u25BE"
+    });
+    header.createSpan({ cls: "submodules-pinned-title", text: "Submodules" });
+    header.createSpan({ cls: "count", text: String(sub.entries.length) });
+    const dots = header.createSpan({ cls: "submodules-pinned-dots" });
+    for (const e of sub.entries) {
+      const align = classifyBranch(e, sub.parentBranch);
+      dots.createSpan({
+        cls: `submodule-dot-summary submodule-dot-${align}`,
+        text: "\u25CF",
+        attr: { title: `${e.path} \xB7 ${e.branch ?? "detached"}` }
+      });
+    }
+    const metaSpan = header.createSpan({ cls: "submodules-pinned-meta" });
+    if (sub.parentBranch) {
+      metaSpan.appendText("parent on ");
+      metaSpan.createEl("code", { text: sub.parentBranch });
+    } else {
+      metaSpan.createSpan({ cls: "sev-warn", text: "parent HEAD detached" });
+    }
+    if (sub.wouldBlock) {
+      header.createSpan({
+        cls: "badge sev-error",
+        text: "would block push",
+        attr: {
+          title: "Pre-push hook will block. Submodules need to match the parent branch."
+        }
+      });
+    }
+    header.addEventListener("click", (ev) => {
+      const target = ev.target;
+      if (target.closest("button, a, input"))
+        return;
+      const next = !this.submodulesCollapsed;
+      this.submodulesCollapsed = next;
+      this.cb.setSubmodulesCollapsed(next);
+      card.setAttribute("data-collapsed", String(next));
+      chevron.setText(next ? "\u25B8" : "\u25BE");
+      header.setAttribute("aria-expanded", next ? "false" : "true");
+      body.style.display = next ? "none" : "";
+    });
+    const body = card.createDiv({ cls: "submodule-pinned-body" });
+    if (collapsed)
+      body.style.display = "none";
+    if (sub.sharedPointerChanged.length > 0) {
+      const warn = body.createDiv({ cls: "submodule-shared-warn" });
+      warn.appendText("\u26A0 Shared submodule pointer changed: ");
+      sub.sharedPointerChanged.forEach((p, i) => {
+        if (i > 0)
+          warn.appendText(", ");
+        warn.createEl("code", { text: p });
+      });
+      warn.appendText(" \u2014 affects all consumers.");
+    }
+    const list = body.createDiv({ cls: "submodule-list" });
+    for (const e of sub.entries) {
+      this.renderSubmoduleRow(list, e, sub.parentBranch);
+    }
+    const actions = body.createDiv({ cls: "submodule-actions" });
+    const pushBtn = actions.createEl("button", {
+      cls: sub.wouldBlock ? "instrumentality-submodule-push-btn danger" : "instrumentality-submodule-push-btn mod-cta",
+      text: sub.wouldBlock ? "Run push (will block)" : "Run push"
+    });
+    pushBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      void this.handleSubmodulePush();
+    });
+  }
+  renderSubmoduleRow(parent, e, parentBranch) {
+    const align = classifyBranch(e, parentBranch);
+    const row = parent.createDiv({
+      cls: `submodule-row submodule-row-${align}`
+    });
+    const main = row.createDiv({ cls: "submodule-main" });
+    const title = main.createDiv({ cls: "submodule-title" });
+    title.createEl("code", { text: e.path });
+    title.appendText(" ");
+    if (e.type === "shared") {
+      title.createSpan({
+        cls: "badge sev-info",
+        text: "shared",
+        attr: { title: "kb-shared = true in .gitmodules" }
+      });
+    } else {
+      title.createSpan({
+        cls: "badge",
+        text: "owned",
+        attr: { title: "owned by this superproject" }
+      });
+    }
+    if (e.pointerChanged) {
+      title.appendText(" ");
+      title.createSpan({
+        cls: "submodule-dot pointer",
+        text: "\u25CF",
+        attr: { title: "Pointer changed vs upstream" }
+      });
+    }
+    const meta = main.createDiv({ cls: "submodule-meta" });
+    meta.appendText("on ");
+    const branchChipTitle = align === "aligned" ? "Same branch as parent \u2014 push will sail through." : align === "blocking" ? "Owned submodule on a different branch than parent \u2014 the pre-push hook will block this combination." : align === "advisory" ? "Shared submodule on its own branch \u2014 informational, not blocking." : "Detached HEAD \u2014 no branch to compare.";
+    if (e.branch) {
+      meta.createEl("code", {
+        cls: `branch-chip branch-${align}`,
+        text: e.branch,
+        attr: { title: branchChipTitle }
+      });
+    } else {
+      const chip = meta.createSpan({
+        cls: `branch-chip branch-detached`,
+        attr: { title: branchChipTitle }
+      });
+      chip.createEl("em", { text: "detached" });
+    }
+    meta.appendText(" ");
+    if (e.branchMismatch && parentBranch) {
+      meta.createSpan({
+        cls: "badge sev-error",
+        text: "mismatch",
+        attr: {
+          title: "Submodule branch differs from parent \u2014 the pre-push hook will block this combination."
+        }
+      });
+    } else if (e.pointerChanged) {
+      meta.createSpan({
+        cls: "badge sev-info",
+        text: "to push",
+        attr: {
+          title: "Pointer changed since upstream \u2014 will be included in the next push."
+        }
+      });
+    } else {
+      meta.createSpan({
+        cls: "badge",
+        text: "clean",
+        attr: { title: "In sync with upstream." }
+      });
+    }
+    const rowActions = row.createDiv({ cls: "submodule-row-actions" });
+    if (e.branchMismatch && parentBranch) {
+      const btn = rowActions.createEl("button", {
+        cls: "instrumentality-submodule-sync-btn danger"
+      });
+      btn.appendText("Sync to ");
+      btn.createEl("code", { text: parentBranch });
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        void this.handleSubmoduleSync(e.path, parentBranch);
+      });
+    }
+  }
+  // ── Submodule actions ──────────────────────────────────────────────────
+  async handleSubmoduleSync(subPath, parentBranch) {
+    if (!this.kbRoot) {
+      new import_obsidian.Notice("Instrumentality: knowledge base not detected.");
+      return;
+    }
+    const ok = await confirmModal(this.app, {
+      title: `Sync submodule '${subPath}' \u2192 ${parentBranch}?`,
+      detail: `Runs \`git -C ${subPath} checkout ${parentBranch}\`. Uncommitted changes in the submodule will block the checkout.`,
+      confirmLabel: "Sync"
+    });
+    if (!ok)
+      return;
+    const result = await (0, import_shared.syncSubmoduleBranch)(this.kbRoot, subPath, parentBranch);
+    if (result.success) {
+      new import_obsidian.Notice(
+        `Instrumentality: synced ${subPath} \u2192 ${parentBranch}.`
+      );
+      void this.refresh();
+    } else {
+      new import_obsidian.Notice(
+        `Instrumentality: sync failed: ${result.output || "unknown error"}`
+      );
+    }
+  }
+  async handleSubmodulePush() {
+    if (!this.kbRoot) {
+      new import_obsidian.Notice("Instrumentality: knowledge base not detected.");
+      return;
+    }
+    const sub = this.status?.submodules;
+    if (!sub) {
+      new import_obsidian.Notice("Instrumentality: no submodule data \u2014 refresh first.");
+      return;
+    }
+    if (sub.wouldBlock) {
+      const detail = [
+        `Pre-push hook will reject this push.`,
+        ``,
+        `Submodules on a different branch than the parent (${sub.parentBranch ?? "?"}):`,
+        ...sub.blockingPaths.map((p) => `  \u2022 ${p}`),
+        ``,
+        `Fix: sync each submodule to '${sub.parentBranch ?? "<parent>"}' (use the Sync button on each row),`,
+        `or unstage the submodule pointer change if it isn't part of this feature.`
+      ].join("\n");
+      await confirmModal(this.app, {
+        title: "Push blocked by submodule branch mismatch",
+        detail,
+        confirmLabel: "Dismiss",
+        hideCancel: true
+      });
+      return;
+    }
+    const plan = (0, import_shared.buildPushPlan)(this.kbRoot, sub);
+    let parentRemote;
+    const parentStep = plan.find((s) => s.type === "parent");
+    if (parentStep?.branch && !await (0, import_shared.hasUpstream)(parentStep.fullPath)) {
+      const remotes = await (0, import_shared.listRemotes)(parentStep.fullPath);
+      if (remotes.length === 0) {
+        new import_obsidian.Notice(
+          "Instrumentality: parent repo has no git remote configured."
+        );
+        return;
+      }
+      const defaultRemote = await (0, import_shared.detectPushRemote)(
+        parentStep.fullPath,
+        parentStep.branch,
+        remotes
+      );
+      if (remotes.length === 1) {
+        parentRemote = remotes[0];
+      } else {
+        const pick = await selectModal(this.app, {
+          title: `Set upstream for '${parentStep.branch}' \u2014 pick a remote`,
+          placeholder: `Default: ${defaultRemote}`,
+          options: [
+            defaultRemote,
+            ...remotes.filter((r) => r !== defaultRemote)
+          ].map((r) => ({
+            value: r,
+            label: r,
+            description: r === defaultRemote ? "default" : void 0
+          }))
+        });
+        if (!pick)
+          return;
+        parentRemote = pick;
+      }
+    }
+    const planLines = plan.map((s) => {
+      if (s.type === "parent" && parentRemote && s.branch) {
+        return `${s.order}. parent \u2014 git push -u ${parentRemote} ${s.branch}`;
+      }
+      return `${s.order}. ${s.type === "parent" ? "parent" : s.path} \u2014 git ${s.action}`;
+    });
+    const sharedWarn = sub.sharedPointerChanged.length > 0 ? `
+
+\u26A0 Shared submodule pointer changed:
+${sub.sharedPointerChanged.map((p) => `  \u2022 ${p}`).join(
+      "\n"
+    )}
+These affect all projects consuming the module.` : "";
+    const ok = await confirmModal(this.app, {
+      title: "Push submodules and parent in order?",
+      detail: planLines.join("\n") + sharedWarn,
+      confirmLabel: "Push"
+    });
+    if (!ok)
+      return;
+    const result = await (0, import_shared.runPushPlan)(plan, { parentRemote });
+    void this.refresh();
+    if (result.allSuccess) {
+      new import_obsidian.Notice(
+        `Instrumentality: pushed ${result.steps.length} step(s) successfully.`
+      );
+      return;
+    }
+    const failed = result.steps.find((s) => !s.success);
+    new import_obsidian.Notice(
+      `Instrumentality: push failed at ${failed?.step.path}: ${failed?.output?.slice(0, 200) ?? "unknown error"}`
+    );
   }
   // ── Entry shell + actions ──────────────────────────────────────────────
   entryShell(opts) {
@@ -6769,6 +7651,111 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     return out;
   }
 };
+function cssEscape(s) {
+  return s.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+}
+function classifyBranch(e, parentBranch) {
+  if (!e.branch)
+    return "detached";
+  if (parentBranch && e.branch === parentBranch)
+    return "aligned";
+  return e.type === "owned" ? "blocking" : "advisory";
+}
+function confirmModal(app, opts) {
+  return new Promise((resolve) => {
+    const modal = new ConfirmModal(app, opts, resolve);
+    modal.open();
+  });
+}
+var ConfirmModal = class extends import_obsidian.Modal {
+  constructor(app, opts, done) {
+    super(app);
+    this.opts = opts;
+    this.done = done;
+  }
+  resolved = false;
+  onOpen() {
+    this.titleEl.setText(this.opts.title);
+    const detail = this.contentEl.createEl("pre", {
+      cls: "instrumentality-modal-detail",
+      text: this.opts.detail
+    });
+    detail.style.whiteSpace = "pre-wrap";
+    const actions = this.contentEl.createDiv({
+      cls: "instrumentality-modal-actions"
+    });
+    if (!this.opts.hideCancel) {
+      const cancel = actions.createEl("button", { text: "Cancel" });
+      cancel.addEventListener("click", () => {
+        this.resolved = true;
+        this.done(false);
+        this.close();
+      });
+    }
+    const ok = actions.createEl("button", {
+      cls: "mod-cta",
+      text: this.opts.confirmLabel
+    });
+    ok.addEventListener("click", () => {
+      this.resolved = true;
+      this.done(true);
+      this.close();
+    });
+  }
+  onClose() {
+    if (!this.resolved)
+      this.done(false);
+    this.contentEl.empty();
+  }
+};
+function selectModal(app, opts) {
+  return new Promise((resolve) => {
+    const modal = new SelectModal(app, opts, resolve);
+    modal.open();
+  });
+}
+var SelectModal = class extends import_obsidian.Modal {
+  constructor(app, opts, done) {
+    super(app);
+    this.opts = opts;
+    this.done = done;
+  }
+  resolved = false;
+  onOpen() {
+    this.titleEl.setText(this.opts.title);
+    if (this.opts.placeholder) {
+      this.contentEl.createDiv({
+        cls: "instrumentality-modal-placeholder",
+        text: this.opts.placeholder
+      });
+    }
+    const list = this.contentEl.createDiv({
+      cls: "instrumentality-modal-select-list"
+    });
+    for (const opt of this.opts.options) {
+      const btn = list.createEl("button", {
+        cls: "instrumentality-modal-select-item"
+      });
+      btn.createSpan({ text: opt.label });
+      if (opt.description) {
+        btn.createSpan({
+          cls: "instrumentality-modal-select-desc",
+          text: opt.description
+        });
+      }
+      btn.addEventListener("click", () => {
+        this.resolved = true;
+        this.done(opt.value);
+        this.close();
+      });
+    }
+  }
+  onClose() {
+    if (!this.resolved)
+      this.done(null);
+    this.contentEl.empty();
+  }
+};
 
 // src/main.ts
 var ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
@@ -6781,18 +7768,30 @@ var ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill
 </svg>`;
 var InstrumentalityPlugin = class extends import_obsidian2.Plugin {
   dismissedBanners = /* @__PURE__ */ new Set();
+  openSection = void 0;
+  submodulesCollapsed = false;
   async onload() {
     (0, import_obsidian2.addIcon)(ICON_ID, ICON_SVG);
     const data = await this.loadData();
     if (data && Array.isArray(data.dismissedBanners)) {
       this.dismissedBanners = new Set(data.dismissedBanners);
     }
+    if (data && typeof data.openSection === "string") {
+      this.openSection = data.openSection;
+    }
+    if (data && data.submodulesCollapsed === true) {
+      this.submodulesCollapsed = true;
+    }
     this.registerView(
       VIEW_TYPE_INSTRUMENTALITY,
       (leaf) => new InstrumentalityView(leaf, {
         getKbRoot: () => this.detectKbRoot(),
         getDismissedBanners: () => this.dismissedBanners,
-        dismissBanner: (kind) => void this.persistDismissedBanner(kind)
+        dismissBanner: (kind) => void this.persistDismissedBanner(kind),
+        getOpenSection: () => this.openSection,
+        setOpenSection: (key) => void this.persistOpenSection(key),
+        getSubmodulesCollapsed: () => this.submodulesCollapsed,
+        setSubmodulesCollapsed: (flag) => void this.persistSubmodulesCollapsed(flag)
       })
     );
     this.addRibbonIcon(ICON_ID, "Instrumentality", () => void this.activateView());
@@ -6816,8 +7815,25 @@ var InstrumentalityPlugin = class extends import_obsidian2.Plugin {
     if (this.dismissedBanners.has(kind))
       return;
     this.dismissedBanners.add(kind);
+    await this.persistAll();
+  }
+  async persistOpenSection(key) {
+    if (this.openSection === key)
+      return;
+    this.openSection = key;
+    await this.persistAll();
+  }
+  async persistSubmodulesCollapsed(flag) {
+    if (this.submodulesCollapsed === flag)
+      return;
+    this.submodulesCollapsed = flag;
+    await this.persistAll();
+  }
+  async persistAll() {
     await this.saveData({
-      dismissedBanners: [...this.dismissedBanners]
+      dismissedBanners: [...this.dismissedBanners],
+      openSection: this.openSection,
+      submodulesCollapsed: this.submodulesCollapsed
     });
   }
   onunload() {

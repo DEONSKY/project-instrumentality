@@ -666,3 +666,296 @@
   border: 1px dashed var(--background-modifier-border);
   opacity: 0.85;
 }
+
+/* ── Hooks badge ──────────────────────────────────────────────────────── */
+.hooks-badge {
+  cursor: help;
+}
+
+/* ── Pinned Submodules card ───────────────────────────────────────────
+ * Visually distinct from accordion cards — top-accent border, dot
+ * summary in the header, body collapses independently from the
+ * accordion below. */
+.instrumentality-submodules-pinned {
+  border: 1px solid var(--background-modifier-border);
+  border-top: 2px solid var(--interactive-accent);
+  border-radius: 4px;
+  background: var(--background-primary);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.instrumentality-submodules-pinned .submodules-pinned-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  background: var(--background-secondary);
+  flex-wrap: wrap;
+}
+.instrumentality-submodules-pinned .submodules-pinned-header:hover {
+  background: var(--background-modifier-hover);
+}
+.instrumentality-submodules-pinned .submodules-pinned-chevron {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  width: 0.9em;
+  display: inline-block;
+  text-align: center;
+}
+.instrumentality-submodules-pinned .submodules-pinned-title {
+  font-weight: 600;
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.instrumentality-submodules-pinned .submodules-pinned-header .count {
+  display: inline-block;
+  font-weight: 500;
+  font-size: 0.8em;
+  background: var(--code-background);
+  color: var(--text-muted);
+  padding: 0 6px;
+  border-radius: 8px;
+}
+.instrumentality-submodules-pinned .submodules-pinned-dots {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 4px;
+}
+.submodule-dot-summary {
+  font-size: 0.95em;
+  line-height: 1;
+}
+.submodule-dot-aligned  { color: var(--color-green, #2da44e); }
+.submodule-dot-blocking { color: var(--text-error, #e51400); }
+.submodule-dot-advisory { color: var(--color-blue, #4a90e2); }
+.submodule-dot-detached { color: var(--text-muted); }
+
+.instrumentality-submodules-pinned .submodules-pinned-meta {
+  margin-left: auto;
+  font-size: 0.82em;
+  color: var(--text-muted);
+}
+.instrumentality-submodules-pinned .submodules-pinned-meta code {
+  font-family: var(--font-monospace);
+  background: var(--code-background);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.instrumentality-submodules-pinned .submodule-pinned-body {
+  padding: 4px 10px 8px;
+  border-top: 1px solid var(--background-modifier-border);
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.instrumentality-submodules-pinned[data-collapsed="true"]
+  .submodule-pinned-body {
+  display: none;
+}
+
+.submodule-shared-warn {
+  padding: 6px 8px;
+  margin: 6px 0;
+  border-left: 3px solid var(--text-warning, #b58900);
+  background: var(--code-background);
+  font-size: 0.9em;
+}
+.submodule-shared-warn code {
+  background: transparent;
+  padding: 0;
+}
+
+.submodule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+}
+.submodule-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-left: 3px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+}
+.submodule-row-aligned  { border-left-color: var(--color-green, #2da44e); }
+.submodule-row-blocking { border-left-color: var(--text-error, #e51400); }
+.submodule-row-advisory { border-left-color: var(--color-blue, #4a90e2); }
+.submodule-row-detached { border-left-color: var(--text-muted); }
+
+.submodule-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.submodule-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.95em;
+}
+.submodule-title code {
+  font-family: var(--font-monospace);
+  background: var(--code-background);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.submodule-meta {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.submodule-dot.pointer {
+  color: var(--text-warning, #b58900);
+  font-size: 1.05em;
+  line-height: 1;
+}
+.submodule-row-actions {
+  flex: 0 0 auto;
+}
+.submodule-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 0 4px;
+}
+.instrumentality-submodule-push-btn,
+.instrumentality-submodule-sync-btn {
+  cursor: pointer;
+}
+.instrumentality-submodule-push-btn.danger,
+.instrumentality-submodule-sync-btn.danger {
+  background: var(--text-error, #e51400);
+  color: #fff;
+  border-color: var(--text-error, #e51400);
+}
+.instrumentality-submodule-push-btn.danger:hover,
+.instrumentality-submodule-sync-btn.danger:hover {
+  filter: brightness(1.1);
+}
+.instrumentality-submodule-sync-btn code {
+  background: rgba(0, 0, 0, 0.15);
+  color: inherit;
+  padding: 0 4px;
+  border-radius: 3px;
+  margin-left: 2px;
+}
+
+/* Branch chip — palette mirrors the row accent. */
+.branch-chip {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.88em;
+  background: var(--code-background);
+  border: 1px solid transparent;
+  font-family: var(--font-monospace);
+}
+.branch-chip.branch-aligned {
+  background: color-mix(in srgb, var(--color-green, #2da44e) 22%, var(--code-background));
+  border-color: var(--color-green, #2da44e);
+  color: var(--text-normal);
+}
+.branch-chip.branch-blocking {
+  background: color-mix(in srgb, var(--text-error, #e51400) 22%, var(--code-background));
+  border-color: var(--text-error, #e51400);
+  color: var(--text-normal);
+}
+.branch-chip.branch-advisory {
+  background: color-mix(in srgb, var(--color-blue, #4a90e2) 22%, var(--code-background));
+  border-color: var(--color-blue, #4a90e2);
+  color: var(--text-normal);
+}
+.branch-chip.branch-detached {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Accordion (section group-by mode) ───────────────────────────────
+ * Closed cards collapse to their header. Clicking a header swaps which
+ * card is open. Hover gives a subtle "clickable" affordance — the
+ * cursor: pointer is the primary signal. Only applied when the parent
+ * grid is in section mode (i.e. the data-section attr matches a known
+ * SectionKind on the card root). Non-section group-by modes render the
+ * cards flat as before because they don't pass through the accordion
+ * setup. */
+.instrumentality-section-card > header {
+  cursor: pointer;
+  user-select: none;
+}
+.instrumentality-section-card > header:hover {
+  background: var(--background-modifier-hover);
+}
+.instrumentality-section-card > header h2::before {
+  content: "▸";
+  display: inline-block;
+  font-size: 0.85em;
+  margin-right: 6px;
+  color: var(--text-muted);
+  transition: transform 120ms ease;
+}
+.instrumentality-section-card[data-open="true"] > header h2::before {
+  transform: rotate(90deg);
+}
+/* Hide body + banners on closed cards; show on the open one. */
+.instrumentality-section-card > .body,
+.instrumentality-section-card > .instrumentality-banner,
+.instrumentality-section-card > .group-hint {
+  display: none;
+}
+.instrumentality-section-card[data-open="true"] > .body,
+.instrumentality-section-card[data-open="true"] > .instrumentality-banner,
+.instrumentality-section-card[data-open="true"] > .group-hint {
+  display: block;
+}
+.instrumentality-section-card[data-open="true"] > .instrumentality-banner.hidden {
+  display: none;
+}
+
+/* ── Modals ──────────────────────────────────────────────────────────── */
+.instrumentality-modal-detail {
+  font-family: var(--font-monospace);
+  font-size: 0.85em;
+  background: var(--code-background);
+  padding: 8px 10px;
+  border-radius: 3px;
+  max-height: 50vh;
+  overflow: auto;
+  margin: 8px 0;
+}
+.instrumentality-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.instrumentality-modal-placeholder {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  margin: 4px 0 10px;
+}
+.instrumentality-modal-select-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.instrumentality-modal-select-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.instrumentality-modal-select-desc {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}

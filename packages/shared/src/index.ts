@@ -51,6 +51,18 @@ export {
   buildPushPlan,
 } from "./submodule-status.js";
 export type { PushPlanStep, GetSubmoduleStatusOptions } from "./submodule-status.js";
+export {
+  syncSubmoduleBranch,
+  runPushPlan,
+  hasUpstream,
+  listRemotes,
+  detectPushRemote,
+} from "./submodule-actions.js";
+export type {
+  PushStepResult,
+  PushResult,
+  RunPushPlanOptions,
+} from "./submodule-actions.js";
 export { getHooksStatus } from "./hooks-status.js";
 export type {
   GroupBy,
