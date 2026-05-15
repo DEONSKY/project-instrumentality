@@ -206,6 +206,8 @@ export interface StatusSummary {
   promotions: PromotionEntry[];
   driftLogEvents: DriftLogEvent[];
   lint: { violations: LintViolation[]; ran: boolean; error?: string };
+  submodules?: SubmoduleStatus;
+  hooks?: HooksStatus;
   totals: {
     drifts: number;
     conformPending: number;
@@ -214,4 +216,87 @@ export interface StatusSummary {
     lintWarnings: number;
     grand: number;
   };
+}
+
+// ── Submodule status ────────────────────────────────────────────────────────
+//
+// Mirrors what knowledge/_mcp/tools/sub.js exposes via `kb_sub status`, but
+// computed in-process by the extension so the sidebar can show always-on
+// state without round-tripping through the MCP. The `wouldBlockPush`
+// re-implements the rule encoded in the managed pre-push hook (see
+// knowledge/_mcp/tools/init.js) so the UI can preflight a push before it
+// runs.
+
+export type SubmoduleType = "owned" | "shared";
+
+export interface SubmoduleEntry {
+  /** `[submodule "<name>"]` from .gitmodules */
+  name: string;
+  /** path relative to the parent repo root */
+  path: string;
+  /** absolute path on disk */
+  fullPath: string;
+  /** "shared" when .gitmodules sets `kb-shared = true`, else "owned" */
+  type: SubmoduleType;
+  /** current submodule branch, or null when detached / unreadable */
+  branch: string | null;
+  /** true when the parent's HEAD ls-tree pointer differs from upstream */
+  pointerChanged: boolean;
+  /**
+   * Only set for **owned** submodules whose pointer changed AND whose
+   * branch is not the parent's branch. Same rule the pre-push hook uses.
+   */
+  branchMismatch: boolean;
+  /**
+   * Absolute path of the resolved gitdir's HEAD file. Used by the
+   * extension to install a FileSystemWatcher so branch switches inside
+   * the submodule refresh the UI without polling.
+   */
+  gitdirHeadPath: string | null;
+}
+
+export interface SubmoduleStatus {
+  /** Parent branch (null if detached HEAD on the parent). */
+  parentBranch: string | null;
+  /** Parent's `.git/HEAD` path — also watched. */
+  parentGitdirHeadPath: string | null;
+  /** Empty when `.gitmodules` is absent. */
+  entries: SubmoduleEntry[];
+  /**
+   * Precomputed pre-push preflight. When any owned submodule has
+   * branchMismatch=true, `wouldBlock` is true and `blockingPaths` lists
+   * the offending submodule paths. UI uses this to decorate "Run push"
+   * red and surface the same remediation the hook would print.
+   */
+  wouldBlock: boolean;
+  blockingPaths: string[];
+  /**
+   * Shared submodules whose pointer changed — the pre-push hook warns
+   * (not blocks). Surfaced as an inline note next to "Run push".
+   */
+  sharedPointerChanged: string[];
+}
+
+// ── Hooks status ────────────────────────────────────────────────────────────
+//
+// Reads `.git/hooks/{pre-commit,pre-push,post-merge,post-checkout}` and
+// checks for the `# kb-mcp managed` marker that knowledge/_mcp/tools/init.js
+// writes. UI shows a small header badge so the user knows whether the
+// hooks are still in place (a teammate's `git config core.hooksPath`
+// override, a stale repo clone, etc., can silently disable them).
+
+export type HooksHealth = "managed" | "partial" | "missing";
+
+export interface HookFileStatus {
+  /** Hook filename, e.g. "pre-push". */
+  name: string;
+  /** True when the file exists. */
+  present: boolean;
+  /** True when the `# kb-mcp managed` marker line is present. */
+  managed: boolean;
+}
+
+export interface HooksStatus {
+  health: HooksHealth;
+  hooks: HookFileStatus[];
 }

@@ -1,6 +1,9 @@
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js')
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js')
 const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js')
+const fsTracker = require('./lib/fs-tracker')
+
+fsTracker.install()
 
 const tools = {
   kb_get: require('./tools/get'),
@@ -56,14 +59,26 @@ async function main() {
       }
     }
 
+    fsTracker.beginCall()
     try {
       const result = await tool.runTool(args || {})
+      const auto = fsTracker.endCall()
+      // Tool may set its own filesChanged to override (e.g. to hide temp files
+      // or report logical writes that don't map 1:1 to fs writes). Otherwise
+      // we use whatever the tracker captured.
+      const filesChanged = Object.prototype.hasOwnProperty.call(result, 'filesChanged')
+        ? result.filesChanged
+        : auto
+      const merged = filesChanged ? { ...result, filesChanged } : result
       return {
-        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+        content: [{ type: 'text', text: JSON.stringify(merged, null, 2) }]
       }
     } catch (err) {
+      const auto = fsTracker.endCall()
+      let text = `Error: ${err.message}`
+      if (auto) text += `\n\nfilesChanged: ${JSON.stringify(auto)}`
       return {
-        content: [{ type: 'text', text: `Error: ${err.message}` }],
+        content: [{ type: 'text', text }],
         isError: true
       }
     }

@@ -125,6 +125,16 @@ async function handleMessage(msg: any): Promise<void> {
       await cb.onAction({ type: "verdictSubmit", ref: msg.ref, verdict, draft });
       return;
     }
+    case "submoduleSync": {
+      const subPath = typeof msg.subPath === "string" ? msg.subPath : "";
+      const parentBranch = typeof msg.parentBranch === "string" ? msg.parentBranch : "";
+      if (!subPath || !parentBranch) return;
+      await cb.onAction({ type: "submoduleSync", subPath, parentBranch });
+      return;
+    }
+    case "submodulePush":
+      await cb.onAction({ type: "submodulePush" });
+      return;
     case "reveal":
       await cb.onReveal(msg.ref);
       return;

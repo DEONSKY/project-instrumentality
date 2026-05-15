@@ -46,6 +46,12 @@ export {
   groupEntries,
   pipelineSegments,
 } from "./grouping.js";
+export {
+  getSubmoduleStatus,
+  buildPushPlan,
+} from "./submodule-status.js";
+export type { PushPlanStep, GetSubmoduleStatusOptions } from "./submodule-status.js";
+export { getHooksStatus } from "./hooks-status.js";
 export type {
   GroupBy,
   LifecycleStage,

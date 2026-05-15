@@ -12,8 +12,10 @@ import {
   promotedPrompt,
   dismissedPrompt,
   closedPromotionPrompt,
+  buildPushPlan,
   type StatusSummary,
 } from "@instrumentality/shared";
+import { syncSubmoduleBranch, runPushPlan } from "./submodule-actions";
 import {
   openDashboard,
   refreshDashboardIfOpen,
@@ -35,6 +37,7 @@ import { showFileDiff } from "./diff";
 let sidebarProvider: SidebarViewProvider;
 let statusBar: vscode.StatusBarItem;
 let diagnostics: KbDiagnostics;
+let extContext: vscode.ExtensionContext | null = null;
 let kbRoot: string | null = null;
 let lastStatus: StatusSummary | null = null;
 let prevTotals: StatusSummary["totals"] | null = null;
@@ -43,6 +46,10 @@ let refreshInflight: Promise<void> | null = null;
 let refreshScheduled: NodeJS.Timeout | null = null;
 let pollInterval: NodeJS.Timeout | null = null;
 let watchers: vscode.FileSystemWatcher[] = [];
+// Submodule HEAD watchers are reconciled per-refresh (the set of
+// submodules can change at runtime — add/remove via .gitmodules — so we
+// keep them in a separate map keyed by the watched path).
+let submoduleWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
 
 const DEBOUNCE_MS = 300;
 const PARSE_RETRY_MS = 500;
@@ -64,6 +71,7 @@ let currentFilter: DashboardFilter = {
 let dismissedBanners: Set<SectionKind> = new Set();
 
 export function activate(context: vscode.ExtensionContext): void {
+  extContext = context;
   loadStateFromWorkspace(context);
 
   diagnostics = new KbDiagnostics();
@@ -134,6 +142,8 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {
   for (const w of watchers) w.dispose();
   watchers = [];
+  for (const w of submoduleWatchers.values()) w.dispose();
+  submoduleWatchers.clear();
   if (pollInterval) clearInterval(pollInterval);
 }
 
@@ -212,8 +222,67 @@ function detectAndWatch(context: vscode.ExtensionContext): void {
   watchers.push(watcher);
   context.subscriptions.push(watcher);
 
+  // Submodule add/remove — .gitmodules change forces a re-resolution of
+  // the watch set on the next refresh.
+  const gitmodulesWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(vscode.Uri.file(kbRoot), ".gitmodules")
+  );
+  gitmodulesWatcher.onDidChange(onChange);
+  gitmodulesWatcher.onDidCreate(onChange);
+  gitmodulesWatcher.onDidDelete(onChange);
+  watchers.push(gitmodulesWatcher);
+  context.subscriptions.push(gitmodulesWatcher);
+
   restartPoll();
   void refresh();
+}
+
+/**
+ * Reconcile the set of submodule HEAD-file watchers against the current
+ * status. New submodules get a watcher; submodules removed from
+ * .gitmodules (or no longer checked out) have theirs disposed. Watching
+ * each gitdir's HEAD picks up `git -C <sub> checkout <branch>` inside
+ * the submodule without polling — the user's preferred refresh source.
+ */
+function reconcileSubmoduleWatchers(
+  context: vscode.ExtensionContext,
+  status: StatusSummary | null
+): void {
+  const want = new Set<string>();
+  if (status?.submodules) {
+    if (status.submodules.parentGitdirHeadPath) {
+      want.add(status.submodules.parentGitdirHeadPath);
+    }
+    for (const e of status.submodules.entries) {
+      if (e.gitdirHeadPath) want.add(e.gitdirHeadPath);
+    }
+  }
+
+  // Dispose watchers we no longer want.
+  for (const [p, w] of submoduleWatchers) {
+    if (!want.has(p)) {
+      w.dispose();
+      submoduleWatchers.delete(p);
+    }
+  }
+  // Create watchers we don't yet have. Single-file watch via
+  // RelativePattern(dir, basename) — works for paths outside the
+  // workspace folder (which submodule gitdirs typically are, since
+  // they live under <parent>/.git/modules/<name>).
+  for (const p of want) {
+    if (submoduleWatchers.has(p)) continue;
+    const dir = path.dirname(p);
+    const base = path.basename(p);
+    const w = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(vscode.Uri.file(dir), base)
+    );
+    const onChange = () => scheduleRefresh();
+    w.onDidChange(onChange);
+    w.onDidCreate(onChange);
+    w.onDidDelete(onChange);
+    submoduleWatchers.set(p, w);
+    context.subscriptions.push(w);
+  }
 }
 
 function restartPoll(): void {
@@ -282,6 +351,7 @@ function applyStatus(status: StatusSummary): void {
   sidebarProvider.refresh();
   refreshDashboardIfOpen(status);
   maybeNotify(status);
+  if (extContext) reconcileSubmoduleWatchers(extContext, status);
 }
 
 function setSpinner(spinning: boolean): void {
@@ -393,6 +463,14 @@ async function handleAction(
   }
   if (action.type === "verdictSubmit") {
     await handleVerdictSubmit(action);
+    return;
+  }
+  if (action.type === "submoduleSync") {
+    await handleSubmoduleSync(action);
+    return;
+  }
+  if (action.type === "submodulePush") {
+    await handleSubmodulePush();
     return;
   }
   if (action.type === "openLedger") {
@@ -647,4 +725,104 @@ async function handleShowFileDiff(payload: ShowFileDiffPayload): Promise<void> {
     return;
   }
   await showFileDiff(kbRoot, payload.absPath, payload.sinceCommit, payload.latestCommit || undefined);
+}
+
+// ── Submodule actions ──────────────────────────────────────────────────────
+
+async function handleSubmoduleSync(
+  action: Extract<DashboardAction, { type: "submoduleSync" }>
+): Promise<void> {
+  if (!kbRoot) {
+    void vscode.window.showWarningMessage("Instrumentality: knowledge base not detected.");
+    return;
+  }
+  const choice = await vscode.window.showInformationMessage(
+    `Check out '${action.parentBranch}' inside submodule '${action.subPath}'?`,
+    { modal: true, detail: "This runs `git -C " + action.subPath + " checkout " + action.parentBranch + "`. Uncommitted changes in the submodule will block the checkout." },
+    "Sync"
+  );
+  if (choice !== "Sync") return;
+  const result = await syncSubmoduleBranch(kbRoot, action.subPath, action.parentBranch);
+  if (result.success) {
+    void vscode.window.showInformationMessage(
+      `Instrumentality: synced ${action.subPath} → ${action.parentBranch}.`
+    );
+    void refresh();
+  } else {
+    void vscode.window.showErrorMessage(
+      `Instrumentality: sync failed: ${result.output || "unknown error"}`
+    );
+  }
+}
+
+async function handleSubmodulePush(): Promise<void> {
+  if (!kbRoot) {
+    void vscode.window.showWarningMessage("Instrumentality: knowledge base not detected.");
+    return;
+  }
+  const sub = lastStatus?.submodules;
+  if (!sub) {
+    void vscode.window.showWarningMessage("Instrumentality: no submodule data — refresh first.");
+    return;
+  }
+
+  // Preflight: re-implements the pre-push hook's blocking rule. If we'd
+  // block, surface the same remediation the hook prints instead of
+  // running any pushes.
+  if (sub.wouldBlock) {
+    const detail = [
+      `Pre-push hook will reject this push.`,
+      ``,
+      `Submodules on a different branch than the parent (${sub.parentBranch ?? "?"}):`,
+      ...sub.blockingPaths.map((p) => `  • ${p}`),
+      ``,
+      `Fix: sync each submodule to '${sub.parentBranch ?? "<parent>"}' (use the Sync button on each row),`,
+      `or unstage the submodule pointer change if it isn't part of this feature.`,
+    ].join("\n");
+    await vscode.window.showErrorMessage(
+      "Instrumentality: push blocked by submodule branch mismatch.",
+      { modal: true, detail },
+      "Dismiss"
+    );
+    return;
+  }
+
+  const plan = buildPushPlan(kbRoot, sub);
+  if (plan.length === 1 && plan[0].type === "parent") {
+    // Nothing to do beyond a plain parent push — fall through to the
+    // standard plan anyway so the user sees the same confirm flow.
+  }
+
+  const planText = plan
+    .map((s) => `${s.order}. ${s.type === "parent" ? "parent" : s.path} — git ${s.action}`)
+    .join("\n");
+  const sharedWarn =
+    sub.sharedPointerChanged.length > 0
+      ? `\n\n⚠ Shared submodule pointer changed:\n${sub.sharedPointerChanged
+          .map((p) => `  • ${p}`)
+          .join("\n")}\nThese affect all projects consuming the module.`
+      : "";
+
+  const choice = await vscode.window.showInformationMessage(
+    "Push submodules and parent in order?",
+    {
+      modal: true,
+      detail: planText + sharedWarn,
+    },
+    "Push"
+  );
+  if (choice !== "Push") return;
+
+  const result = await runPushPlan(plan);
+  void refresh();
+  if (result.allSuccess) {
+    void vscode.window.showInformationMessage(
+      `Instrumentality: pushed ${result.steps.length} step(s) successfully.`
+    );
+    return;
+  }
+  const failed = result.steps.find((s) => !s.success);
+  void vscode.window.showErrorMessage(
+    `Instrumentality: push failed at ${failed?.step.path}: ${failed?.output?.slice(0, 200) ?? "unknown error"}`
+  );
 }

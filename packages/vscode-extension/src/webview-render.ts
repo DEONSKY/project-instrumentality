@@ -21,6 +21,7 @@ import {
   type EntryHandle,
   type Group,
   type SectionKind,
+  type SubmoduleEntry,
 } from "@instrumentality/shared";
 import {
   buildCodeDriftDetail,
@@ -78,6 +79,8 @@ export type DashboardAction =
       verdict: VerdictKey;
       draft: VerdictDraft;
     }
+  | { type: "submoduleSync"; subPath: string; parentBranch: string }
+  | { type: "submodulePush" }
   | { type: "refresh" };
 
 // ── Verdict definitions ─────────────────────────────────────────────────────
@@ -335,12 +338,16 @@ export function renderHtml(
       ? `<header class="app-header">
     <div>
       <h1>Instrumentality Dashboard</h1>
-      <div class="head-line">HEAD: <code>${escapeHtml(head)}</code></div>
+      <div class="head-line">HEAD: <code>${escapeHtml(head)}</code> ${
+          status ? renderHooksBadge(status) : ""
+        }</div>
     </div>
     <div class="toolbar">
       <button class="btn" data-cmd="refresh">Refresh</button>
     </div>
   </header>`
+      : status
+      ? `<div class="sidebar-ribbon">${renderHooksBadge(status)}</div>`
       : ""
   }
 
@@ -649,6 +656,17 @@ export function renderHtml(
           if (row) hideVerdictForm(row);
           return;
         }
+        if (action === "submoduleSync") {
+          const subPath = target.getAttribute("data-sub-path") || "";
+          const parentBranch = target.getAttribute("data-parent-branch") || "";
+          if (!subPath || !parentBranch) return;
+          vscode.postMessage({ command: "submoduleSync", subPath, parentBranch });
+          return;
+        }
+        if (action === "submodulePush") {
+          vscode.postMessage({ command: "submodulePush" });
+          return;
+        }
         if (action === "verdictSubmit") {
           const row = target.closest(".entry");
           if (!row) return;
@@ -800,6 +818,7 @@ function renderGroupedBody(
       renderConformCard(status, index, dismissedBanners),
       renderPromotionsCard(status, index, dismissedBanners),
       renderLintCard(status, index, dismissedBanners),
+      renderSubmodulesCard(status),
     ].join("");
   }
   const handles = buildEntryHandles(status);
@@ -1479,6 +1498,135 @@ function lintRow(v: LintViolation, i: number): string {
     <div class="meta"><code>${escapeHtml(v.file)}</code> — ${escapeHtml(v.message)}</div>`;
   const text = v.file + " " + v.message;
   return entryShell(ref, v.severity, text, summary, buildLintDetail(v), false, false, []);
+}
+
+// ── Submodules card ─────────────────────────────────────────────────────────
+
+function renderSubmodulesCard(status: StatusSummary): string {
+  const sub = status.submodules;
+  if (!sub || sub.entries.length === 0) return "";
+
+  const parentBranchHtml = sub.parentBranch
+    ? `parent on <code>${escapeHtml(sub.parentBranch)}</code>`
+    : `<span class="sev-warn">parent HEAD detached</span>`;
+
+  const blockHtml = sub.wouldBlock
+    ? `<span class="badge sev-error" title="Pre-push hook will block. Submodules need to match the parent branch.">would block push</span>`
+    : "";
+
+  const sharedWarnHtml =
+    sub.sharedPointerChanged.length > 0
+      ? `<div class="submodule-shared-warn">⚠ Shared submodule pointer changed: ${sub.sharedPointerChanged
+          .map((p) => `<code>${escapeHtml(p)}</code>`)
+          .join(", ")} — affects all consumers.</div>`
+      : "";
+
+  const rows = sub.entries.map((e) => submoduleRow(e, sub.parentBranch)).join("");
+
+  const pushBtnClass = sub.wouldBlock ? "btn-tiny btn-danger" : "btn-primary btn-tiny";
+  const pushBtnLabel = sub.wouldBlock ? "Run push (will block)" : "Run push";
+
+  return `<section class="section-card" data-section="submodules">
+    <header>
+      <h2>Submodules <span class="count">${sub.entries.length}</span> ${blockHtml}</h2>
+      <div class="group-hint">${parentBranchHtml}</div>
+    </header>
+    <div class="body">
+      ${sharedWarnHtml}
+      <div class="submodule-list">${rows}</div>
+      <div class="submodule-actions">
+        <button class="btn ${pushBtnClass}" data-action="submodulePush">${escapeHtml(pushBtnLabel)}</button>
+      </div>
+    </div>
+  </section>`;
+}
+
+// Branch-alignment state encodes what the branch relationship MEANS for the
+// user, not just match/mismatch. Drives both the branch chip color and the
+// row's left-border accent so the row is scannable at a glance.
+type BranchAlignment = "aligned" | "blocking" | "advisory" | "detached";
+
+function classifyBranch(e: SubmoduleEntry, parentBranch: string | null): BranchAlignment {
+  if (!e.branch) return "detached";
+  if (parentBranch && e.branch === parentBranch) return "aligned";
+  // Different from parent. Owned = blocking (pre-push hook rejects);
+  // shared = advisory (shared modules legitimately live on their own
+  // branches and don't enforce alignment).
+  return e.type === "owned" ? "blocking" : "advisory";
+}
+
+function submoduleRow(e: SubmoduleEntry, parentBranch: string | null): string {
+  const align = classifyBranch(e, parentBranch);
+
+  const typeBadge =
+    e.type === "shared"
+      ? `<span class="badge sev-info" title="kb-shared = true in .gitmodules">shared</span>`
+      : `<span class="badge" title="owned by this superproject">owned</span>`;
+
+  const branchChipTitle =
+    align === "aligned"
+      ? "Same branch as parent — push will sail through."
+      : align === "blocking"
+      ? "Owned submodule on a different branch than parent — the pre-push hook will block this combination."
+      : align === "advisory"
+      ? "Shared submodule on its own branch — informational, not blocking."
+      : "Detached HEAD — no branch to compare.";
+  const branchHtml = e.branch
+    ? `<code class="branch-chip branch-${align}" title="${escapeAttr(branchChipTitle)}">${escapeHtml(e.branch)}</code>`
+    : `<span class="branch-chip branch-detached" title="${escapeAttr(branchChipTitle)}"><em>detached</em></span>`;
+
+  const pointerDot = e.pointerChanged
+    ? `<span class="submodule-dot pointer" title="Pointer changed vs upstream">●</span>`
+    : "";
+
+  let stateHtml = "";
+  let actionsHtml = "";
+  if (e.branchMismatch && parentBranch) {
+    stateHtml = `<span class="badge sev-error" title="Submodule branch differs from parent — the pre-push hook will block this combination.">mismatch</span>`;
+    actionsHtml = `<button class="btn btn-tiny btn-danger" data-action="submoduleSync" data-sub-path="${escapeAttr(
+      e.path
+    )}" data-parent-branch="${escapeAttr(parentBranch)}">Sync to <code>${escapeHtml(
+      parentBranch
+    )}</code></button>`;
+  } else if (e.pointerChanged) {
+    stateHtml = `<span class="badge sev-info" title="Pointer changed since upstream — will be included in the next push.">to push</span>`;
+  } else {
+    stateHtml = `<span class="badge" title="In sync with upstream.">clean</span>`;
+  }
+
+  return `<div class="submodule-row submodule-row-${align}">
+    <div class="submodule-main">
+      <div class="submodule-title">
+        <code>${escapeHtml(e.path)}</code> ${typeBadge} ${pointerDot}
+      </div>
+      <div class="submodule-meta">on ${branchHtml} ${stateHtml}</div>
+    </div>
+    <div class="submodule-row-actions">${actionsHtml}</div>
+  </div>`;
+}
+
+// ── Hooks badge ─────────────────────────────────────────────────────────────
+
+function renderHooksBadge(status: StatusSummary): string {
+  const h = status.hooks;
+  if (!h) return "";
+  const labels: Record<string, string> = {
+    managed: "Hooks: ✓ managed",
+    partial: "Hooks: ⚠ partial",
+    missing: "Hooks: ✗ missing",
+  };
+  const sevClass =
+    h.health === "managed"
+      ? "sev-info"
+      : h.health === "partial"
+      ? "sev-warn"
+      : "sev-error";
+  const tip = h.hooks
+    .map((f) => `${f.name}: ${f.managed ? "managed" : f.present ? "present (not managed)" : "missing"}`)
+    .join("\n");
+  return `<span class="badge ${sevClass} hooks-badge" title="${escapeAttr(tip)}">${escapeHtml(
+    labels[h.health]
+  )}</span>`;
 }
 
 // ── CSS ─────────────────────────────────────────────────────────────────────
@@ -2224,5 +2372,84 @@ body[data-mode="sidebar"] pre {
   color: var(--muted);
   border: 1px dashed var(--border);
   opacity: 0.85;
+}
+
+/* ── Submodules card + hooks badge ─────────────────────────────────── */
+.sidebar-ribbon {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.hooks-badge { cursor: help; }
+.btn-danger {
+  background: var(--error);
+  color: #fff;
+  border-color: var(--error);
+}
+.btn-danger:hover { filter: brightness(1.1); }
+.submodule-shared-warn {
+  padding: 6px 8px;
+  margin: 6px 0;
+  border-left: 3px solid var(--warn);
+  background: var(--code-bg);
+  font-size: 0.9em;
+}
+.submodule-list { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; }
+.submodule-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+}
+/* Left-border accent encodes branch alignment — same scheme as the
+ * branch chip so the row's status is readable at a glance. Uses VSCode
+ * chart palette so colors track the user's theme. */
+.submodule-row-aligned  { border-left-color: var(--vscode-charts-green,  #4caf50); }
+.submodule-row-blocking { border-left-color: var(--vscode-charts-red,    #e51400); }
+.submodule-row-advisory { border-left-color: var(--vscode-charts-blue,   #4a90e2); }
+.submodule-row-detached { border-left-color: var(--muted); }
+
+.submodule-main { flex: 1 1 auto; min-width: 0; }
+.submodule-title { display: flex; align-items: center; gap: 6px; font-size: 0.95em; }
+.submodule-meta { color: var(--muted); font-size: 0.85em; margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.submodule-dot.pointer { color: var(--warn); font-size: 1.05em; line-height: 1; }
+.submodule-row-actions { flex: 0 0 auto; }
+.submodule-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 0 4px;
+}
+
+/* Branch chip — same palette as the row accent. */
+.branch-chip {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.88em;
+  background: var(--code-bg);
+  border: 1px solid transparent;
+}
+.branch-chip.branch-aligned {
+  background: color-mix(in srgb, var(--vscode-charts-green, #4caf50) 22%, var(--code-bg));
+  border-color: var(--vscode-charts-green, #4caf50);
+  color: var(--fg);
+}
+.branch-chip.branch-blocking {
+  background: color-mix(in srgb, var(--vscode-charts-red, #e51400) 22%, var(--code-bg));
+  border-color: var(--vscode-charts-red, #e51400);
+  color: var(--fg);
+}
+.branch-chip.branch-advisory {
+  background: color-mix(in srgb, var(--vscode-charts-blue, #4a90e2) 22%, var(--code-bg));
+  border-color: var(--vscode-charts-blue, #4a90e2);
+  color: var(--fg);
+}
+.branch-chip.branch-detached {
+  color: var(--muted);
+  font-style: italic;
 }
 `;

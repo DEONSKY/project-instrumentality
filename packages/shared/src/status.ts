@@ -18,6 +18,8 @@ import { readPromotions } from "./parsers/promotions.js";
 import { runLint } from "./parsers/lint.js";
 import { readStandardDefinition, findRule } from "./parsers/standards.js";
 import { readDriftLog, currentAndPreviousMonth } from "./parsers/drift-log.js";
+import { getSubmoduleStatus } from "./submodule-status.js";
+import { getHooksStatus } from "./hooks-status.js";
 
 const execFileP = promisify(execFile);
 
@@ -96,6 +98,8 @@ export async function getStatus(
     driftLogEvents,
     lint,
     head,
+    submodules,
+    hooks,
   ] = await Promise.all([
     Promise.resolve(readCodeDrift(kbRoot)),
     Promise.resolve(readKbDrift(kbRoot)),
@@ -109,6 +113,8 @@ export async function getStatus(
       ? Promise.resolve({ violations: [], ran: false })
       : runLint(kbRoot, { commandOverride: opts.lintCommand }),
     getCurrentHeadShort(kbRoot),
+    getSubmoduleStatus(kbRoot).catch(() => null),
+    getHooksStatus(kbRoot).catch(() => null),
   ]);
 
   // Merge current-mode standards-drift entries with aspirational backlog
@@ -154,6 +160,8 @@ export async function getStatus(
     promotions,
     driftLogEvents,
     lint,
+    submodules: submodules ?? undefined,
+    hooks: hooks ?? undefined,
     totals: {
       drifts: driftCount,
       conformPending: conformPendingCount,

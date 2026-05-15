@@ -158,6 +158,16 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
         await this.cb.onAction({ type: "verdictSubmit", ref: msg.ref, verdict, draft });
         return;
       }
+      case "submoduleSync": {
+        const subPath = typeof msg.subPath === "string" ? msg.subPath : "";
+        const parentBranch = typeof msg.parentBranch === "string" ? msg.parentBranch : "";
+        if (!subPath || !parentBranch) return;
+        await this.cb.onAction({ type: "submoduleSync", subPath, parentBranch });
+        return;
+      }
+      case "submodulePush":
+        await this.cb.onAction({ type: "submodulePush" });
+        return;
       case "reveal":
         // Sidebar selection — no separate target to reveal to. The host can
         // still mirror the highlight to the dashboard via highlightEntry().
