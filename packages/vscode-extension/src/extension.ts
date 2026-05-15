@@ -15,7 +15,13 @@ import {
   buildPushPlan,
   type StatusSummary,
 } from "@instrumentality/shared";
-import { syncSubmoduleBranch, runPushPlan } from "./submodule-actions";
+import {
+  syncSubmoduleBranch,
+  runPushPlan,
+  hasUpstream,
+  listRemotes,
+  detectPushRemote,
+} from "./submodule-actions";
 import {
   openDashboard,
   refreshDashboardIfOpen,
@@ -808,8 +814,53 @@ async function handleSubmodulePush(): Promise<void> {
     // standard plan anyway so the user sees the same confirm flow.
   }
 
+  // If the parent branch has no upstream, ask the user which remote to set
+  // before showing the confirm dialog — so the displayed plan reflects the
+  // actual command we'll run.
+  let parentRemote: string | undefined;
+  const parentStep = plan.find((s) => s.type === "parent");
+  if (parentStep?.branch && !(await hasUpstream(parentStep.fullPath))) {
+    const remotes = await listRemotes(parentStep.fullPath);
+    if (remotes.length === 0) {
+      void vscode.window.showErrorMessage(
+        "Instrumentality: parent repo has no git remote configured."
+      );
+      return;
+    }
+    const defaultRemote = await detectPushRemote(
+      parentStep.fullPath,
+      parentStep.branch,
+      remotes
+    );
+    if (remotes.length === 1) {
+      parentRemote = remotes[0];
+    } else {
+      const ordered = [
+        defaultRemote,
+        ...remotes.filter((r) => r !== defaultRemote),
+      ];
+      const pick = await vscode.window.showQuickPick(
+        ordered.map((r) => ({
+          label: r,
+          description: r === defaultRemote ? "default" : undefined,
+        })),
+        {
+          title: `Set upstream for '${parentStep.branch}' — pick a remote`,
+          placeHolder: `Default: ${defaultRemote}`,
+        }
+      );
+      if (!pick) return;
+      parentRemote = pick.label;
+    }
+  }
+
   const planText = plan
-    .map((s) => `${s.order}. ${s.type === "parent" ? "parent" : s.path} — git ${s.action}`)
+    .map((s) => {
+      if (s.type === "parent" && parentRemote && s.branch) {
+        return `${s.order}. parent — git push -u ${parentRemote} ${s.branch}`;
+      }
+      return `${s.order}. ${s.type === "parent" ? "parent" : s.path} — git ${s.action}`;
+    })
     .join("\n");
   const sharedWarn =
     sub.sharedPointerChanged.length > 0
@@ -828,7 +879,7 @@ async function handleSubmodulePush(): Promise<void> {
   );
   if (choice !== "Push") return;
 
-  const result = await runPushPlan(plan);
+  const result = await runPushPlan(plan, { parentRemote });
   void refresh();
   if (result.allSuccess) {
     void vscode.window.showInformationMessage(
