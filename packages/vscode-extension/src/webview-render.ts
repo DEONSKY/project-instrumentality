@@ -44,6 +44,16 @@ export interface DashboardFilter {
   severities: Set<"error" | "warn" | "info">;
   hiddenSections: Set<SectionKind>;
   groupBy: GroupBy;
+  /**
+   * View mode toggle. "pending" = the existing section grid + filters.
+   * "activity" = the drift-log timeline (Phase 4). Orthogonal to groupBy:
+   * groupBy applies to pending view; activityGroupBy applies to activity.
+   */
+  viewMode: "pending" | "activity";
+  /** Grouping for the Activity view. Ignored in pending view. */
+  activityGroupBy: "date" | "queueKey" | "eventType";
+  /** Default true. When false, auto-* and re-bootstrap events are hidden. */
+  showSystemEvents: boolean;
 }
 
 export interface EntryRef {
@@ -59,7 +69,104 @@ export type DashboardAction =
   | { type: "editRule"; ref: EntryRef }
   | { type: "refineStandard"; ref: EntryRef }
   | { type: "showFileDiff"; absPath: string; sinceCommit: string; latestCommit?: string }
+  | { type: "rerunPhase1"; mode: "current" | "aspirational" }
+  | { type: "openLedger" }
+  | { type: "dismissBanner"; kind: SectionKind }
+  | {
+      type: "verdictSubmit";
+      ref: EntryRef;
+      verdict: VerdictKey;
+      draft: VerdictDraft;
+    }
   | { type: "refresh" };
+
+// ── Verdict definitions ─────────────────────────────────────────────────────
+//
+// Verdict pickers live on standards-drift and promotions only — those are
+// the two sections where the user has *already* made the judgment and just
+// needs the call invoked. Other sections route through "Resolve via Agent"
+// which is what they should use anyway because the verdict requires real
+// agent reasoning. See the plan's "Why verdict pickers only on two
+// sections" rationale.
+
+export type VerdictKey =
+  | "applied"
+  | "exempted"
+  | "promoted"
+  | "dismissed"
+  | "closed_promotion";
+
+export interface VerdictDraft {
+  filePaths?: string[];
+  reason?: string;
+  note?: string;
+}
+
+interface VerdictDef {
+  verdict: VerdictKey;
+  label: string;
+  /** When false, click submits directly (e.g. `applied`). */
+  needsForm: boolean;
+  fields: {
+    filePaths?: { required: boolean; label: string };
+    reason?: { required: boolean };
+    note?: { required: false };
+  };
+}
+
+const VERDICTS_BY_SECTION: Partial<Record<SectionKind, VerdictDef[]>> = {
+  "standards-drift": [
+    { verdict: "applied", label: "Apply", needsForm: false, fields: {} },
+    {
+      verdict: "exempted",
+      label: "Exempt…",
+      needsForm: true,
+      fields: {
+        filePaths: { required: true, label: "Files to exempt" },
+        reason: { required: true },
+      },
+    },
+    {
+      verdict: "promoted",
+      label: "Promote…",
+      needsForm: true,
+      fields: {
+        filePaths: { required: true, label: "Originating files" },
+        note: { required: false },
+      },
+    },
+    {
+      verdict: "dismissed",
+      label: "Dismiss…",
+      needsForm: true,
+      fields: {
+        reason: { required: true },
+      },
+    },
+  ],
+  promotions: [
+    {
+      verdict: "closed_promotion",
+      label: "Close promotion",
+      needsForm: true,
+      fields: {
+        filePaths: { required: true, label: "Files in the exception" },
+        reason: { required: true },
+      },
+    },
+  ],
+};
+
+// Webview-JS-side replica: serialized into the webview script so the click
+// handler can validate forms without round-tripping to the host.
+function verdictDefsForWebview(): string {
+  const out: Record<string, Record<string, VerdictDef>> = {};
+  for (const [section, defs] of Object.entries(VERDICTS_BY_SECTION)) {
+    out[section] = {};
+    for (const d of defs ?? []) out[section][d.verdict] = d;
+  }
+  return JSON.stringify(out);
+}
 
 export interface IndexedEntry {
   section: SectionKind;
@@ -181,7 +288,8 @@ export function renderHtml(
   filter: DashboardFilter,
   index: Map<string, IndexedEntry>,
   kbRoot: string | null,
-  mode: RenderMode
+  mode: RenderMode,
+  dismissedBanners: ReadonlySet<SectionKind> = new Set()
 ): string {
   const head = status?.currentHeadShort ?? "?";
 
@@ -190,13 +298,21 @@ export function renderHtml(
     severities: [...filter.severities],
     hiddenSections: [...filter.hiddenSections],
     groupBy: filter.groupBy,
+    viewMode: filter.viewMode,
+    activityGroupBy: filter.activityGroupBy,
+    showSystemEvents: filter.showSystemEvents,
   });
 
   const entriesJson = JSON.stringify(
     Object.fromEntries([...index].map(([k, v]) => [k, { prompt: v.prompt }]))
   );
+  const verdictDefsJson = verdictDefsForWebview();
 
-  const groupedBody = status ? renderGroupedBody(status, filter, index, kbRoot) : "";
+  const groupedBody = status
+    ? filter.viewMode === "activity"
+      ? renderActivityBody(status, filter)
+      : renderGroupedBody(status, filter, index, kbRoot, dismissedBanners)
+    : "";
   const showAppHeader = mode === "dashboard";
 
   const emptyMessage = !status
@@ -234,7 +350,15 @@ export function renderHtml(
       : `
   ${renderPipelineStrip(status)}
 
-  <div class="filter-bar">
+  <div class="view-mode-tabs" data-group="viewMode">
+    ${viewModeTab("pending", "Pending", filter.viewMode)}
+    ${viewModeTab("activity", "Activity", filter.viewMode)}
+  </div>
+
+  ${
+    filter.viewMode === "activity"
+      ? renderActivityFilterBar(filter)
+      : `<div class="filter-bar">
     <input id="search" type="search" placeholder="Filter entries…" value="${escapeAttr(filter.search)}" />
     <div class="chip-group" id="severity-chips" data-group="severity">
       ${chip("error", "Error", filter.severities.has("error"), "sev-error")}
@@ -249,7 +373,8 @@ export function renderHtml(
       ${groupByChip("lifecycle", "Lifecycle", filter.groupBy)}
     </div>
     <button class="btn btn-link" id="clear-filter">Clear</button>
-  </div>
+  </div>`
+  }
 
   <div class="section-grid">
     ${groupedBody}
@@ -260,9 +385,96 @@ export function renderHtml(
   <script>
     const vscode = acquireVsCodeApi();
     const ENTRIES = ${entriesJson};
+    const VERDICT_DEFS = ${verdictDefsJson};
     let filterState = ${initialFilter};
     filterState.severities = new Set(filterState.severities);
     filterState.hiddenSections = new Set(filterState.hiddenSections);
+
+    // ── Verdict form helpers ────────────────────────────────────────────
+    function getActiveVerdict(form) {
+      const v = form.getAttribute("data-active-verdict") || "";
+      const section = form.closest("[data-entry-section]")?.getAttribute("data-entry-section") || "";
+      const def = (VERDICT_DEFS[section] || {})[v];
+      return { verdict: v, def };
+    }
+    function showVerdictForm(row, verdict) {
+      const form = row.querySelector(".verdict-form");
+      if (!form) return;
+      const section = row.getAttribute("data-entry-section");
+      const def = (VERDICT_DEFS[section] || {})[verdict];
+      if (!def) return;
+      form.setAttribute("data-active-verdict", verdict);
+      const label = form.querySelector(".verdict-active-label");
+      if (label) label.textContent = "Resolve as: " + def.label.replace(/…$/, "");
+      // Show only fields configured for this verdict.
+      form.querySelectorAll("[data-for-field]").forEach(function (el) {
+        const key = el.getAttribute("data-for-field");
+        const cfg = def.fields ? def.fields[key] : null;
+        el.classList.toggle("hidden", !cfg);
+        if (cfg && key === "filePaths") {
+          const fl = el.querySelector("[data-files-label]");
+          if (fl) fl.textContent = cfg.label || "Files";
+        }
+      });
+      form.classList.remove("hidden");
+      revalidateVerdictForm(form);
+    }
+    function hideVerdictForm(row) {
+      const form = row.querySelector(".verdict-form");
+      if (!form) return;
+      form.setAttribute("data-active-verdict", "");
+      form.classList.add("hidden");
+      // Reset fields so the next open starts clean.
+      form.querySelectorAll('input[name="vfile"]').forEach(function (i) { i.checked = false; });
+      const r = form.querySelector(".verdict-reason"); if (r) r.value = "";
+      const n = form.querySelector(".verdict-note"); if (n) n.value = "";
+    }
+    function revalidateVerdictForm(form) {
+      const submit = form.querySelector(".verdict-submit");
+      if (!submit) return;
+      const { def } = getActiveVerdict(form);
+      if (!def) { submit.setAttribute("disabled", ""); return; }
+      let valid = true;
+      if (def.fields && def.fields.filePaths && def.fields.filePaths.required) {
+        const checked = form.querySelectorAll('input[name="vfile"]:checked');
+        if (checked.length === 0) valid = false;
+      }
+      if (def.fields && def.fields.reason && def.fields.reason.required) {
+        const r = form.querySelector(".verdict-reason");
+        if (!r || !r.value.trim()) valid = false;
+      }
+      if (valid) submit.removeAttribute("disabled");
+      else submit.setAttribute("disabled", "");
+    }
+    function collectVerdictDraft(form) {
+      const draft = {};
+      const checked = [...form.querySelectorAll('input[name="vfile"]:checked')].map(function (i) { return i.value; });
+      if (checked.length > 0) draft.filePaths = checked;
+      const r = form.querySelector(".verdict-reason");
+      if (r && r.value.trim()) draft.reason = r.value.trim();
+      const n = form.querySelector(".verdict-note");
+      if (n && n.value.trim()) draft.note = n.value.trim();
+      return draft;
+    }
+    document.addEventListener("input", function (e) {
+      const t = e.target;
+      if (!(t instanceof HTMLElement)) return;
+      const form = t.closest(".verdict-form");
+      if (form) revalidateVerdictForm(form);
+    });
+    document.addEventListener("change", function (e) {
+      const t = e.target;
+      if (!(t instanceof HTMLElement)) return;
+      const form = t.closest(".verdict-form");
+      if (form) revalidateVerdictForm(form);
+      if (t.id === "show-system-events" && t instanceof HTMLInputElement) {
+        filterState.showSystemEvents = t.checked;
+        vscode.postMessage({
+          command: "setShowSystemEvents",
+          showSystemEvents: t.checked,
+        });
+      }
+    });
 
     function applyFilter() {
       const search = (filterState.search || "").toLowerCase();
@@ -327,6 +539,15 @@ export function renderHtml(
         return;
       }
 
+      const tab = target.closest(".view-mode-tab");
+      if (tab) {
+        const value = tab.getAttribute("data-value");
+        if (filterState.viewMode === value) return;
+        filterState.viewMode = value;
+        vscode.postMessage({ command: "setViewMode", viewMode: value });
+        return;
+      }
+
       const chip = target.closest(".chip");
       if (chip) {
         const group = chip.parentElement.getAttribute("data-group");
@@ -340,6 +561,10 @@ export function renderHtml(
           if (filterState.groupBy === value) return;
           filterState.groupBy = value;
           vscode.postMessage({ command: "setGroupBy", groupBy: value });
+        } else if (group === "activityGroupBy") {
+          if (filterState.activityGroupBy === value) return;
+          filterState.activityGroupBy = value;
+          vscode.postMessage({ command: "setActivityGroupBy", activityGroupBy: value });
         }
         return;
       }
@@ -362,6 +587,87 @@ export function renderHtml(
             sinceCommit: target.getAttribute("data-diff-since") || "",
             latestCommit: target.getAttribute("data-diff-latest") || "",
           });
+          return;
+        }
+        // Section-level actions (no entry ref required). These buttons
+        // live in section banners or other detail panels that don't
+        // belong to a single entry row.
+        if (action === "rerunPhase1") {
+          const mode = target.getAttribute("data-mode") || "current";
+          vscode.postMessage({ command: "rerunPhase1", mode });
+          return;
+        }
+        if (action === "openLedger") {
+          vscode.postMessage({ command: "openLedger" });
+          return;
+        }
+        if (action === "dismissBanner") {
+          const kind = target.getAttribute("data-banner-kind");
+          if (!kind) return;
+          // Optimistic UI: hide the banner and show the "?" icon
+          // immediately, then notify the host to persist. The host's
+          // re-render confirms the same state.
+          const card = document.querySelector('section[data-section="' + kind + '"]');
+          if (card) {
+            const banner = card.querySelector('.banner.education[data-banner-kind="' + kind + '"]');
+            if (banner) banner.classList.add("hidden");
+            const header = card.querySelector("header h2");
+            if (header && !header.querySelector(".banner-question")) {
+              const q = document.createElement("button");
+              q.className = "banner-question";
+              q.setAttribute("data-action", "showBanner");
+              q.title = "Show lifecycle";
+              q.textContent = "?";
+              header.appendChild(q);
+            }
+          }
+          vscode.postMessage({ command: "dismissBanner", kind });
+          return;
+        }
+        if (action === "showBanner") {
+          // Transient — pure client toggle, no host roundtrip. Rerender
+          // hides it again, by design (documented behavior).
+          const card = target.closest('[data-section]');
+          if (!card) return;
+          const banner = card.querySelector('.banner.education');
+          if (banner) banner.classList.remove("hidden");
+          target.remove();
+          return;
+        }
+        if (action === "verdictPick") {
+          // Open the inline form for this verdict. "applied" never gets
+          // here — its button is wired directly to verdictSubmit (no
+          // form). This branch only handles needsForm verdicts.
+          const verdict = target.getAttribute("data-verdict");
+          const row = target.closest(".entry");
+          if (!row || !verdict) return;
+          showVerdictForm(row, verdict);
+          return;
+        }
+        if (action === "verdictCancel") {
+          const row = target.closest(".entry");
+          if (row) hideVerdictForm(row);
+          return;
+        }
+        if (action === "verdictSubmit") {
+          const row = target.closest(".entry");
+          if (!row) return;
+          const ref = refRefFromEl(row);
+          // Two paths: (a) direct button (e.g. "Apply") on the verdict-actions-row
+          // — verdict comes from data-verdict, no form to read. (b) submit
+          // button inside the form — verdict comes from data-active-verdict.
+          const form = target.closest(".verdict-form");
+          let verdict = target.getAttribute("data-verdict");
+          let draft = {};
+          if (form) {
+            const active = form.getAttribute("data-active-verdict");
+            if (!active) return;
+            verdict = active;
+            draft = collectVerdictDraft(form);
+          }
+          if (!verdict) return;
+          vscode.postMessage({ command: "verdictSubmit", ref, verdict, draft });
+          if (form) hideVerdictForm(row);
           return;
         }
         const row = target.closest(".entry");
@@ -427,6 +733,35 @@ function groupByChip(value: GroupBy, label: string, current: GroupBy): string {
   return `<span class="chip group-by-chip ${on ? "on" : ""}" data-value="${escapeAttr(value)}">${escapeHtml(label)}</span>`;
 }
 
+function viewModeTab(value: "pending" | "activity", label: string, current: string): string {
+  const on = current === value;
+  return `<button class="view-mode-tab ${on ? "on" : ""}" data-value="${escapeAttr(value)}">${escapeHtml(label)}</button>`;
+}
+
+function activityGroupByChip(
+  value: "date" | "queueKey" | "eventType",
+  label: string,
+  current: string
+): string {
+  const on = current === value;
+  return `<span class="chip activity-group-by-chip ${on ? "on" : ""}" data-value="${escapeAttr(value)}">${escapeHtml(label)}</span>`;
+}
+
+function renderActivityFilterBar(filter: DashboardFilter): string {
+  return `<div class="filter-bar activity-filter-bar">
+    <div class="group-by" data-group="activityGroupBy">
+      <span class="group-by-label">Group by</span>
+      ${activityGroupByChip("date", "Date", filter.activityGroupBy)}
+      ${activityGroupByChip("queueKey", "Queue key", filter.activityGroupBy)}
+      ${activityGroupByChip("eventType", "Event type", filter.activityGroupBy)}
+    </div>
+    <label class="activity-toggle">
+      <input type="checkbox" id="show-system-events" ${filter.showSystemEvents ? "checked" : ""} />
+      Show system events
+    </label>
+  </div>`;
+}
+
 // ── Pipeline strip ──────────────────────────────────────────────────────────
 
 function renderPipelineStrip(status: StatusSummary): string {
@@ -454,21 +789,158 @@ function renderGroupedBody(
   status: StatusSummary,
   filter: DashboardFilter,
   index: Map<string, IndexedEntry>,
-  kbRoot: string | null
+  kbRoot: string | null,
+  dismissedBanners: ReadonlySet<SectionKind>
 ): string {
   if (filter.groupBy === "section") {
     return [
-      renderCodeDriftCard(status, index, kbRoot),
-      renderKbDriftCard(status, index, kbRoot),
-      renderStandardsDriftCard(status, index, kbRoot),
-      renderConformCard(status, index),
-      renderPromotionsCard(status, index),
-      renderLintCard(status, index),
+      renderCodeDriftCard(status, index, kbRoot, dismissedBanners),
+      renderKbDriftCard(status, index, kbRoot, dismissedBanners),
+      renderStandardsDriftCard(status, index, kbRoot, dismissedBanners),
+      renderConformCard(status, index, dismissedBanners),
+      renderPromotionsCard(status, index, dismissedBanners),
+      renderLintCard(status, index, dismissedBanners),
     ].join("");
   }
   const handles = buildEntryHandles(status);
   const groups = groupEntries(handles, filter.groupBy);
   return groups.map((g) => renderGenericGroupCard(g, status, index, kbRoot)).join("");
+}
+
+// ── Activity (drift-log timeline) ───────────────────────────────────────────
+
+function renderActivityBody(status: StatusSummary, filter: DashboardFilter): string {
+  let events = status.driftLogEvents;
+  if (!filter.showSystemEvents) {
+    events = events.filter((e) => !e.isSystem);
+  }
+  if (events.length === 0) {
+    return `<section class="section-card" data-section="activity">
+      <header><h2>Activity <span class="count">0</span></h2></header>
+      <div class="body">
+        <div class="placeholder">No drift-log events in the current + previous month.</div>
+      </div>
+    </section>`;
+  }
+
+  // Group accumulator. Group order matters: date / queueKey lexicographic
+  // (newest first for dates, alpha for keys), eventType alpha.
+  const groups = new Map<string, typeof events>();
+  for (const e of events) {
+    let key: string;
+    if (filter.activityGroupBy === "queueKey") key = e.queueKey || e.kbTarget || e.kbFile || "(unattributed)";
+    else if (filter.activityGroupBy === "eventType") key = activityEventLabel(e.eventType);
+    else key = e.date;
+    const arr = groups.get(key) ?? [];
+    arr.push(e);
+    groups.set(key, arr);
+  }
+
+  const sortedKeys = [...groups.keys()].sort((a, b) =>
+    filter.activityGroupBy === "date"
+      ? a < b
+        ? 1
+        : a > b
+        ? -1
+        : 0 // newest dates first
+      : a.localeCompare(b)
+  );
+
+  const groupCards = sortedKeys
+    .map((k) => {
+      const arr = groups.get(k)!;
+      const rows = arr.map((e) => activityRow(e)).join("");
+      return `<section class="section-card activity-group" data-activity-group="${escapeAttr(k)}">
+        <header><h2>${escapeHtml(k)} <span class="count">${arr.length}</span></h2></header>
+        <div class="body">${rows}</div>
+      </section>`;
+    })
+    .join("");
+
+  return groupCards;
+}
+
+function activityEventLabel(t: string): string {
+  switch (t) {
+    case "conformed-applied":
+      return "Conformed · applied";
+    case "conformed-exempted":
+      return "Conformed · exempted";
+    case "conformed-promoted":
+      return "Conformed · promoted";
+    case "dismissed-conform":
+      return "Dismissed (conform)";
+    case "closed-promotion":
+      return "Closed promotion";
+    case "auto-dismissed-standard-removed":
+      return "Auto-dismissed (standard removed)";
+    case "auto-closed-promotion-rule-changed":
+      return "Auto-closed (rule changed)";
+    case "auto-closed-promotion-standard-removed":
+      return "Auto-closed (standard removed)";
+    case "drift-resolved":
+      return "Drift resolved";
+    case "drift-dismissed":
+      return "Drift dismissed";
+    case "re-bootstrap":
+      return "Re-bootstrap";
+    default:
+      return "Unknown";
+  }
+}
+
+function activityBadgeClass(t: string, isSystem: boolean): string {
+  if (isSystem) return "event-auto";
+  if (t === "conformed-applied") return "event-applied";
+  if (t === "conformed-exempted" || t === "dismissed-conform" || t === "drift-dismissed")
+    return "event-exempted";
+  if (t === "conformed-promoted" || t === "closed-promotion") return "event-promoted";
+  if (t === "drift-resolved") return "event-applied";
+  return "event-other";
+}
+
+function activityRow(e: import("@instrumentality/shared").DriftLogEvent): string {
+  const id = `${e.date}:${e.queueKey ?? e.kbTarget ?? e.kbFile ?? ""}:${e.eventType}`;
+  const badgeClass = activityBadgeClass(e.eventType, e.isSystem);
+  const subject = e.queueKey ?? e.kbTarget ?? e.kbFile ?? "(unattributed)";
+  const reasonShort = e.reason ? ` — ${escapeHtml(e.reason.slice(0, 100))}${e.reason.length > 100 ? "…" : ""}` : "";
+  const summary = `<div class="activity-summary">
+    <span class="badge ${badgeClass}">${escapeHtml(activityEventLabel(e.eventType))}</span>
+    <span class="activity-subject">${escapeHtml(subject)}</span>
+    <span class="activity-date">${escapeHtml(e.date)}</span>
+  </div>
+  <div class="activity-line">${reasonShort || "<em>(no reason recorded)</em>"}</div>`;
+  const detail = activityDetail(e);
+  // Reuse .entry shell so existing click-to-expand JS works. No verdict
+  // buttons / verdicts on activity rows — they're historical, not actionable.
+  return `<div class="entry activity-entry"
+    data-entry-section="activity"
+    data-entry-id="${escapeAttr(id)}"
+    data-entry-sev=""
+    data-entry-text="${escapeAttr(`${subject} ${e.eventType} ${e.reason ?? ""}`)}">
+    <div class="entry-summary">${summary}</div>
+    <div class="entry-detail">${detail}</div>
+  </div>`;
+}
+
+function activityDetail(e: import("@instrumentality/shared").DriftLogEvent): string {
+  const parts: string[] = [];
+  parts.push(`<div><strong>Event:</strong> <code>${escapeHtml(e.eventType)}</code></div>`);
+  parts.push(`<div><strong>Date:</strong> ${escapeHtml(e.date)}</div>`);
+  if (e.queueKey) parts.push(`<div><strong>Queue key:</strong> <code>${escapeHtml(e.queueKey)}</code></div>`);
+  if (e.kbTarget) parts.push(`<div><strong>KB target:</strong> <code>${escapeHtml(e.kbTarget)}</code></div>`);
+  if (e.kbFile) parts.push(`<div><strong>KB file:</strong> <code>${escapeHtml(e.kbFile)}</code></div>`);
+  if (e.files && e.files.length > 0) {
+    const lis = e.files.map((f) => `<li><code>${escapeHtml(f)}</code></li>`).join("");
+    parts.push(`<div><strong>Files:</strong><ul>${lis}</ul></div>`);
+  }
+  if (e.originatingFiles && e.originatingFiles.length > 0) {
+    const lis = e.originatingFiles.map((f) => `<li><code>${escapeHtml(f)}</code></li>`).join("");
+    parts.push(`<div><strong>Originating files:</strong><ul>${lis}</ul></div>`);
+  }
+  if (e.reason) parts.push(`<div><strong>Reason:</strong> ${escapeHtml(e.reason)}</div>`);
+  if (e.note) parts.push(`<div><strong>Note:</strong> ${escapeHtml(e.note)}</div>`);
+  return `<div class="detail-meta">${parts.join("")}</div>`;
 }
 
 function renderGenericGroupCard(
@@ -548,9 +1020,12 @@ function entryShell(
   detailMetaHtml: string,
   hasStandard: boolean,
   hasStandardRule: boolean,
-  diffableFiles: DiffableFile[]
+  diffableFiles: DiffableFile[],
+  modeAttr?: string,
+  verdictFiles?: string[]
 ): string {
   const sevAttr = sev ?? "";
+  const modeHtml = modeAttr ? ` data-entry-mode="${escapeAttr(modeAttr)}"` : "";
   const standardBtns = hasStandard
     ? `<button class="btn btn-tiny" data-action="openStandard">Open Standard</button>` +
       (hasStandardRule
@@ -561,11 +1036,25 @@ function entryShell(
   const diffSection = renderDiffSection(diffableFiles);
   const sendLabel = primaryActionLabel(ref.section);
   const copyLabel = copyActionLabel(ref.section);
+  const verdictDefs = VERDICTS_BY_SECTION[ref.section] ?? [];
+  const verdictBtns = verdictDefs
+    .map((v) => {
+      // applied → direct submit (no form). Others open the inline form.
+      const action = v.needsForm ? "verdictPick" : "verdictSubmit";
+      return `<button class="btn btn-tiny verdict-btn" data-action="${action}" data-verdict="${escapeAttr(
+        v.verdict
+      )}">${escapeHtml(v.label)}</button>`;
+    })
+    .join("");
+  const verdictForm =
+    verdictDefs.some((v) => v.needsForm)
+      ? renderVerdictForm(verdictFiles ?? [])
+      : "";
   return `<div class="entry"
     data-entry-section="${escapeAttr(ref.section)}"
     data-entry-id="${escapeAttr(ref.id)}"
     data-entry-sev="${escapeAttr(sevAttr)}"
-    data-entry-text="${escapeAttr(searchableText)}">
+    data-entry-text="${escapeAttr(searchableText)}"${modeHtml}>
     <div class="entry-summary">${summaryHtml}</div>
     <div class="entry-detail">
       ${detailMetaHtml}
@@ -575,11 +1064,49 @@ function entryShell(
         <button class="btn btn-tiny" data-action="open">Open Source</button>
         ${standardBtns}
       </div>
+      ${verdictBtns ? `<div class="verdict-actions-row">${verdictBtns}</div>` : ""}
+      ${verdictForm}
       ${diffSection}
       <details class="prompt-disclosure">
         <summary>Show prompt</summary>
         <pre class="entry-detail-prompt"></pre>
       </details>
+    </div>
+  </div>`;
+}
+
+// One inline form per entry. All possible fields are rendered up front;
+// data-for-field attributes let the click handler show/hide based on the
+// active verdict. Form state is ephemeral — webview JS only; rerender
+// resets it (documented behavior, not a bug).
+function renderVerdictForm(files: string[]): string {
+  const fileItems = files
+    .map(
+      (p) =>
+        `<li><label><input type="checkbox" name="vfile" value="${escapeAttr(
+          p
+        )}"> <code>${escapeHtml(p)}</code></label></li>`
+    )
+    .join("");
+  return `<div class="verdict-form hidden" data-active-verdict="">
+    <div class="verdict-form-title">
+      <span class="verdict-active-label"></span>
+    </div>
+    <div class="verdict-field" data-for-field="filePaths">
+      <label class="verdict-field-label" data-files-label></label>
+      <ul class="verdict-file-list">${fileItems}</ul>
+    </div>
+    <div class="verdict-field" data-for-field="reason">
+      <label>Reason <span class="verdict-required-marker">(required)</span></label>
+      <textarea class="verdict-reason" rows="3" placeholder="Why?"></textarea>
+    </div>
+    <div class="verdict-field" data-for-field="note">
+      <label>Note <span class="verdict-optional-marker">(optional)</span></label>
+      <textarea class="verdict-note" rows="2" placeholder="Optional context for the senior reviewer"></textarea>
+    </div>
+    <div class="verdict-form-actions">
+      <button class="btn btn-primary btn-tiny verdict-submit" data-action="verdictSubmit" disabled>Send to agent</button>
+      <button class="btn btn-tiny" data-action="verdictCancel">Cancel</button>
     </div>
   </div>`;
 }
@@ -625,11 +1152,20 @@ function sectionShell(
   count: number,
   badgeHtml: string,
   bodyHtml: string,
-  hint?: string
+  hint?: string,
+  bannerHtml?: string,
+  educationDismissed: boolean = false
 ): string {
   const hintHtml = hint ? `<div class="group-hint">${escapeHtml(hint)}</div>` : "";
+  const banner = bannerHtml ?? "";
+  const eduBanner = educationBannerHtml(kind, educationDismissed);
+  const helpIcon = educationDismissed
+    ? `<button class="banner-question" data-action="showBanner" title="Show ${escapeAttr(SECTION_GUIDE[kind].label)} lifecycle">?</button>`
+    : "";
   return `<section class="section-card" data-section="${escapeAttr(kind)}">
-    <header><h2>${escapeHtml(title)} <span class="count">${count}</span> ${badgeHtml}</h2>${hintHtml}</header>
+    <header><h2>${escapeHtml(title)} <span class="count">${count}</span> ${badgeHtml} ${helpIcon}</h2>${hintHtml}</header>
+    ${eduBanner}
+    ${banner}
     <div class="body">
       ${bodyHtml}
       <div class="visible-empty placeholder hidden">No entries match the current filter</div>
@@ -637,7 +1173,30 @@ function sectionShell(
   </section>`;
 }
 
-function renderCodeDriftCard(status: StatusSummary, _idx: Map<string, IndexedEntry>, kbRoot: string | null): string {
+// Education banner: visible on first run, hidden after dismiss. The user
+// can re-show transiently via the "?" icon (handled in webview JS — no
+// roundtrip; rerender hides it again, by design).
+function educationBannerHtml(kind: SectionKind, dismissed: boolean): string {
+  const guide = SECTION_GUIDE[kind];
+  const hiddenClass = dismissed ? " hidden" : "";
+  return `<div class="banner education${hiddenClass}" data-banner-kind="${escapeAttr(kind)}">
+    <div class="banner-content">
+      <div class="banner-explainer">
+        <strong>${escapeHtml(guide.label)}</strong> — ${escapeHtml(guide.what)}
+        <em>${escapeHtml(guide.todo)}</em>
+      </div>
+      <pre class="banner-diagram">${escapeHtml(guide.lifecycleDiagram)}</pre>
+    </div>
+    <button class="btn btn-tiny" data-action="dismissBanner" data-banner-kind="${escapeAttr(kind)}">Got it</button>
+  </div>`;
+}
+
+function renderCodeDriftCard(
+  status: StatusSummary,
+  _idx: Map<string, IndexedEntry>,
+  kbRoot: string | null,
+  dismissedBanners: ReadonlySet<SectionKind>
+): string {
   const entries = status.codeDrift.entries;
   const baseline = status.codeDrift.baseline.sha;
   const baselineHtml = baseline
@@ -646,7 +1205,16 @@ function renderCodeDriftCard(status: StatusSummary, _idx: Map<string, IndexedEnt
   const body = entries.length === 0
     ? `<div class="placeholder">No code drift</div>`
     : entries.map((e, i) => codeDriftRow(e, i, kbRoot)).join("");
-  return sectionShell("code-drift", SECTION_GUIDE["code-drift"].label + "s", entries.length, baselineHtml, body, SECTION_GUIDE["code-drift"].what);
+  return sectionShell(
+    "code-drift",
+    SECTION_GUIDE["code-drift"].label + "s",
+    entries.length,
+    baselineHtml,
+    body,
+    SECTION_GUIDE["code-drift"].what,
+    undefined,
+    dismissedBanners.has("code-drift")
+  );
 }
 
 function codeDriftRow(e: CodeDriftEntry, i: number, kbRoot: string | null): string {
@@ -664,12 +1232,26 @@ function codeDriftRow(e: CodeDriftEntry, i: number, kbRoot: string | null): stri
   return entryShell(ref, sev, text, summary, buildCodeDriftDetail(e), false, false, diffs);
 }
 
-function renderKbDriftCard(status: StatusSummary, _idx: Map<string, IndexedEntry>, kbRoot: string | null): string {
+function renderKbDriftCard(
+  status: StatusSummary,
+  _idx: Map<string, IndexedEntry>,
+  kbRoot: string | null,
+  dismissedBanners: ReadonlySet<SectionKind>
+): string {
   const entries = status.kbDrift.entries;
   const body = entries.length === 0
     ? `<div class="placeholder">No KB drift</div>`
     : entries.map((e, i) => kbDriftRow(e, i, kbRoot)).join("");
-  return sectionShell("kb-drift", SECTION_GUIDE["kb-drift"].label + "s", entries.length, "", body, SECTION_GUIDE["kb-drift"].what);
+  return sectionShell(
+    "kb-drift",
+    SECTION_GUIDE["kb-drift"].label + "s",
+    entries.length,
+    "",
+    body,
+    SECTION_GUIDE["kb-drift"].what,
+    undefined,
+    dismissedBanners.has("kb-drift")
+  );
 }
 
 function kbDriftRow(e: KbDriftEntry, i: number, kbRoot: string | null): string {
@@ -684,31 +1266,74 @@ function kbDriftRow(e: KbDriftEntry, i: number, kbRoot: string | null): string {
   return entryShell(ref, sev, text, summary, buildKbDriftDetail(e), false, false, diffs);
 }
 
-function renderStandardsDriftCard(status: StatusSummary, _idx: Map<string, IndexedEntry>, kbRoot: string | null): string {
+function renderStandardsDriftCard(
+  status: StatusSummary,
+  _idx: Map<string, IndexedEntry>,
+  kbRoot: string | null,
+  dismissedBanners: ReadonlySet<SectionKind>
+): string {
   const entries = status.standardsDrift.entries;
   const body = entries.length === 0
     ? `<div class="placeholder">No standards drift</div>`
     : entries.map((e, i) => standardsDriftRow(e, i, kbRoot)).join("");
-  return sectionShell("standards-drift", SECTION_GUIDE["standards-drift"].label, entries.length, "", body, SECTION_GUIDE["standards-drift"].what);
+  return sectionShell(
+    "standards-drift",
+    SECTION_GUIDE["standards-drift"].label,
+    entries.length,
+    "",
+    body,
+    SECTION_GUIDE["standards-drift"].what,
+    undefined,
+    dismissedBanners.has("standards-drift")
+  );
 }
 
 function standardsDriftRow(e: StandardsDriftEntry, i: number, kbRoot: string | null): string {
-  const id = stableEntryId(e.queueKey, i);
+  // Disambiguate current vs aspirational entries that share a queueKey:
+  // each mode lives in its own queue file, but a (file, rule) pair can
+  // appear in both at once. Folding mode into the id keeps them unique.
+  const id = stableEntryId(`${e.mode}:${e.queueKey}`, i);
   const ref = { section: "standards-drift" as SectionKind, id };
   const sev = severityLabel(e.severity);
   const sevBadge = sev ? `<span class="badge ${severityClass(sev)}">${sev}</span>` : "";
+  const advisoryBadge =
+    e.mode === "aspirational"
+      ? `<span class="badge advisory-mode" title="Advisory backlog — not PR-blocking">advisory</span>`
+      : "";
   const fileCount = Object.values(e.filesByParty).reduce((sum, files) => sum + files.length, 0);
   const ruleHint = e.resolvedRule?.title ? ` · ${escapeHtml(e.resolvedRule.title)}` : "";
   const summary = `
-    <div class="title">${escapeHtml(e.queueKey)} ${sevBadge}</div>
+    <div class="title">${escapeHtml(e.queueKey)} ${sevBadge} ${advisoryBadge}</div>
     <div class="meta">${escapeHtml(e.standardId ?? "?")} ${e.standardKind ? `(${escapeHtml(e.standardKind)})` : ""} · ${fileCount} file(s)${ruleHint}</div>`;
   const text = e.queueKey + " " + (e.standardId ?? "") + " " + (e.reason ?? "") + " " + (e.resolvedRule?.title ?? "");
   const hasRule = !!(e.standardId && e.ruleId);
   const diffs = collectDiffableFromStandardsDrift(e, (p) => resolveAbsFor(kbRoot, p));
-  return entryShell(ref, sev, text, summary, buildStandardsDriftDetail(e), !!e.standardId, hasRule, diffs);
+  // Flatten files across parties for the verdict form. Order preserves the
+  // queue-file order so what the user sees in the form matches the entry
+  // detail above.
+  const verdictFiles: string[] = [];
+  for (const arr of Object.values(e.filesByParty)) {
+    for (const f of arr) verdictFiles.push(f.path);
+  }
+  return entryShell(
+    ref,
+    sev,
+    text,
+    summary,
+    buildStandardsDriftDetail(e),
+    !!e.standardId,
+    hasRule,
+    diffs,
+    e.mode,
+    verdictFiles
+  );
 }
 
-function renderConformCard(status: StatusSummary, _idx: Map<string, IndexedEntry>): string {
+function renderConformCard(
+  status: StatusSummary,
+  _idx: Map<string, IndexedEntry>,
+  dismissedBanners: ReadonlySet<SectionKind>
+): string {
   const c = status.conformPending.current;
   const a = status.conformPending.aspirational;
   const total = (c?.requested.length ?? 0) + (a?.requested.length ?? 0);
@@ -722,7 +1347,36 @@ function renderConformCard(status: StatusSummary, _idx: Map<string, IndexedEntry
   const body = rows.length === 0
     ? `<div class="placeholder">No conform pending</div>`
     : rows.join("");
-  return sectionShell("conform-pending", SECTION_GUIDE["conform-pending"].label, total, badge, body, SECTION_GUIDE["conform-pending"].what);
+  // Stale-baseline banner: more prominent than the header chip; carries a
+  // re-run button. The button posts `rerunPhase1`; the host generates a
+  // fresh Phase-1 detect prompt via shared/prompts and ships through the
+  // existing sendPrompt backend (no direct MCP calls from the extension).
+  let bannerHtml: string | undefined;
+  if (stale) {
+    const staleMode = c?.staleAgainstHead ? "current" : "aspirational";
+    const staleSha = c?.staleAgainstHead
+      ? c.head_sha_short
+      : a?.head_sha_short ?? "";
+    const headSha = status.currentHeadShort ?? "(unknown)";
+    bannerHtml = `<div class="banner stale">
+      <div class="banner-text">
+        <strong>Pending session is stale.</strong>
+        Baseline <code>${escapeHtml(staleSha)}</code> · HEAD <code>${escapeHtml(headSha)}</code>.
+        Re-run Phase 1 before submitting judgments.
+      </div>
+      <button class="btn btn-tiny" data-action="rerunPhase1" data-mode="${escapeAttr(staleMode)}">Re-run Phase 1</button>
+    </div>`;
+  }
+  return sectionShell(
+    "conform-pending",
+    SECTION_GUIDE["conform-pending"].label,
+    total,
+    badge,
+    body,
+    SECTION_GUIDE["conform-pending"].what,
+    bannerHtml,
+    dismissedBanners.has("conform-pending")
+  );
 }
 
 function conformRow(
@@ -745,12 +1399,25 @@ function conformRow(
   return entryShell(ref, p.staleAgainstHead ? "warn" : "info", text, summary, buildConformDetail(p, r), true, hasRule, []);
 }
 
-function renderPromotionsCard(status: StatusSummary, _idx: Map<string, IndexedEntry>): string {
+function renderPromotionsCard(
+  status: StatusSummary,
+  _idx: Map<string, IndexedEntry>,
+  dismissedBanners: ReadonlySet<SectionKind>
+): string {
   const entries = status.promotions;
   const body = entries.length === 0
     ? `<div class="placeholder">No pending promotions</div>`
     : entries.map((e, i) => promotionRow(e, i)).join("");
-  return sectionShell("promotions", SECTION_GUIDE.promotions.label, entries.length, "", body, SECTION_GUIDE.promotions.what);
+  return sectionShell(
+    "promotions",
+    SECTION_GUIDE.promotions.label,
+    entries.length,
+    "",
+    body,
+    SECTION_GUIDE.promotions.what,
+    undefined,
+    dismissedBanners.has("promotions")
+  );
 }
 
 function promotionRow(e: PromotionEntry, i: number): string {
@@ -764,10 +1431,26 @@ function promotionRow(e: PromotionEntry, i: number): string {
     <div class="meta">${e.files.length} file(s) · <code>${escapeHtml(e.standardId ?? "?")}</code>${ruleHint}</div>`;
   const text = e.queueKey + " " + (e.standardId ?? "") + " " + e.files.map((f) => f.path).join(" ") + " " + (e.resolvedRule?.title ?? "");
   const hasRule = !!(e.standardId && e.ruleId);
-  return entryShell(ref, sev, text, summary, buildPromotionDetail(e), !!e.standardId, hasRule, []);
+  const verdictFiles = e.files.map((f) => f.path);
+  return entryShell(
+    ref,
+    sev,
+    text,
+    summary,
+    buildPromotionDetail(e),
+    !!e.standardId,
+    hasRule,
+    [],
+    undefined,
+    verdictFiles
+  );
 }
 
-function renderLintCard(status: StatusSummary, _idx: Map<string, IndexedEntry>): string {
+function renderLintCard(
+  status: StatusSummary,
+  _idx: Map<string, IndexedEntry>,
+  dismissedBanners: ReadonlySet<SectionKind>
+): string {
   const v = status.lint.violations;
   const badge = !status.lint.ran ? `<span class="badge sev-info">unavailable</span>` : "";
   const body = !status.lint.ran
@@ -775,7 +1458,16 @@ function renderLintCard(status: StatusSummary, _idx: Map<string, IndexedEntry>):
     : v.length === 0
     ? `<div class="placeholder">No lint issues</div>`
     : v.map((violation, i) => lintRow(violation, i)).join("");
-  return sectionShell("lint", SECTION_GUIDE.lint.label, v.length, badge, body, SECTION_GUIDE.lint.what);
+  return sectionShell(
+    "lint",
+    SECTION_GUIDE.lint.label,
+    v.length,
+    badge,
+    body,
+    SECTION_GUIDE.lint.what,
+    undefined,
+    dismissedBanners.has("lint")
+  );
 }
 
 function lintRow(v: LintViolation, i: number): string {
@@ -1214,5 +1906,323 @@ body[data-mode="sidebar"] pre {
   max-height: 250px;
   padding: 8px;
   font-size: 0.82em;
+}
+
+/* ── Phase 1 additions: mode chip, stale banner, suppression contract ── */
+
+.badge.advisory-mode {
+  background: var(--vscode-badge-background, var(--card-bg));
+  color: var(--muted);
+  border: 1px dashed var(--border);
+}
+
+.entry[data-entry-mode="aspirational"] {
+  opacity: 0.72;
+}
+.entry[data-entry-mode="aspirational"]:hover,
+.entry[data-entry-mode="aspirational"].open {
+  opacity: 1;
+}
+
+.banner {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.92em;
+}
+.banner-text { flex: 1; }
+.banner.stale {
+  background: var(--vscode-inputValidation-warningBackground, rgba(181, 137, 0, 0.12));
+  color: var(--vscode-inputValidation-warningForeground, var(--fg));
+  border: 1px solid var(--vscode-inputValidation-warningBorder, var(--warn));
+}
+.banner.stale code {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.suppression-contract {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  background: var(--card-bg);
+  font-size: 0.92em;
+}
+.suppression-contract .sc-title {
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  font-size: 0.78em;
+  letter-spacing: 0.04em;
+}
+.suppression-contract .sc-row {
+  margin: 3px 0;
+}
+.suppression-contract .sc-label {
+  color: var(--muted);
+  font-weight: 500;
+  margin-right: 4px;
+}
+.suppression-contract .sc-actions {
+  margin-top: 8px;
+}
+
+/* ── Phase 2 additions: education banner + "?" help icon ── */
+
+.banner.education {
+  background: var(--vscode-textBlockQuote-background, var(--card-bg));
+  border: 1px solid var(--border);
+  align-items: flex-start;
+  flex-direction: row;
+}
+.banner.education.hidden {
+  display: none;
+}
+.banner.education .banner-content {
+  flex: 1;
+}
+.banner.education .banner-explainer {
+  font-size: 0.92em;
+  margin-bottom: 6px;
+}
+.banner.education .banner-explainer em {
+  color: var(--muted);
+  font-style: normal;
+  margin-left: 6px;
+}
+.banner.education .banner-diagram {
+  margin: 6px 0 0;
+  font-size: 0.82em;
+  line-height: 1.35;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  white-space: pre;
+  overflow-x: auto;
+  max-height: 220px;
+}
+
+.banner-question {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin-left: 6px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.78em;
+  line-height: 1;
+  vertical-align: middle;
+  font: inherit;
+  font-size: 11px;
+}
+.banner-question:hover {
+  background: var(--card-bg);
+  color: var(--fg);
+}
+
+/* ── Phase 3 additions: verdict buttons + inline form ── */
+
+.verdict-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.verdict-btn {
+  /* Distinguish from agent-driven buttons: dashed border, no fill. */
+  background: transparent;
+  border-style: dashed;
+}
+.verdict-btn:hover {
+  background: var(--card-bg);
+}
+
+.verdict-form {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--card-bg);
+}
+.verdict-form.hidden { display: none; }
+.verdict-form-title {
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+.verdict-field {
+  margin: 8px 0;
+}
+.verdict-field.hidden { display: none; }
+.verdict-field > label {
+  display: block;
+  font-size: 0.88em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.verdict-required-marker {
+  color: var(--error);
+}
+.verdict-optional-marker {
+  color: var(--muted);
+  font-style: italic;
+}
+.verdict-file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 4px 8px;
+  background: var(--bg);
+}
+.verdict-file-list li {
+  margin: 3px 0;
+}
+.verdict-file-list label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.88em;
+  cursor: pointer;
+}
+.verdict-form textarea {
+  width: 100%;
+  font-family: var(--vscode-font-family);
+  font-size: 0.9em;
+  padding: 6px 8px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  resize: vertical;
+}
+.verdict-form textarea:focus {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.verdict-form-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.verdict-submit[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Phase 4 additions: view-mode tabs + activity timeline ── */
+
+.view-mode-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 12px 0 4px;
+  border-bottom: 1px solid var(--border);
+}
+.view-mode-tab {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-bottom: none;
+  padding: 6px 14px;
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.92em;
+  margin-bottom: -1px;
+}
+.view-mode-tab:hover {
+  color: var(--fg);
+}
+.view-mode-tab.on {
+  color: var(--fg);
+  background: var(--card-bg);
+  border-color: var(--border);
+  border-bottom-color: var(--card-bg);
+}
+
+.activity-filter-bar {
+  margin-bottom: 12px;
+}
+.activity-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.92em;
+}
+
+.activity-group {
+  margin-bottom: 12px;
+}
+.activity-entry .entry-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.activity-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.activity-subject {
+  font-weight: 500;
+}
+.activity-date {
+  color: var(--muted);
+  font-size: 0.85em;
+  margin-left: auto;
+}
+.activity-line {
+  color: var(--muted);
+  font-size: 0.88em;
+}
+.activity-line em {
+  font-style: italic;
+  opacity: 0.7;
+}
+
+.badge.event-applied {
+  background: var(--vscode-charts-green, #2e7d32);
+  color: #fff;
+}
+.badge.event-exempted {
+  background: var(--warn);
+  color: #fff;
+}
+.badge.event-promoted {
+  background: var(--info);
+  color: #fff;
+}
+.badge.event-other {
+  background: var(--card-bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+.badge.event-auto {
+  background: transparent;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  opacity: 0.85;
 }
 `;

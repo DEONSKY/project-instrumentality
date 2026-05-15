@@ -13,6 +13,12 @@ import {
   buildEntryHandles,
   groupEntries,
   SECTION_GUIDE,
+  appliedPrompt,
+  exemptedPrompt,
+  promotedPrompt,
+  dismissedPrompt,
+  closedPromotionPrompt,
+  rerunPhase1Prompt,
   type StatusSummary,
   type CodeDriftEntry,
   type KbDriftEntry,
@@ -23,10 +29,118 @@ import {
   type LintViolation,
   type PromptInput,
   type StandardRule,
+  type DriftLogEvent,
   type GroupBy,
   type EntryHandle,
+  type SectionKind,
 } from "@instrumentality/shared";
 import { SyncWatcher } from "./watcher";
+
+export interface InstrumentalityViewCallbacks {
+  getKbRoot: () => string | null;
+  getDismissedBanners: () => ReadonlySet<SectionKind>;
+  dismissBanner: (kind: SectionKind) => void;
+}
+
+type VerdictKey =
+  | "applied"
+  | "exempted"
+  | "promoted"
+  | "dismissed"
+  | "closed_promotion";
+
+interface VerdictDef {
+  verdict: VerdictKey;
+  label: string;
+  /** When false, click submits directly (e.g. `applied` — no form). */
+  needsForm: boolean;
+  fields: {
+    filePaths?: { required: boolean; label: string };
+    reason?: { required: boolean };
+    note?: { required: false };
+  };
+}
+
+function activityEventLabel(t: string): string {
+  switch (t) {
+    case "conformed-applied":
+      return "Conformed · applied";
+    case "conformed-exempted":
+      return "Conformed · exempted";
+    case "conformed-promoted":
+      return "Conformed · promoted";
+    case "dismissed-conform":
+      return "Dismissed (conform)";
+    case "closed-promotion":
+      return "Closed promotion";
+    case "auto-dismissed-standard-removed":
+      return "Auto-dismissed (standard removed)";
+    case "auto-closed-promotion-rule-changed":
+      return "Auto-closed (rule changed)";
+    case "auto-closed-promotion-standard-removed":
+      return "Auto-closed (standard removed)";
+    case "drift-resolved":
+      return "Drift resolved";
+    case "drift-dismissed":
+      return "Drift dismissed";
+    case "re-bootstrap":
+      return "Re-bootstrap";
+    default:
+      return "Unknown";
+  }
+}
+
+function activityBadgeClass(t: string, isSystem: boolean): string {
+  if (isSystem) return "event-auto";
+  if (t === "conformed-applied" || t === "drift-resolved") return "event-applied";
+  if (t === "conformed-exempted" || t === "dismissed-conform" || t === "drift-dismissed")
+    return "event-exempted";
+  if (t === "conformed-promoted" || t === "closed-promotion") return "event-promoted";
+  return "event-other";
+}
+
+const VERDICTS_BY_SECTION: Partial<Record<SectionKind, VerdictDef[]>> = {
+  "standards-drift": [
+    { verdict: "applied", label: "Apply", needsForm: false, fields: {} },
+    {
+      verdict: "exempted",
+      label: "Exempt…",
+      needsForm: true,
+      fields: {
+        filePaths: { required: true, label: "Files to exempt" },
+        reason: { required: true },
+      },
+    },
+    {
+      verdict: "promoted",
+      label: "Promote…",
+      needsForm: true,
+      fields: {
+        filePaths: { required: true, label: "Originating files" },
+        note: { required: false },
+      },
+    },
+    {
+      verdict: "dismissed",
+      label: "Dismiss…",
+      needsForm: true,
+      fields: {
+        reason: { required: true },
+      },
+    },
+  ],
+  promotions: [
+    {
+      verdict: "closed_promotion",
+      label: "Close promotion",
+      needsForm: true,
+      fields: {
+        filePaths: { required: true, label: "Files in the exception" },
+        reason: { required: true },
+      },
+    },
+  ],
+};
 
 export const VIEW_TYPE_INSTRUMENTALITY = "instrumentality-view";
 export const ICON_ID = "instrumentality-icon";
@@ -40,14 +154,6 @@ interface RenderedEntry {
   standardId?: string | null;
 }
 
-type SectionKind =
-  | "code-drift"
-  | "kb-drift"
-  | "standards-drift"
-  | "conform-pending"
-  | "promotions"
-  | "lint";
-
 export class InstrumentalityView extends ItemView {
   private status: StatusSummary | null = null;
   private kbRoot: string | null = null;
@@ -57,9 +163,19 @@ export class InstrumentalityView extends ItemView {
   private hiddenSections: Set<SectionKind> = new Set();
   private severityFilter: Set<"error" | "warn" | "info"> = new Set();
   private groupBy: GroupBy = "section";
+  // Phase-4-equivalent state. View-mode + activity controls are kept
+  // in-memory only — they reset on view reopen, which matches the rest
+  // of the plugin's "no config dialog" feel.
+  private viewMode: "pending" | "activity" = "pending";
+  private activityGroupBy: "date" | "queueKey" | "eventType" = "date";
+  private showSystemEvents = true;
+  private cb: InstrumentalityViewCallbacks;
+  private getKbRoot: () => string | null;
 
-  constructor(leaf: WorkspaceLeaf, private getKbRoot: () => string | null) {
+  constructor(leaf: WorkspaceLeaf, callbacks: InstrumentalityViewCallbacks) {
     super(leaf);
+    this.cb = callbacks;
+    this.getKbRoot = callbacks.getKbRoot;
   }
 
   getViewType(): string {
@@ -131,8 +247,65 @@ export class InstrumentalityView extends ItemView {
 
     this.renderHeader(root);
     this.renderPipelineStrip(root);
-    this.renderFilterBar(root);
-    this.renderSections(root);
+    this.renderViewModeTabs(root);
+    if (this.viewMode === "activity") {
+      this.renderActivityFilterBar(root);
+      this.renderActivityBody(root);
+    } else {
+      this.renderFilterBar(root);
+      this.renderSections(root);
+    }
+  }
+
+  private renderViewModeTabs(parent: HTMLElement): void {
+    const tabs = parent.createDiv({ cls: "instrumentality-view-mode-tabs" });
+    const make = (mode: "pending" | "activity", label: string) => {
+      const tab = tabs.createEl("button", {
+        cls: "instrumentality-view-mode-tab" + (this.viewMode === mode ? " on" : ""),
+        text: label,
+      });
+      tab.addEventListener("click", () => {
+        if (this.viewMode === mode) return;
+        this.viewMode = mode;
+        this.render();
+      });
+    };
+    make("pending", "Pending");
+    make("activity", "Activity");
+  }
+
+  private renderActivityFilterBar(parent: HTMLElement): void {
+    const bar = parent.createDiv({
+      cls: "instrumentality-filter-bar instrumentality-activity-filter-bar",
+    });
+    const groupBox = bar.createDiv({ cls: "instrumentality-chip-group" });
+    groupBox.createSpan({ cls: "group-by-label", text: "Group:" });
+    const modes: { key: "date" | "queueKey" | "eventType"; label: string }[] = [
+      { key: "date", label: "Date" },
+      { key: "queueKey", label: "Queue key" },
+      { key: "eventType", label: "Event type" },
+    ];
+    for (const m of modes) {
+      const chip = groupBox.createSpan({
+        cls:
+          "instrumentality-chip group-by-chip" +
+          (this.activityGroupBy === m.key ? " on" : ""),
+        text: m.label,
+      });
+      chip.addEventListener("click", () => {
+        if (this.activityGroupBy === m.key) return;
+        this.activityGroupBy = m.key;
+        this.render();
+      });
+    }
+    const toggleLabel = bar.createEl("label", { cls: "instrumentality-activity-toggle" });
+    const cb = toggleLabel.createEl("input", { attr: { type: "checkbox" } });
+    cb.checked = this.showSystemEvents;
+    toggleLabel.appendText(" Show system events");
+    cb.addEventListener("change", () => {
+      this.showSystemEvents = cb.checked;
+      this.render();
+    });
   }
 
   /**
@@ -288,7 +461,9 @@ export class InstrumentalityView extends ItemView {
         return;
       }
       case "standards-drift": {
-        const i = s.standardsDrift.entries.findIndex((e, idx) => stableEntryId(e.queueKey, idx) === h.id);
+        const i = s.standardsDrift.entries.findIndex(
+          (e, idx) => stableEntryId(`${e.mode}:${e.queueKey}`, idx) === h.id
+        );
         if (i >= 0) this.renderStandardsDriftRow(parent, s.standardsDrift.entries[i], i);
         return;
       }
@@ -324,7 +499,8 @@ export class InstrumentalityView extends ItemView {
     title: string,
     count: number,
     badgeText?: string,
-    hint?: string
+    hint?: string,
+    extraBanner?: (parent: HTMLElement) => void
   ): HTMLElement {
     const card = parent.createDiv({ cls: "instrumentality-section-card", attr: { "data-section": kind } });
     const header = card.createEl("header");
@@ -333,7 +509,70 @@ export class InstrumentalityView extends ItemView {
     h2.createSpan({ cls: "count", text: String(count) });
     if (badgeText) h2.createSpan({ cls: "badge", text: badgeText });
     if (hint) header.createDiv({ cls: "group-hint", text: hint });
+
+    // Education banner + "?" icon. Dismissed → "?" in header, banner hidden.
+    // Click "?" → transient banner show (no re-persist, by design).
+    const dismissed = this.cb.getDismissedBanners().has(kind);
+    if (dismissed) {
+      const help = h2.createEl("button", {
+        cls: "instrumentality-banner-question",
+        text: "?",
+        attr: { title: `Show ${SECTION_GUIDE[kind].label} lifecycle` },
+      });
+      help.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const banner = card.querySelector(
+          ".instrumentality-banner.education"
+        ) as HTMLElement | null;
+        if (banner) banner.removeClass("hidden");
+        help.remove();
+      });
+    }
+    this.renderEducationBanner(card, kind, dismissed);
+
+    // Section-level extras (e.g. stale-baseline banner on conform pending).
+    if (extraBanner) extraBanner(card);
+
     return card.createDiv({ cls: "body" });
+  }
+
+  private renderEducationBanner(
+    parent: HTMLElement,
+    kind: SectionKind,
+    dismissed: boolean
+  ): void {
+    const guide = SECTION_GUIDE[kind];
+    const banner = parent.createDiv({
+      cls: "instrumentality-banner education" + (dismissed ? " hidden" : ""),
+      attr: { "data-banner-kind": kind },
+    });
+    const content = banner.createDiv({ cls: "banner-content" });
+    const explainer = content.createDiv({ cls: "banner-explainer" });
+    explainer.createEl("strong", { text: guide.label });
+    explainer.appendText(" — " + guide.what + " ");
+    explainer.createEl("em", { text: guide.todo });
+    content.createEl("pre", { cls: "banner-diagram", text: guide.lifecycleDiagram });
+    const dismissBtn = banner.createEl("button", { text: "Got it" });
+    dismissBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      // Optimistic UI then persist.
+      banner.addClass("hidden");
+      this.cb.dismissBanner(kind);
+      // Insert the "?" icon next to the count.
+      const h2 = parent.querySelector("header h2");
+      if (h2 && !h2.querySelector(".instrumentality-banner-question")) {
+        const help = h2.createEl("button", {
+          cls: "instrumentality-banner-question",
+          text: "?",
+          attr: { title: `Show ${guide.label} lifecycle` },
+        });
+        help.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          banner.removeClass("hidden");
+          help.remove();
+        });
+      }
+    });
   }
 
   private placeholder(parent: HTMLElement, text: string): void {
@@ -473,7 +712,10 @@ export class InstrumentalityView extends ItemView {
     e: StandardsDriftEntry,
     i: number
   ): void {
-    const id = stableEntryId(e.queueKey, i);
+    // Disambiguate mode collisions: a (file, rule) pair can appear in both
+    // current and aspirational queues simultaneously. Folding mode into
+    // the id makes the entry-index keys unique.
+    const id = stableEntryId(`${e.mode}:${e.queueKey}`, i);
     const sev = (e.severity as "error" | "warn" | "info" | null) ?? null;
     const fileCount = Object.values(e.filesByParty).reduce((s, fs) => s + fs.length, 0);
     const firstFile = Object.values(e.filesByParty).flat()[0]?.path;
@@ -483,6 +725,13 @@ export class InstrumentalityView extends ItemView {
     const summary = (h2: HTMLElement) => {
       h2.createSpan({ cls: "title", text: e.queueKey });
       if (sev) h2.createSpan({ cls: `badge sev-${sev}`, text: sev });
+      if (e.mode === "aspirational") {
+        h2.createSpan({
+          cls: "badge advisory-mode",
+          text: "advisory",
+          attr: { title: "Advisory backlog — not PR-blocking" },
+        });
+      }
     };
     const meta = `${e.standardId ?? "?"}${e.standardKind ? ` (${e.standardKind})` : ""} · ${fileCount} file(s)${ruleHint}`;
     const detail = (d: HTMLElement) => {
@@ -523,6 +772,11 @@ export class InstrumentalityView extends ItemView {
         diffableFiles.push({ relPath: f.path, sinceCommit: f.sinceCommit, latestCommit: f.latestCommit });
       }
     }
+    // Files for verdict-form file selectors. Order matches the queue file.
+    const verdictFiles: string[] = [];
+    for (const arr of Object.values(e.filesByParty)) {
+      for (const f of arr) verdictFiles.push(f.path);
+    }
     this.entryShell({
       parent,
       section: "standards-drift",
@@ -537,6 +791,9 @@ export class InstrumentalityView extends ItemView {
       ruleId: e.ruleId,
       authorEntry: e,
       diffableFiles,
+      modeAttr: e.mode,
+      verdictQueueKey: e.queueKey,
+      verdictFiles,
     });
   }
 
@@ -586,13 +843,43 @@ export class InstrumentalityView extends ItemView {
     const a = this.status!.conformPending.aspirational;
     const total = (c?.requested.length ?? 0) + (a?.requested.length ?? 0);
     const stale = c?.staleAgainstHead || a?.staleAgainstHead;
+
+    const renderStaleBanner = stale
+      ? (card: HTMLElement) => {
+          const staleMode: "current" | "aspirational" = c?.staleAgainstHead
+            ? "current"
+            : "aspirational";
+          const staleSha = c?.staleAgainstHead
+            ? c.head_sha_short
+            : a?.head_sha_short ?? "";
+          const headSha = this.status?.currentHeadShort ?? "(unknown)";
+          const banner = card.createDiv({ cls: "instrumentality-banner stale" });
+          const txt = banner.createDiv({ cls: "banner-text" });
+          txt.createEl("strong", { text: "Pending session is stale." });
+          txt.appendText(" Baseline ");
+          txt.createEl("code", { text: staleSha });
+          txt.appendText(" · HEAD ");
+          txt.createEl("code", { text: headSha });
+          txt.appendText(". Re-run Phase 1 before submitting judgments.");
+          const btn = banner.createEl("button", { text: "Re-run Phase 1" });
+          btn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            // Pure observer: copy the prompt; the user pastes into their
+            // agent. Same dispatch model as every other action in this view.
+            await navigator.clipboard.writeText(rerunPhase1Prompt(staleMode));
+            new Notice("Instrumentality: Re-run Phase 1 prompt copied.");
+          });
+        }
+      : undefined;
+
     const body = this.sectionShell(
       parent,
       "conform-pending",
       SECTION_GUIDE["conform-pending"].label,
       total,
       stale ? "baseline stale" : undefined,
-      SECTION_GUIDE["conform-pending"].what
+      SECTION_GUIDE["conform-pending"].what,
+      renderStaleBanner
     );
     if (total === 0) return this.placeholder(body, "No conform pending");
     for (const p of [c, a]) {
@@ -691,11 +978,6 @@ export class InstrumentalityView extends ItemView {
       const rule = div.createDiv();
       rule.createSpan({ text: "Rule: " });
       rule.createEl("code", { text: e.ruleId ?? "?" });
-      if (e.ruleFingerprint) {
-        const fp = div.createDiv();
-        fp.createSpan({ text: "Fingerprint: " });
-        fp.createEl("code", { text: e.ruleFingerprint });
-      }
       this.appendRuleBlock(div, e.resolvedRule);
       const filesBlock = div.createDiv();
       filesBlock.createEl("strong", { text: "Files:" });
@@ -709,7 +991,9 @@ export class InstrumentalityView extends ItemView {
           li.createEl("em", { text: f.note });
         }
       }
+      this.renderSuppressionContract(div, e);
     };
+    const verdictFiles = e.files.map((f) => f.path);
     this.entryShell({
       parent,
       section: "promotions",
@@ -722,6 +1006,66 @@ export class InstrumentalityView extends ItemView {
       sourceFile: e.files[0]?.path,
       standardId: e.standardId,
       ruleId: e.ruleId,
+      verdictQueueKey: e.queueKey,
+      verdictFiles,
+    });
+  }
+
+  // Suppression contract panel: surfaces the ledger semantics inline so
+  // a user staring at a promoted entry knows *why* it isn't re-firing
+  // and *when* it will auto-clear. Fingerprint shown as stored at
+  // promote time — no live recompute.
+  private renderSuppressionContract(parent: HTMLElement, e: PromotionEntry): void {
+    const panel = parent.createDiv({ cls: "instrumentality-suppression-contract" });
+    panel.createDiv({ cls: "sc-title", text: "Suppression contract" });
+
+    const earliest = e.files.map((f) => f.promotedAt).sort()[0] ?? null;
+    const fingerprintShort = e.ruleFingerprint
+      ? e.ruleFingerprint.length > 22
+        ? e.ruleFingerprint.slice(0, 22) + "…"
+        : e.ruleFingerprint
+      : "(none recorded)";
+    const fingerprintTooltip =
+      "Hash inputs: rule.description, rule.severity, canonicalized rule.detect, " +
+      "canonicalized rule.applies_to, plus parties[].applies_to.paths for contracts. " +
+      "Mismatch on next sweep → auto-close.";
+
+    const row1 = panel.createDiv({ cls: "sc-row" });
+    row1.createSpan({ cls: "sc-label", text: "Suppressed since:" });
+    row1.appendText(" ");
+    if (earliest) row1.createEl("code", { text: earliest });
+    else row1.createEl("em", { text: "(no files)" });
+
+    const row2 = panel.createDiv({ cls: "sc-row" });
+    row2.createSpan({ cls: "sc-label", text: "Rule fingerprint:" });
+    row2.appendText(" ");
+    row2.createEl("code", { text: fingerprintShort, attr: { title: fingerprintTooltip } });
+
+    const row3 = panel.createDiv({ cls: "sc-row" });
+    row3.createSpan({ cls: "sc-label", text: "Auto-closes if:" });
+    row3.appendText(" rule definition changes (fingerprint mismatch on next Phase 1 sweep) or the standard/rule is removed.");
+
+    const row4 = panel.createDiv({ cls: "sc-row" });
+    row4.createSpan({ cls: "sc-label", text: "Or close manually:" });
+    row4.appendText(" use the ");
+    row4.createEl("em", { text: "Close promotion" });
+    row4.appendText(" verdict to write an exception into the rule.");
+
+    const actions = panel.createDiv({ cls: "sc-row sc-actions" });
+    const openLedger = actions.createEl("button", { text: "Open ledger" });
+    openLedger.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      if (!this.kbRoot) {
+        new Notice("Instrumentality: knowledge base not detected.");
+        return;
+      }
+      const abs = path.join(
+        this.kbRoot,
+        "knowledge",
+        "sync",
+        "standards-promotions.md"
+      );
+      await this.openPath(abs);
     });
   }
 
@@ -795,15 +1139,23 @@ export class InstrumentalityView extends ItemView {
      * when `latestCommit` is missing) and render the patch text inline.
      */
     diffableFiles?: { relPath: string; sinceCommit: string; latestCommit?: string }[];
+    /** Carried as `data-entry-mode` for aspirational opacity-demotion CSS. */
+    modeAttr?: string;
+    /** Queue key passed to verdict prompt generators (when verdicts apply). */
+    verdictQueueKey?: string;
+    /** File paths offered as checkboxes in the verdict form. */
+    verdictFiles?: string[];
   }): void {
+    const attr: Record<string, string> = {
+      "data-entry-section": opts.section,
+      "data-entry-id": opts.id,
+      "data-entry-sev": opts.sev,
+      "data-entry-text": opts.text.toLowerCase(),
+    };
+    if (opts.modeAttr) attr["data-entry-mode"] = opts.modeAttr;
     const row = opts.parent.createDiv({
       cls: "instrumentality-entry",
-      attr: {
-        "data-entry-section": opts.section,
-        "data-entry-id": opts.id,
-        "data-entry-sev": opts.sev,
-        "data-entry-text": opts.text.toLowerCase(),
-      },
+      attr,
     });
     const summary = row.createDiv({ cls: "entry-summary" });
     const titleRow = summary.createDiv({ cls: "entry-title-row" });
@@ -854,6 +1206,20 @@ export class InstrumentalityView extends ItemView {
       }
     }
 
+    // Verdict picker — only for sections in VERDICTS_BY_SECTION. Mirrors
+    // the VSCode extension: user has already decided, form just records
+    // the call. UI never invokes MCP directly — every verdict generates
+    // a prompt and copies it to the clipboard for the user's agent.
+    const verdictDefs = VERDICTS_BY_SECTION[opts.section];
+    if (verdictDefs && opts.verdictQueueKey) {
+      this.appendVerdictPicker(detail, {
+        section: opts.section,
+        verdictDefs,
+        queueKey: opts.verdictQueueKey,
+        files: opts.verdictFiles ?? [],
+      });
+    }
+
     // Show Diff section (lazy — populated on click). The text content is
     // captured into a closure so subsequent clicks don't re-shell.
     if (opts.diffableFiles && opts.diffableFiles.length > 0) {
@@ -870,6 +1236,269 @@ export class InstrumentalityView extends ItemView {
     promptPre.appendText(indexed?.prompt ?? "(no prompt available)");
 
     summary.addEventListener("click", () => row.toggleClass("open", !row.hasClass("open")));
+  }
+
+  private appendVerdictPicker(
+    parent: HTMLElement,
+    opts: {
+      section: SectionKind;
+      verdictDefs: VerdictDef[];
+      queueKey: string;
+      files: string[];
+    }
+  ): void {
+    const row = parent.createDiv({ cls: "instrumentality-verdict-actions-row" });
+    for (const def of opts.verdictDefs) {
+      const btn = row.createEl("button", {
+        cls: "instrumentality-verdict-btn",
+        text: def.label,
+      });
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!def.needsForm) {
+          // Direct submit (e.g. Apply).
+          await this.submitVerdict(opts.section, def, opts.queueKey, {});
+          return;
+        }
+        // Toggle the form: hide any other open form in this entry, show
+        // ours, populate field visibility.
+        const entry = parent.closest(".instrumentality-entry");
+        if (!entry) return;
+        let form = entry.querySelector(
+          ".instrumentality-verdict-form"
+        ) as HTMLElement | null;
+        if (!form) {
+          form = this.buildVerdictForm(opts);
+          parent.appendChild(form);
+        }
+        this.activateVerdictForm(form, def, opts);
+      });
+    }
+  }
+
+  private buildVerdictForm(opts: {
+    section: SectionKind;
+    verdictDefs: VerdictDef[];
+    queueKey: string;
+    files: string[];
+  }): HTMLElement {
+    const form = createDiv({
+      cls: "instrumentality-verdict-form hidden",
+      attr: { "data-active-verdict": "" },
+    });
+    form.createDiv({ cls: "verdict-form-title" });
+    // filePaths field
+    const filesField = form.createDiv({
+      cls: "verdict-field",
+      attr: { "data-for-field": "filePaths" },
+    });
+    filesField.createEl("label", { cls: "verdict-field-label" });
+    const ul = filesField.createEl("ul", { cls: "verdict-file-list" });
+    for (const p of opts.files) {
+      const li = ul.createEl("li");
+      const lbl = li.createEl("label");
+      const cb = lbl.createEl("input", { attr: { type: "checkbox", value: p } });
+      cb.setAttribute("name", "vfile");
+      lbl.appendText(" ");
+      lbl.createEl("code", { text: p });
+    }
+    // reason field
+    const reasonField = form.createDiv({
+      cls: "verdict-field",
+      attr: { "data-for-field": "reason" },
+    });
+    const reasonLbl = reasonField.createEl("label");
+    reasonLbl.appendText("Reason ");
+    reasonLbl.createSpan({ cls: "verdict-required-marker", text: "(required)" });
+    const reason = reasonField.createEl("textarea", {
+      cls: "verdict-reason",
+      attr: { rows: "3", placeholder: "Why?" },
+    });
+    // note field
+    const noteField = form.createDiv({
+      cls: "verdict-field",
+      attr: { "data-for-field": "note" },
+    });
+    const noteLbl = noteField.createEl("label");
+    noteLbl.appendText("Note ");
+    noteLbl.createSpan({ cls: "verdict-optional-marker", text: "(optional)" });
+    noteField.createEl("textarea", {
+      cls: "verdict-note",
+      attr: { rows: "2", placeholder: "Optional context for the senior reviewer" },
+    });
+    // actions
+    const actions = form.createDiv({ cls: "verdict-form-actions" });
+    const submit = actions.createEl("button", {
+      cls: "instrumentality-verdict-submit mod-cta",
+      text: "Send to agent",
+    });
+    submit.setAttribute("disabled", "");
+    const cancel = actions.createEl("button", { text: "Cancel" });
+
+    const revalidate = () => {
+      const active = form.getAttribute("data-active-verdict") as VerdictKey | null;
+      if (!active) {
+        submit.setAttribute("disabled", "");
+        return;
+      }
+      const def = opts.verdictDefs.find((d) => d.verdict === active);
+      if (!def) {
+        submit.setAttribute("disabled", "");
+        return;
+      }
+      let valid = true;
+      if (def.fields.filePaths?.required) {
+        const checked = form.querySelectorAll('input[name="vfile"]:checked');
+        if (checked.length === 0) valid = false;
+      }
+      if (def.fields.reason?.required) {
+        if (!reason.value.trim()) valid = false;
+      }
+      if (valid) submit.removeAttribute("disabled");
+      else submit.setAttribute("disabled", "");
+    };
+    form.addEventListener("input", revalidate);
+    form.addEventListener("change", revalidate);
+
+    submit.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const active = form.getAttribute("data-active-verdict") as VerdictKey | null;
+      if (!active) return;
+      const def = opts.verdictDefs.find((d) => d.verdict === active);
+      if (!def) return;
+      const draft: { filePaths?: string[]; reason?: string; note?: string } = {};
+      const checked = Array.from(
+        form.querySelectorAll<HTMLInputElement>('input[name="vfile"]:checked')
+      ).map((i) => i.value);
+      if (checked.length > 0) draft.filePaths = checked;
+      const rEl = form.querySelector(".verdict-reason") as HTMLTextAreaElement | null;
+      if (rEl && rEl.value.trim()) draft.reason = rEl.value.trim();
+      const nEl = form.querySelector(".verdict-note") as HTMLTextAreaElement | null;
+      if (nEl && nEl.value.trim()) draft.note = nEl.value.trim();
+      await this.submitVerdict(opts.section, def, opts.queueKey, draft);
+      this.resetVerdictForm(form);
+    });
+    cancel.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.resetVerdictForm(form);
+    });
+    return form;
+  }
+
+  private activateVerdictForm(
+    form: HTMLElement,
+    def: VerdictDef,
+    opts: { verdictDefs: VerdictDef[]; queueKey: string; files: string[] }
+  ): void {
+    form.setAttribute("data-active-verdict", def.verdict);
+    const title = form.querySelector(".verdict-form-title") as HTMLElement | null;
+    if (title) title.setText("Resolve as: " + def.label.replace(/…$/, ""));
+    form.querySelectorAll<HTMLElement>("[data-for-field]").forEach((el) => {
+      const key = el.getAttribute("data-for-field") as
+        | "filePaths"
+        | "reason"
+        | "note"
+        | null;
+      if (!key) return;
+      const cfg = (def.fields as Record<string, unknown>)[key];
+      el.toggleClass("hidden", !cfg);
+      if (key === "filePaths" && cfg) {
+        const lbl = el.querySelector(".verdict-field-label") as HTMLElement | null;
+        if (lbl) lbl.setText((cfg as { label: string }).label);
+      }
+    });
+    form.removeClass("hidden");
+    // Initial validation pass — Apply has no fields and stays valid; others
+    // start disabled until the user fills the required fields.
+    form.dispatchEvent(new Event("input"));
+  }
+
+  private resetVerdictForm(form: HTMLElement): void {
+    form.setAttribute("data-active-verdict", "");
+    form.addClass("hidden");
+    form
+      .querySelectorAll<HTMLInputElement>('input[name="vfile"]')
+      .forEach((i) => (i.checked = false));
+    const r = form.querySelector(".verdict-reason") as HTMLTextAreaElement | null;
+    if (r) r.value = "";
+    const n = form.querySelector(".verdict-note") as HTMLTextAreaElement | null;
+    if (n) n.value = "";
+    const submit = form.querySelector(
+      ".instrumentality-verdict-submit"
+    ) as HTMLButtonElement | null;
+    if (submit) submit.setAttribute("disabled", "");
+  }
+
+  private async submitVerdict(
+    section: SectionKind,
+    def: VerdictDef,
+    queueKey: string,
+    draft: { filePaths?: string[]; reason?: string; note?: string }
+  ): Promise<void> {
+    // Same safety belt as the VSCode extension: client-side validation
+    // already covered this, but messages are untrusted input semantically.
+    let prompt: string;
+    try {
+      switch (def.verdict) {
+        case "applied":
+          prompt = appliedPrompt({ verdict: "applied", queueKey });
+          break;
+        case "exempted":
+          if (!draft.filePaths || draft.filePaths.length === 0)
+            throw new Error("Exempt requires at least one file.");
+          if (!draft.reason || !draft.reason.trim())
+            throw new Error("Exempt requires a reason.");
+          prompt = exemptedPrompt({
+            verdict: "exempted",
+            queueKey,
+            filePaths: draft.filePaths,
+            reason: draft.reason.trim(),
+          });
+          break;
+        case "promoted":
+          if (!draft.filePaths || draft.filePaths.length === 0)
+            throw new Error("Promote requires at least one originating file.");
+          prompt = promotedPrompt({
+            verdict: "promoted",
+            queueKey,
+            originatingFiles: draft.filePaths,
+            note: draft.note?.trim() || undefined,
+          });
+          break;
+        case "dismissed":
+          if (!draft.reason || !draft.reason.trim())
+            throw new Error("Dismiss requires a reason.");
+          prompt = dismissedPrompt({
+            verdict: "dismissed",
+            queueKey,
+            reason: draft.reason.trim(),
+          });
+          break;
+        case "closed_promotion":
+          if (!draft.filePaths || draft.filePaths.length === 0)
+            throw new Error("Close promotion requires at least one file.");
+          if (!draft.reason || !draft.reason.trim())
+            throw new Error("Close promotion requires a reason.");
+          prompt = closedPromotionPrompt({
+            verdict: "closed_promotion",
+            queueKey,
+            filePaths: draft.filePaths,
+            reason: draft.reason.trim(),
+          });
+          break;
+        default:
+          throw new Error(`Unknown verdict: ${(def as { verdict: string }).verdict}`);
+      }
+    } catch (err: any) {
+      new Notice(`Instrumentality: ${err?.message ?? err}`);
+      return;
+    }
+    await navigator.clipboard.writeText(prompt);
+    // Unused parameter `section` is kept for symmetry with the VSCode
+    // extension's handleVerdictSubmit so the call signatures match if we
+    // need to broaden routing later.
+    void section;
+    new Notice(`Instrumentality: ${def.verdict.replace(/_/g, " ")} prompt copied.`);
   }
 
   /**
@@ -1089,6 +1718,144 @@ export class InstrumentalityView extends ItemView {
     });
   }
 
+  // ── Activity (drift-log timeline) ──────────────────────────────────────
+
+  private renderActivityBody(parent: HTMLElement): void {
+    const grid = parent.createDiv({ cls: "instrumentality-section-grid" });
+    let events = this.status?.driftLogEvents ?? [];
+    if (!this.showSystemEvents) {
+      events = events.filter((e) => !e.isSystem);
+    }
+    if (events.length === 0) {
+      const card = grid.createDiv({
+        cls: "instrumentality-section-card",
+        attr: { "data-section": "activity" },
+      });
+      const header = card.createEl("header");
+      const h2 = header.createEl("h2");
+      h2.createSpan({ text: "Activity" });
+      h2.createSpan({ cls: "count", text: "0" });
+      const body = card.createDiv({ cls: "body" });
+      this.placeholder(
+        body,
+        "No drift-log events in the current + previous month."
+      );
+      return;
+    }
+
+    const groups = new Map<string, DriftLogEvent[]>();
+    for (const e of events) {
+      let key: string;
+      if (this.activityGroupBy === "queueKey")
+        key = e.queueKey || e.kbTarget || e.kbFile || "(unattributed)";
+      else if (this.activityGroupBy === "eventType")
+        key = activityEventLabel(e.eventType);
+      else key = e.date;
+      const arr = groups.get(key) ?? [];
+      arr.push(e);
+      groups.set(key, arr);
+    }
+    const sortedKeys = [...groups.keys()].sort((a, b) =>
+      this.activityGroupBy === "date"
+        ? a < b
+          ? 1
+          : a > b
+          ? -1
+          : 0
+        : a.localeCompare(b)
+    );
+
+    for (const k of sortedKeys) {
+      const arr = groups.get(k)!;
+      const card = grid.createDiv({
+        cls: "instrumentality-section-card activity-group",
+        attr: { "data-activity-group": k },
+      });
+      const header = card.createEl("header");
+      const h2 = header.createEl("h2");
+      h2.createSpan({ text: k });
+      h2.createSpan({ cls: "count", text: String(arr.length) });
+      const body = card.createDiv({ cls: "body" });
+      for (const e of arr) this.renderActivityRow(body, e);
+    }
+  }
+
+  private renderActivityRow(parent: HTMLElement, e: DriftLogEvent): void {
+    const id = `${e.date}:${e.queueKey ?? e.kbTarget ?? e.kbFile ?? ""}:${e.eventType}`;
+    const subject = e.queueKey ?? e.kbTarget ?? e.kbFile ?? "(unattributed)";
+    const row = parent.createDiv({
+      cls: "instrumentality-entry activity-entry",
+      attr: {
+        "data-entry-section": "activity",
+        "data-entry-id": id,
+        "data-entry-sev": "",
+        "data-entry-text": `${subject} ${e.eventType} ${e.reason ?? ""}`.toLowerCase(),
+      },
+    });
+    const summary = row.createDiv({ cls: "entry-summary" });
+    const summaryRow = summary.createDiv({ cls: "activity-summary" });
+    summaryRow.createSpan({
+      cls: `badge ${activityBadgeClass(e.eventType, e.isSystem)}`,
+      text: activityEventLabel(e.eventType),
+    });
+    summaryRow.createSpan({ cls: "activity-subject", text: subject });
+    summaryRow.createSpan({ cls: "activity-date", text: e.date });
+    const line = summary.createDiv({ cls: "activity-line" });
+    if (e.reason) {
+      line.appendText(
+        " — " + (e.reason.length > 100 ? e.reason.slice(0, 100) + "…" : e.reason)
+      );
+    } else {
+      line.createEl("em", { text: "(no reason recorded)" });
+    }
+
+    const detail = row.createDiv({ cls: "entry-detail" });
+    const meta = detail.createDiv({ cls: "detail-meta" });
+    const eventRow = meta.createDiv();
+    eventRow.createEl("strong", { text: "Event: " });
+    eventRow.createEl("code", { text: e.eventType });
+    meta.createDiv({ text: `Date: ${e.date}` });
+    if (e.queueKey) {
+      const r = meta.createDiv();
+      r.createEl("strong", { text: "Queue key: " });
+      r.createEl("code", { text: e.queueKey });
+    }
+    if (e.kbTarget) {
+      const r = meta.createDiv();
+      r.createEl("strong", { text: "KB target: " });
+      r.createEl("code", { text: e.kbTarget });
+    }
+    if (e.kbFile) {
+      const r = meta.createDiv();
+      r.createEl("strong", { text: "KB file: " });
+      r.createEl("code", { text: e.kbFile });
+    }
+    if (e.files?.length) {
+      const block = meta.createDiv();
+      block.createEl("strong", { text: "Files:" });
+      const ul = block.createEl("ul");
+      for (const f of e.files) ul.createEl("li").createEl("code", { text: f });
+    }
+    if (e.originatingFiles?.length) {
+      const block = meta.createDiv();
+      block.createEl("strong", { text: "Originating files:" });
+      const ul = block.createEl("ul");
+      for (const f of e.originatingFiles)
+        ul.createEl("li").createEl("code", { text: f });
+    }
+    if (e.reason) {
+      const r = meta.createDiv();
+      r.createEl("strong", { text: "Reason: " });
+      r.appendText(e.reason);
+    }
+    if (e.note) {
+      const r = meta.createDiv();
+      r.createEl("strong", { text: "Note: " });
+      r.appendText(e.note);
+    }
+    summary.addEventListener("click", () => row.toggleClass("open", !row.hasClass("open")));
+  }
+
   // ── Index ──────────────────────────────────────────────────────────────
 
   private buildEntryIndex(status: StatusSummary | null): Map<string, RenderedEntry> {
@@ -1118,7 +1885,7 @@ export class InstrumentalityView extends ItemView {
     status.standardsDrift.entries.forEach((e, i) =>
       push({
         section: "standards-drift",
-        id: stableEntryId(e.queueKey, i),
+        id: stableEntryId(`${e.mode}:${e.queueKey}`, i),
         promptInput: { kind: "standards-drift", entry: e },
         sourceFile: Object.values(e.filesByParty).flat()[0]?.path,
         standardId: e.standardId,

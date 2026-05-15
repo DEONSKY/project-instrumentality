@@ -8,6 +8,8 @@ import {
   type EntryRef,
   type IndexedEntry,
   type SectionKind,
+  type VerdictKey,
+  type VerdictDraft,
 } from "./webview-render";
 
 export type { SectionKind, DashboardFilter, DashboardAction, EntryRef, IndexedEntry };
@@ -17,6 +19,7 @@ export interface DashboardCallbacks {
   getKbRoot: () => string | null;
   getFilter: () => DashboardFilter;
   setFilter: (f: DashboardFilter) => void;
+  getDismissedBanners: () => ReadonlySet<SectionKind>;
   onAction: (action: DashboardAction) => Promise<void>;
   onReveal: (entryRef: EntryRef) => Promise<void>;
 }
@@ -64,8 +67,9 @@ function rerender(): void {
   const status = cb.getStatus();
   const filter = cb.getFilter();
   const kbRoot = cb.getKbRoot();
+  const dismissed = cb.getDismissedBanners();
   entryIndex = buildEntryIndex(status);
-  panel.webview.html = renderHtml(status, filter, entryIndex, kbRoot, "dashboard");
+  panel.webview.html = renderHtml(status, filter, entryIndex, kbRoot, "dashboard", dismissed);
 }
 
 async function handleMessage(msg: any): Promise<void> {
@@ -100,6 +104,27 @@ async function handleMessage(msg: any): Promise<void> {
         latestCommit: msg.latestCommit ? String(msg.latestCommit) : undefined,
       });
       return;
+    case "rerunPhase1": {
+      const mode = msg.mode === "aspirational" ? "aspirational" : "current";
+      await cb.onAction({ type: "rerunPhase1", mode });
+      return;
+    }
+    case "openLedger":
+      await cb.onAction({ type: "openLedger" });
+      return;
+    case "dismissBanner": {
+      const kind = msg.kind;
+      if (!isSectionKind(kind)) return;
+      await cb.onAction({ type: "dismissBanner", kind });
+      return;
+    }
+    case "verdictSubmit": {
+      const verdict = msg.verdict;
+      if (!isVerdictKey(verdict)) return;
+      const draft = sanitizeVerdictDraft(msg.draft);
+      await cb.onAction({ type: "verdictSubmit", ref: msg.ref, verdict, draft });
+      return;
+    }
     case "reveal":
       await cb.onReveal(msg.ref);
       return;
@@ -111,7 +136,9 @@ async function handleMessage(msg: any): Promise<void> {
         msg.groupBy === "lifecycle"
           ? msg.groupBy
           : "section";
+      const current = cb.getFilter();
       const next: DashboardFilter = {
+        ...current,
         search: typeof msg.search === "string" ? msg.search : "",
         severities: new Set(Array.isArray(msg.severities) ? msg.severities : []),
         hiddenSections: new Set(Array.isArray(msg.hiddenSections) ? msg.hiddenSections : []),
@@ -126,9 +153,68 @@ async function handleMessage(msg: any): Promise<void> {
       rerender();
       return;
     }
+    case "setViewMode": {
+      const current = cb.getFilter();
+      const viewMode = msg.viewMode === "activity" ? "activity" : "pending";
+      cb.setFilter({ ...current, viewMode });
+      rerender();
+      return;
+    }
+    case "setActivityGroupBy": {
+      const current = cb.getFilter();
+      const v = msg.activityGroupBy;
+      const activityGroupBy =
+        v === "queueKey" || v === "eventType" ? v : "date";
+      cb.setFilter({ ...current, activityGroupBy });
+      rerender();
+      return;
+    }
+    case "setShowSystemEvents": {
+      const current = cb.getFilter();
+      cb.setFilter({ ...current, showSystemEvents: !!msg.showSystemEvents });
+      rerender();
+      return;
+    }
   }
 }
 
 export function lookupEntry(ref: EntryRef): IndexedEntry | undefined {
   return entryIndex.get(`${ref.section}:${ref.id}`);
+}
+
+const SECTION_KINDS: ReadonlySet<SectionKind> = new Set<SectionKind>([
+  "code-drift",
+  "kb-drift",
+  "standards-drift",
+  "conform-pending",
+  "promotions",
+  "lint",
+]);
+
+function isSectionKind(v: unknown): v is SectionKind {
+  return typeof v === "string" && SECTION_KINDS.has(v as SectionKind);
+}
+
+const VERDICT_KEYS: ReadonlySet<VerdictKey> = new Set<VerdictKey>([
+  "applied",
+  "exempted",
+  "promoted",
+  "dismissed",
+  "closed_promotion",
+]);
+
+function isVerdictKey(v: unknown): v is VerdictKey {
+  return typeof v === "string" && VERDICT_KEYS.has(v as VerdictKey);
+}
+
+function sanitizeVerdictDraft(raw: unknown): VerdictDraft {
+  if (!raw || typeof raw !== "object") return {};
+  const r = raw as Record<string, unknown>;
+  const out: VerdictDraft = {};
+  if (Array.isArray(r.filePaths)) {
+    out.filePaths = r.filePaths.filter((x): x is string => typeof x === "string");
+  }
+  if (typeof r.reason === "string") out.reason = r.reason;
+  if (typeof r.note === "string") out.note = r.note;
+  return out;
 }

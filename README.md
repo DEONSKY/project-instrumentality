@@ -52,6 +52,55 @@ your-project/
       prompts/           ← prompt templates (overridable via _prompt-overrides/)
 ```
 
+### Lifecycle at a glance
+
+Drift and standards conformance are queue-driven. Two MCP tools (`kb_drift` and `kb_conform`) write entries into Markdown queue files; humans (or the agent) read those entries and submit verdicts that close them. Every resolution is logged to `sync/drift-log/YYYY-MM.md` for audit.
+
+```
+                 git diff window (since baseline → HEAD)
+                                │
+              ┌─────────────────┴─────────────────┐
+              │                                   │
+         kb_drift                              kb_conform
+      (Phase 1: detect)                     (Phase 1: detect)
+              │                                   │
+      ┌───────┴───────┐                  ┌────────┴────────┐
+      ▼               ▼                  ▼                 ▼
+  code-drift.md   kb-drift.md      standards-drift.md   standards-backlog.md
+  (code → KB)     (KB → code)      (must-fix this PR)   (advisory, aspirational)
+      │               │                  │                 │
+      └────┬──────────┘                  ▼                 ▼
+           ▼                       kb_conform           (advisory only —
+   kb_drift Phase 2:               Phase 2:              surfaced via kb_get)
+   summaries / reverted /          applied / exempted /
+   kb_confirmed / dismiss          promoted / dismissed
+           │                              │
+           │                ┌─────────────┼─────────────┐
+           │                ▼             ▼             ▼
+           │           rule.excep-   standards-      drift-log/
+           │           tions[]       promotions.md   (audit)
+           │           writeback     (ledger)
+           │                              │
+           │                              │ suppresses (file, rule)
+           │                              ▼
+           │                       future Phase 1 sweeps skip these
+           │                              │
+           │                 ┌────────────┴────────────┐
+           │                 ▼                         ▼
+           │       rule fingerprint changes    senior calls kb_conform
+           │       (auto-close)                with closed_promotion
+           │                 │                         │
+           │                 └────────────┬────────────┘
+           │                              ▼
+           │                       entry removed
+           │                       (writes exception in rule)
+           │                              │
+           └──────────────────────────────┴──→ sync/drift-log/YYYY-MM.md
+                                              (append-only audit)
+```
+
+The drift-log records every Phase-2 close with a discriminating `event_type`. Auto-close events appear as `AUTO-CLOSED-PROMOTION · rule changed`, `AUTO-CLOSED-PROMOTION · standard removed`, and `AUTO-DISMISSED · standard removed` — useful to grep when reconstructing why an entry left the queue.
+
 ---
 
 ## Installation
@@ -550,7 +599,7 @@ The full API:
 
 Suppression auto-clears in one of two ways:
 
-- **Rule changes.** The promotion entry stores a fingerprint of the rule's enforcement-relevant fields (`description`, `severity`, the full `detect` config, `applies_to`, plus party paths for contracts). When a senior reviewer edits the rule, the fingerprint mismatches on the next sweep and the entry auto-closes — the rule re-evaluates against all originally-promoted files. A `AUTO-CLOSED-PROMOTION` block lands in the drift log so the change is auditable.
+- **Rule changes.** The promotion entry stores a fingerprint of the rule's enforcement-relevant fields (`description`, `severity`, the full `detect` config, `applies_to`, plus party paths for contracts). When a senior reviewer edits the rule, the fingerprint mismatches on the next sweep and the entry auto-closes — the rule re-evaluates against all originally-promoted files. A drift-log block lands so the change is auditable. The three auto-close `event_type` sub-discriminators are `AUTO-CLOSED-PROMOTION · rule changed`, `AUTO-CLOSED-PROMOTION · standard removed`, and (for queue entries not in the ledger) `AUTO-DISMISSED · standard removed`.
 - **Reviewer decides not to change the rule.** They call `kb_conform({ closed_promotion: [{ queue_key, file_paths, reason }] })`. MCP removes the suppression and writes the file paths into the rule's `exceptions[]` — the same writeback path as `exempted` — so the files are permanently exempted instead of suppressed.
 
 Run `kb_inventory` to see everything currently in the ledger under `pending_promotions`.
@@ -884,7 +933,10 @@ Files in `knowledge/` have three ownership tiers. Violating them causes silent d
 | File | Managed by |
 |------|-----------|
 | `_index.yaml` | `kb_reindex` (runs after every `kb_write`) |
-| `sync/drift-log/YYYY-MM.md` | `kb_drift` Phase 2 — append-only audit trail, split by month |
+| `sync/drift-log/YYYY-MM.md` | `kb_drift` + `kb_conform` Phase 2 — append-only audit trail, split by month |
+| `sync/standards-promotions.md` | `kb_conform` Phase 2 (`promoted` writes; `closed_promotion` and fingerprint-mismatch auto-close remove) — suppression ledger for promoted (file, rule) pairs |
+| `sync/standards-backlog.md` | `kb_conform` aspirational sweeps (auto-fires on standards `kb_write`) — advisory entries surfaced via `kb_get` |
+| `sync/.conform-pending/<mode>.json` | `kb_conform` Phase 1 → 1.5 handoff cache (transient; cleared on successful `submit_judgments`) |
 
 The pre-commit hook warns if any of these are staged. `_index.yaml` has a `# AUTO-GENERATED` header that `kb_lint` checks for.
 

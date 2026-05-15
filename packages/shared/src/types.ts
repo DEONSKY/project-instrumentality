@@ -58,8 +58,11 @@ export interface ResolvedStandardRef {
   filePath: string;
 }
 
+export type StandardsDriftMode = "current" | "aspirational";
+
 export interface StandardsDriftEntry {
   kind: "standards-drift";
+  mode: StandardsDriftMode;
   queueKey: string;
   standardId: string | null;
   standardKind: string | null;
@@ -109,6 +112,82 @@ export interface QueueBaseline {
   sha: string | null;
 }
 
+// ── Drift-log audit events ──────────────────────────────────────────────────
+//
+// Every entry in `sync/drift-log/YYYY-MM.md` parses into one of these. The
+// shape mirrors the writer in `knowledge/_mcp/tools/conform.js`'s
+// appendToDriftLog (and drift.js for the kb_drift side).
+
+export type DriftLogEventType =
+  | "conformed-applied"
+  | "conformed-exempted"
+  | "conformed-promoted"
+  | "dismissed-conform"
+  | "closed-promotion"
+  | "auto-dismissed-standard-removed"
+  | "auto-closed-promotion-rule-changed"
+  | "auto-closed-promotion-standard-removed"
+  | "drift-resolved"
+  | "drift-dismissed"
+  | "re-bootstrap"
+  | "unknown";
+
+export interface DriftLogEvent {
+  date: string; // YYYY-MM-DD
+  eventType: DriftLogEventType;
+  rawHeading: string; // the full `## ... · ... · ...` line for fallback display
+  queueKey?: string;
+  kbTarget?: string;
+  kbFile?: string;
+  files?: string[];
+  originatingFiles?: string[];
+  reason?: string;
+  note?: string;
+  // System-only events have isSystem = true (auto-* and re-bootstrap).
+  isSystem: boolean;
+}
+
+// ── Verdict shapes (for verdict picker forms in the consumer UI) ────────────
+//
+// Discriminated unions — when a consumer dispatches a verdict, it produces
+// one of these and the prompt generator turns it into an MCP-call prompt.
+
+export interface AppliedVerdict {
+  verdict: "applied";
+  queueKey: string;
+}
+export interface ExemptedVerdict {
+  verdict: "exempted";
+  queueKey: string;
+  filePaths: string[];
+  reason: string;
+}
+export interface PromotedVerdict {
+  verdict: "promoted";
+  queueKey: string;
+  originatingFiles: string[];
+  note?: string;
+}
+export interface DismissedVerdict {
+  verdict: "dismissed";
+  queueKey: string;
+  reason: string;
+}
+export interface ClosedPromotionVerdict {
+  verdict: "closed_promotion";
+  queueKey: string;
+  filePaths: string[];
+  reason: string;
+}
+
+export type StandardsVerdict =
+  | AppliedVerdict
+  | ExemptedVerdict
+  | PromotedVerdict
+  | DismissedVerdict;
+
+export type PromotionVerdict = ClosedPromotionVerdict;
+
 export type StatusEntry =
   | CodeDriftEntry
   | KbDriftEntry
@@ -125,6 +204,7 @@ export interface StatusSummary {
     aspirational: (ConformPending & { staleAgainstHead: boolean }) | null;
   };
   promotions: PromotionEntry[];
+  driftLogEvents: DriftLogEvent[];
   lint: { violations: LintViolation[]; ran: boolean; error?: string };
   totals: {
     drifts: number;

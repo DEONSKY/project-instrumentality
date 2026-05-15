@@ -6,6 +6,12 @@ import {
   getActionPrompt,
   resolveStandardPath,
   findRuleLineRange,
+  rerunPhase1Prompt,
+  appliedPrompt,
+  exemptedPrompt,
+  promotedPrompt,
+  dismissedPrompt,
+  closedPromotionPrompt,
   type StatusSummary,
 } from "@instrumentality/shared";
 import {
@@ -41,13 +47,21 @@ let watchers: vscode.FileSystemWatcher[] = [];
 const DEBOUNCE_MS = 300;
 const PARSE_RETRY_MS = 500;
 const FILTER_KEY = "instrumentality.dashboardFilter";
+// Education banners are per-section and survive across workspaces — once
+// you understand what "Code Drift" means, you don't need re-onboarding in
+// the next project. Stored in globalState rather than workspaceState.
+const DISMISSED_BANNERS_KEY = "instrumentality.dismissedBanners";
 
 let currentFilter: DashboardFilter = {
   search: "",
   severities: new Set(),
   hiddenSections: new Set(),
   groupBy: "section",
+  viewMode: "pending",
+  activityGroupBy: "date",
+  showSystemEvents: true,
 };
+let dismissedBanners: Set<SectionKind> = new Set();
 
 export function activate(context: vscode.ExtensionContext): void {
   loadStateFromWorkspace(context);
@@ -63,7 +77,8 @@ export function activate(context: vscode.ExtensionContext): void {
       currentFilter = f;
       saveFilter(context, f);
     },
-    onAction: (a) => handleAction(a),
+    getDismissedBanners: () => dismissedBanners,
+    onAction: (a) => handleAction(context, a),
   });
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider("instrumentality.tree", sidebarProvider, {
@@ -89,7 +104,8 @@ export function activate(context: vscode.ExtensionContext): void {
           saveFilter(context, f);
           sidebarProvider.refresh();
         },
-        onAction: (action) => handleAction(action),
+        getDismissedBanners: () => dismissedBanners,
+        onAction: (action) => handleAction(context, action),
         onReveal: (ref) => {
           sidebarProvider.highlight(ref);
           return Promise.resolve();
@@ -129,6 +145,9 @@ function loadStateFromWorkspace(context: vscode.ExtensionContext): void {
     severities: ("error" | "warn" | "info")[];
     hiddenSections: SectionKind[];
     groupBy?: "section" | "file" | "standard" | "lifecycle";
+    viewMode?: "pending" | "activity";
+    activityGroupBy?: "date" | "queueKey" | "eventType";
+    showSystemEvents?: boolean;
   }>(FILTER_KEY);
   if (saved) {
     currentFilter = {
@@ -136,7 +155,17 @@ function loadStateFromWorkspace(context: vscode.ExtensionContext): void {
       severities: new Set(saved.severities ?? []),
       hiddenSections: new Set(saved.hiddenSections ?? []),
       groupBy: saved.groupBy ?? "section",
+      viewMode: saved.viewMode === "activity" ? "activity" : "pending",
+      activityGroupBy:
+        saved.activityGroupBy === "queueKey" || saved.activityGroupBy === "eventType"
+          ? saved.activityGroupBy
+          : "date",
+      showSystemEvents: saved.showSystemEvents !== false,
     };
+  }
+  const dismissedSaved = context.globalState.get<SectionKind[]>(DISMISSED_BANNERS_KEY);
+  if (Array.isArray(dismissedSaved)) {
+    dismissedBanners = new Set(dismissedSaved);
   }
 }
 
@@ -146,6 +175,9 @@ function saveFilter(context: vscode.ExtensionContext, f: DashboardFilter): void 
     severities: [...f.severities],
     hiddenSections: [...f.hiddenSections],
     groupBy: f.groupBy,
+    viewMode: f.viewMode,
+    activityGroupBy: f.activityGroupBy,
+    showSystemEvents: f.showSystemEvents,
   });
 }
 
@@ -327,7 +359,10 @@ function resolveEntry(ref: EntryRef): IndexedEntry | undefined {
   return fresh.get(`${ref.section}:${ref.id}`);
 }
 
-async function handleAction(action: DashboardAction): Promise<void> {
+async function handleAction(
+  context: vscode.ExtensionContext,
+  action: DashboardAction
+): Promise<void> {
   if (action.type === "refresh") {
     await refresh();
     return;
@@ -338,6 +373,43 @@ async function handleAction(action: DashboardAction): Promise<void> {
       sinceCommit: action.sinceCommit,
       latestCommit: action.latestCommit,
     });
+    return;
+  }
+  if (action.type === "dismissBanner") {
+    if (!dismissedBanners.has(action.kind)) {
+      dismissedBanners.add(action.kind);
+      void context.globalState.update(DISMISSED_BANNERS_KEY, [...dismissedBanners]);
+    }
+    return;
+  }
+  if (action.type === "rerunPhase1") {
+    // Generate a Phase-1 detect prompt and ship via sendPrompt — same path
+    // every other "send" uses. The agent is the one that actually invokes
+    // kb_conform; the extension never calls MCP directly.
+    const prompt = rerunPhase1Prompt(action.mode);
+    const result = await sendPrompt(prompt);
+    void vscode.window.showInformationMessage(`Instrumentality: ${result.message}`);
+    return;
+  }
+  if (action.type === "verdictSubmit") {
+    await handleVerdictSubmit(action);
+    return;
+  }
+  if (action.type === "openLedger") {
+    if (!kbRoot) {
+      void vscode.window.showWarningMessage("Instrumentality: knowledge base not detected.");
+      return;
+    }
+    const ledgerPath = path.join(kbRoot, "knowledge", "sync", "standards-promotions.md");
+    try {
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(ledgerPath));
+      await vscode.window.showTextDocument(doc);
+    } catch (err: any) {
+      void vscode.window.showWarningMessage(
+        `Instrumentality: ledger file not found at ${ledgerPath}` +
+          (err?.message ? ` (${err.message})` : "")
+      );
+    }
     return;
   }
   const entry = resolveEntry(action.ref);
@@ -450,6 +522,95 @@ async function handleAction(action: DashboardAction): Promise<void> {
       return;
     }
   }
+}
+
+async function handleVerdictSubmit(
+  action: Extract<DashboardAction, { type: "verdictSubmit" }>
+): Promise<void> {
+  const entry = resolveEntry(action.ref);
+  if (!entry) {
+    void vscode.window.showWarningMessage("Instrumentality: entry not found (try refreshing).");
+    return;
+  }
+  // Verdict pickers live on standards-drift and promotions only. The
+  // webview's button rendering enforces that, but the host re-checks
+  // because messages are untrusted input.
+  const inp = entry.promptInput;
+  const queueKey =
+    inp.kind === "standards-drift" || inp.kind === "promotion"
+      ? inp.entry.queueKey
+      : null;
+  if (!queueKey) {
+    void vscode.window.showWarningMessage(
+      "Instrumentality: verdict picker is only available on standards-drift and promotion entries."
+    );
+    return;
+  }
+
+  // Validate per verdict and build the call object. Webview already
+  // validates client-side; this is the safety belt.
+  let prompt: string;
+  try {
+    switch (action.verdict) {
+      case "applied":
+        prompt = appliedPrompt({ verdict: "applied", queueKey });
+        break;
+      case "exempted":
+        if (!action.draft.filePaths || action.draft.filePaths.length === 0) {
+          throw new Error("Exempt verdict requires at least one file.");
+        }
+        if (!action.draft.reason || !action.draft.reason.trim()) {
+          throw new Error("Exempt verdict requires a reason.");
+        }
+        prompt = exemptedPrompt({
+          verdict: "exempted",
+          queueKey,
+          filePaths: action.draft.filePaths,
+          reason: action.draft.reason.trim(),
+        });
+        break;
+      case "promoted":
+        if (!action.draft.filePaths || action.draft.filePaths.length === 0) {
+          throw new Error("Promote verdict requires at least one originating file.");
+        }
+        prompt = promotedPrompt({
+          verdict: "promoted",
+          queueKey,
+          originatingFiles: action.draft.filePaths,
+          note: action.draft.note?.trim() || undefined,
+        });
+        break;
+      case "dismissed":
+        if (!action.draft.reason || !action.draft.reason.trim()) {
+          throw new Error("Dismiss verdict requires a reason.");
+        }
+        prompt = dismissedPrompt({
+          verdict: "dismissed",
+          queueKey,
+          reason: action.draft.reason.trim(),
+        });
+        break;
+      case "closed_promotion":
+        if (!action.draft.filePaths || action.draft.filePaths.length === 0) {
+          throw new Error("Close-promotion verdict requires at least one file.");
+        }
+        if (!action.draft.reason || !action.draft.reason.trim()) {
+          throw new Error("Close-promotion verdict requires a reason.");
+        }
+        prompt = closedPromotionPrompt({
+          verdict: "closed_promotion",
+          queueKey,
+          filePaths: action.draft.filePaths,
+          reason: action.draft.reason.trim(),
+        });
+        break;
+    }
+  } catch (err: any) {
+    void vscode.window.showWarningMessage(`Instrumentality: ${err?.message ?? err}`);
+    return;
+  }
+  const result = await sendPrompt(prompt);
+  void vscode.window.showInformationMessage(`Instrumentality: ${result.message}`);
 }
 
 function entryStandardAndRule(entry: IndexedEntry): { standardId: string; ruleId: string | null } | null {

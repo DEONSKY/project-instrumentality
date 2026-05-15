@@ -361,3 +361,308 @@
 .instrumentality-entry .diff-block .diff-hunk { color: var(--text-accent); font-weight: 600; }
 .instrumentality-entry .diff-block .diff-meta { color: var(--text-muted); font-style: italic; }
 .instrumentality-entry .diff-block .diff-ctx { color: var(--text-normal); }
+
+/* ── Phase 1–4 additions (mirror VSCode extension parity) ────────────────── */
+
+/* Mode chip + opacity demotion for advisory entries */
+.instrumentality-entry .badge.advisory-mode {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px dashed var(--background-modifier-border);
+}
+.instrumentality-entry[data-entry-mode="aspirational"] {
+  opacity: 0.72;
+}
+.instrumentality-entry[data-entry-mode="aspirational"]:hover,
+.instrumentality-entry[data-entry-mode="aspirational"].open {
+  opacity: 1;
+}
+
+/* Banners (education + stale-baseline) */
+.instrumentality-banner {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 4px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.92em;
+}
+.instrumentality-banner.hidden { display: none; }
+.instrumentality-banner .banner-text { flex: 1; }
+.instrumentality-banner .banner-content { flex: 1; }
+
+.instrumentality-banner.stale {
+  background: var(--background-modifier-error-hover, rgba(207, 34, 46, 0.10));
+  color: var(--text-error);
+  border: 1px solid var(--text-error);
+}
+.instrumentality-banner.stale code {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.instrumentality-banner.education {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  flex-direction: row;
+}
+.instrumentality-banner.education .banner-explainer {
+  margin-bottom: 6px;
+}
+.instrumentality-banner.education .banner-explainer em {
+  color: var(--text-muted);
+  font-style: normal;
+  margin-left: 6px;
+}
+.instrumentality-banner.education .banner-diagram {
+  margin: 6px 0 0;
+  font-family: var(--font-monospace);
+  font-size: 0.82em;
+  line-height: 1.35;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  padding: 8px;
+  border-radius: 3px;
+  white-space: pre;
+  overflow-x: auto;
+  max-height: 220px;
+}
+
+.instrumentality-banner-question {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin-left: 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  vertical-align: middle;
+}
+.instrumentality-banner-question:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+/* Suppression contract panel inside promotion detail */
+.instrumentality-suppression-contract {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-secondary);
+  font-size: 0.92em;
+}
+.instrumentality-suppression-contract .sc-title {
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  font-size: 0.78em;
+  letter-spacing: 0.04em;
+}
+.instrumentality-suppression-contract .sc-row {
+  margin: 3px 0;
+}
+.instrumentality-suppression-contract .sc-label {
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-right: 4px;
+}
+.instrumentality-suppression-contract .sc-actions {
+  margin-top: 8px;
+}
+
+/* Verdict picker + inline form */
+.instrumentality-verdict-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--background-modifier-border);
+}
+.instrumentality-verdict-btn {
+  background: transparent;
+  border-style: dashed !important;
+  cursor: pointer;
+}
+.instrumentality-verdict-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+.instrumentality-verdict-form {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--interactive-accent);
+  border-radius: 4px;
+  background: var(--background-secondary);
+}
+.instrumentality-verdict-form.hidden { display: none; }
+.instrumentality-verdict-form .verdict-form-title {
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+.instrumentality-verdict-form .verdict-field {
+  margin: 8px 0;
+}
+.instrumentality-verdict-form .verdict-field.hidden { display: none; }
+.instrumentality-verdict-form .verdict-field > label {
+  display: block;
+  font-size: 0.88em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.instrumentality-verdict-form .verdict-required-marker {
+  color: var(--text-error);
+}
+.instrumentality-verdict-form .verdict-optional-marker {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.instrumentality-verdict-form .verdict-file-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 8px;
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  background: var(--background-primary);
+}
+.instrumentality-verdict-form .verdict-file-list li {
+  margin: 3px 0;
+}
+.instrumentality-verdict-form .verdict-file-list label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.88em;
+  cursor: pointer;
+}
+.instrumentality-verdict-form textarea {
+  width: 100%;
+  font-family: var(--font-ui);
+  font-size: 0.9em;
+  padding: 6px 8px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  resize: vertical;
+}
+.instrumentality-verdict-form .verdict-form-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.instrumentality-verdict-submit[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* View-mode tabs (Pending | Activity) */
+.instrumentality-view-mode-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 12px 0 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.instrumentality-view-mode-tab {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  border-bottom: none;
+  padding: 6px 14px;
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.92em;
+  margin-bottom: -1px;
+}
+.instrumentality-view-mode-tab:hover {
+  color: var(--text-normal);
+}
+.instrumentality-view-mode-tab.on {
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border-color: var(--background-modifier-border);
+  border-bottom-color: var(--background-secondary);
+}
+
+/* Activity timeline */
+.instrumentality-activity-filter-bar {
+  margin-bottom: 12px;
+}
+.instrumentality-activity-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.92em;
+}
+.activity-entry .entry-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.activity-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.activity-subject {
+  font-weight: 500;
+}
+.activity-date {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  margin-left: auto;
+}
+.activity-line {
+  color: var(--text-muted);
+  font-size: 0.88em;
+}
+.activity-line em {
+  font-style: italic;
+  opacity: 0.7;
+}
+
+/* Event badges */
+.badge.event-applied {
+  background: var(--color-green, #2da44e);
+  color: #fff;
+}
+.badge.event-exempted {
+  background: var(--color-yellow, #b58900);
+  color: #fff;
+}
+.badge.event-promoted {
+  background: var(--color-blue, #4a90e2);
+  color: #fff;
+}
+.badge.event-other {
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+}
+.badge.event-auto {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px dashed var(--background-modifier-border);
+  opacity: 0.85;
+}

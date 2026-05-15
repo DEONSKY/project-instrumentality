@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { type StatusSummary } from "@instrumentality/shared";
+import { type StatusSummary, type SectionKind } from "@instrumentality/shared";
 import {
   renderHtml,
   buildEntryIndex,
@@ -7,13 +7,53 @@ import {
   type DashboardAction,
   type EntryRef,
   type IndexedEntry,
+  type VerdictKey,
+  type VerdictDraft,
 } from "./webview-render";
+
+const SECTION_KINDS_LOCAL: ReadonlySet<SectionKind> = new Set<SectionKind>([
+  "code-drift",
+  "kb-drift",
+  "standards-drift",
+  "conform-pending",
+  "promotions",
+  "lint",
+]);
+
+function isSectionKindLocal(v: unknown): v is SectionKind {
+  return typeof v === "string" && SECTION_KINDS_LOCAL.has(v as SectionKind);
+}
+
+const VERDICT_KEYS_LOCAL: ReadonlySet<VerdictKey> = new Set<VerdictKey>([
+  "applied",
+  "exempted",
+  "promoted",
+  "dismissed",
+  "closed_promotion",
+]);
+
+function isVerdictKeyLocal(v: unknown): v is VerdictKey {
+  return typeof v === "string" && VERDICT_KEYS_LOCAL.has(v as VerdictKey);
+}
+
+function sanitizeVerdictDraftLocal(raw: unknown): VerdictDraft {
+  if (!raw || typeof raw !== "object") return {};
+  const r = raw as Record<string, unknown>;
+  const out: VerdictDraft = {};
+  if (Array.isArray(r.filePaths)) {
+    out.filePaths = r.filePaths.filter((x): x is string => typeof x === "string");
+  }
+  if (typeof r.reason === "string") out.reason = r.reason;
+  if (typeof r.note === "string") out.note = r.note;
+  return out;
+}
 
 export interface SidebarCallbacks {
   getStatus: () => StatusSummary | null;
   getKbRoot: () => string | null;
   getFilter: () => DashboardFilter;
   setFilter: (f: DashboardFilter) => void;
+  getDismissedBanners: () => ReadonlySet<SectionKind>;
   onAction: (action: DashboardAction) => Promise<void>;
 }
 
@@ -53,8 +93,16 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
     const status = this.cb.getStatus();
     const filter = this.cb.getFilter();
     const kbRoot = this.cb.getKbRoot();
+    const dismissed = this.cb.getDismissedBanners();
     this.entryIndex = buildEntryIndex(status);
-    this.view.webview.html = renderHtml(status, filter, this.entryIndex, kbRoot, "sidebar");
+    this.view.webview.html = renderHtml(
+      status,
+      filter,
+      this.entryIndex,
+      kbRoot,
+      "sidebar",
+      dismissed
+    );
   }
 
   private async handleMessage(msg: any): Promise<void> {
@@ -89,6 +137,27 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
           latestCommit: msg.latestCommit ? String(msg.latestCommit) : undefined,
         });
         return;
+      case "rerunPhase1": {
+        const mode = msg.mode === "aspirational" ? "aspirational" : "current";
+        await this.cb.onAction({ type: "rerunPhase1", mode });
+        return;
+      }
+      case "openLedger":
+        await this.cb.onAction({ type: "openLedger" });
+        return;
+      case "dismissBanner": {
+        const kind = msg.kind;
+        if (!isSectionKindLocal(kind)) return;
+        await this.cb.onAction({ type: "dismissBanner", kind });
+        return;
+      }
+      case "verdictSubmit": {
+        const verdict = msg.verdict;
+        if (!isVerdictKeyLocal(verdict)) return;
+        const draft = sanitizeVerdictDraftLocal(msg.draft);
+        await this.cb.onAction({ type: "verdictSubmit", ref: msg.ref, verdict, draft });
+        return;
+      }
       case "reveal":
         // Sidebar selection — no separate target to reveal to. The host can
         // still mirror the highlight to the dashboard via highlightEntry().
@@ -101,7 +170,9 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
           msg.groupBy === "lifecycle"
             ? msg.groupBy
             : "section";
+        const current = this.cb.getFilter();
         const next: DashboardFilter = {
+          ...current,
           search: typeof msg.search === "string" ? msg.search : "",
           severities: new Set(Array.isArray(msg.severities) ? msg.severities : []),
           hiddenSections: new Set(Array.isArray(msg.hiddenSections) ? msg.hiddenSections : []),
@@ -113,6 +184,28 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
       case "setGroupBy": {
         const current = this.cb.getFilter();
         this.cb.setFilter({ ...current, groupBy: msg.groupBy });
+        this.rerender();
+        return;
+      }
+      case "setViewMode": {
+        const current = this.cb.getFilter();
+        const viewMode = msg.viewMode === "activity" ? "activity" : "pending";
+        this.cb.setFilter({ ...current, viewMode });
+        this.rerender();
+        return;
+      }
+      case "setActivityGroupBy": {
+        const current = this.cb.getFilter();
+        const v = msg.activityGroupBy;
+        const activityGroupBy =
+          v === "queueKey" || v === "eventType" ? v : "date";
+        this.cb.setFilter({ ...current, activityGroupBy });
+        this.rerender();
+        return;
+      }
+      case "setShowSystemEvents": {
+        const current = this.cb.getFilter();
+        this.cb.setFilter({ ...current, showSystemEvents: !!msg.showSystemEvents });
         this.rerender();
         return;
       }

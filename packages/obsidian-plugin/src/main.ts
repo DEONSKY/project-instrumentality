@@ -1,6 +1,10 @@
 import { Plugin, WorkspaceLeaf, addIcon } from "obsidian";
-import { findKbRoot } from "@instrumentality/shared";
+import { findKbRoot, type SectionKind } from "@instrumentality/shared";
 import { InstrumentalityView, VIEW_TYPE_INSTRUMENTALITY, ICON_ID } from "./view";
+
+interface InstrumentalityPluginData {
+  dismissedBanners?: SectionKind[];
+}
 
 // Same SVG as the VSCode activity-bar icon. Obsidian renders it with
 // currentColor at various sizes (ribbon, view header, tabs).
@@ -14,12 +18,28 @@ const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fi
 </svg>`;
 
 export default class InstrumentalityPlugin extends Plugin {
+  private dismissedBanners: Set<SectionKind> = new Set();
+
   async onload(): Promise<void> {
     addIcon(ICON_ID, ICON_SVG);
 
+    // Education-banner dismissals are persisted via Obsidian's plugin
+    // data API (single JSON blob, kept inside `.obsidian/plugins/...`).
+    // Once a user understands what "Code Drift" means, they don't want
+    // the banner back on every vault re-open.
+    const data = (await this.loadData()) as InstrumentalityPluginData | null;
+    if (data && Array.isArray(data.dismissedBanners)) {
+      this.dismissedBanners = new Set(data.dismissedBanners);
+    }
+
     this.registerView(
       VIEW_TYPE_INSTRUMENTALITY,
-      (leaf) => new InstrumentalityView(leaf, () => this.detectKbRoot())
+      (leaf) =>
+        new InstrumentalityView(leaf, {
+          getKbRoot: () => this.detectKbRoot(),
+          getDismissedBanners: () => this.dismissedBanners,
+          dismissBanner: (kind) => void this.persistDismissedBanner(kind),
+        })
     );
 
     this.addRibbonIcon(ICON_ID, "Instrumentality", () => void this.activateView());
@@ -40,6 +60,14 @@ export default class InstrumentalityPlugin extends Plugin {
         }
       },
     });
+  }
+
+  private async persistDismissedBanner(kind: SectionKind): Promise<void> {
+    if (this.dismissedBanners.has(kind)) return;
+    this.dismissedBanners.add(kind);
+    await this.saveData({
+      dismissedBanners: [...this.dismissedBanners],
+    } satisfies InstrumentalityPluginData);
   }
 
   onunload(): void {

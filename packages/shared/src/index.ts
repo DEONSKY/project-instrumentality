@@ -4,10 +4,19 @@ export * from "./status.js";
 export { stableEntryId } from "./entry-id.js";
 export { parseCodeDrift, readCodeDrift } from "./parsers/code-drift.js";
 export { parseKbDrift, readKbDrift } from "./parsers/kb-drift.js";
-export { parseStandardsDrift, readStandardsDrift } from "./parsers/standards-drift.js";
+export {
+  parseStandardsDrift,
+  readStandardsDrift,
+  readStandardsBacklog,
+} from "./parsers/standards-drift.js";
 export { parseConformPending, readConformPending, resolveStandardPath } from "./parsers/conform-pending.js";
 export { parsePromotions, readPromotions } from "./parsers/promotions.js";
 export { parseLintStderr, runLint } from "./parsers/lint.js";
+export {
+  parseDriftLog,
+  readDriftLog,
+  currentAndPreviousMonth,
+} from "./parsers/drift-log.js";
 export {
   parseStandardDefinition,
   readStandardDefinition,
@@ -16,6 +25,16 @@ export {
 } from "./parsers/standards.js";
 export { getActionPrompt } from "./prompts/index.js";
 export type { PromptInput } from "./prompts/index.js";
+export {
+  appliedPrompt,
+  exemptedPrompt,
+  promotedPrompt,
+  dismissedPrompt,
+} from "./prompts/verdicts/standards-drift.js";
+export {
+  closedPromotionPrompt,
+  rerunPhase1Prompt,
+} from "./prompts/verdicts/promotions.js";
 export {
   SECTION_GUIDE,
   primaryActionLabel,

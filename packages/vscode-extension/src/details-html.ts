@@ -200,9 +200,6 @@ export function buildPromotionDetail(e: PromotionEntry): string {
   const rule = e.ruleId
     ? `<div><strong>Rule:</strong> <code>${escapeHtml(e.ruleId)}</code></div>`
     : "";
-  const fp = e.ruleFingerprint
-    ? `<div><strong>Fingerprint:</strong> <code>${escapeHtml(e.ruleFingerprint)}</code></div>`
-    : "";
   const filesList = e.files
     .map(
       (f) =>
@@ -211,12 +208,61 @@ export function buildPromotionDetail(e: PromotionEntry): string {
         }</li>`
     )
     .join("");
+
+  // Suppression contract: makes the ledger semantics visible inline so a
+  // user staring at a promoted entry knows *why* it isn't re-firing and
+  // *when* it will auto-clear. The fingerprint inputs come from the writer
+  // (knowledge/_mcp/lib/promotion-ledger.js#computeRuleFingerprint); we
+  // surface them as a static tooltip — no live recompute.
+  const earliestPromotedAt =
+    e.files.length > 0
+      ? e.files
+          .map((f) => f.promotedAt)
+          .sort()
+          .at(0) ?? null
+      : null;
+  const fingerprintShort = e.ruleFingerprint
+    ? e.ruleFingerprint.length > 22
+      ? e.ruleFingerprint.slice(0, 22) + "…"
+      : e.ruleFingerprint
+    : "(none recorded)";
+  const fingerprintTooltip =
+    "Hash inputs: rule.description, rule.severity, canonicalized rule.detect, " +
+    "canonicalized rule.applies_to, plus parties[].applies_to.paths for contracts. " +
+    "Mismatch on next sweep → auto-close.";
+  const suppressionPanel = `<div class="suppression-contract">
+    <div class="sc-title">Suppression contract</div>
+    <div class="sc-row"><span class="sc-label">Suppressed since:</span> ${
+      earliestPromotedAt ? `<code>${escapeHtml(earliestPromotedAt)}</code>` : "<em>(no files)</em>"
+    }</div>
+    <div class="sc-row"><span class="sc-label">Rule fingerprint:</span> <code title="${escapeAttrLocal(
+      fingerprintTooltip
+    )}">${escapeHtml(fingerprintShort)}</code></div>
+    <div class="sc-row"><span class="sc-label">Auto-closes if:</span> rule definition changes (fingerprint mismatch on next Phase&nbsp;1 sweep) or the standard/rule is removed.</div>
+    <div class="sc-row"><span class="sc-label">Or close manually:</span> use the <em>Close promotion</em> verdict to write an exception into the rule.</div>
+    <div class="sc-row sc-actions">
+      <button class="btn btn-tiny" data-action="openLedger">Open ledger</button>
+    </div>
+  </div>`;
+
   return `<div class="detail-meta">
     ${rule}
-    ${fp}
     ${ruleBlockHtml(e.resolvedRule)}
     <div><strong>Files:</strong><ul>${filesList}</ul></div>
+    ${suppressionPanel}
   </div>`;
+}
+
+// Local copy of escapeAttr — details-html.ts is consumed by both the
+// dashboard webview and the side Details view, and it's compiled
+// standalone, so we don't import the version from webview-render to keep
+// modules acyclic.
+function escapeAttrLocal(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 export function buildConformDetail(

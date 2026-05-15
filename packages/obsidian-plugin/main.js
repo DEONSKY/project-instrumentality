@@ -430,11 +430,12 @@ var require_standards_drift = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.parseStandardsDrift = parseStandardsDrift;
     exports2.readStandardsDrift = readStandardsDrift;
+    exports2.readStandardsBacklog = readStandardsBacklog;
     var fs2 = __importStar(require("fs"));
     var baseline_js_1 = require_baseline();
     var kb_root_js_1 = require_kb_root();
     var FILE_LINE_RE = /^\s+-\s+`([^`]+)`\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?/;
-    function parseStandardsDrift(content) {
+    function parseStandardsDrift(content, mode = "current") {
       const baseline = (0, baseline_js_1.parseBaseline)(content);
       const { blocks } = (0, baseline_js_1.splitHeaderAndBlocks)(content);
       const entries = [];
@@ -482,6 +483,7 @@ var require_standards_drift = __commonJS({
         }
         entries.push({
           kind: "standards-drift",
+          mode,
           queueKey,
           standardId: stdMatch ? stdMatch[1] : null,
           standardKind: stdMatch ? stdMatch[2] || null : null,
@@ -497,7 +499,13 @@ var require_standards_drift = __commonJS({
       const file = (0, kb_root_js_1.kbSyncPath)(kbRoot, "standards-drift.md");
       if (!fs2.existsSync(file))
         return { entries: [], baseline: { sha: null } };
-      return parseStandardsDrift(fs2.readFileSync(file, "utf8"));
+      return parseStandardsDrift(fs2.readFileSync(file, "utf8"), "current");
+    }
+    function readStandardsBacklog(kbRoot) {
+      const file = (0, kb_root_js_1.kbSyncPath)(kbRoot, "standards-backlog.md");
+      if (!fs2.existsSync(file))
+        return { entries: [], baseline: { sha: null } };
+      return parseStandardsDrift(fs2.readFileSync(file, "utf8"), "aspirational");
     }
   }
 });
@@ -3912,6 +3920,176 @@ var require_standards = __commonJS({
   }
 });
 
+// ../shared/dist/parsers/drift-log.js
+var require_drift_log = __commonJS({
+  "../shared/dist/parsers/drift-log.js"(exports2) {
+    "use strict";
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
+      if (k2 === void 0)
+        k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    } : function(o, m, k, k2) {
+      if (k2 === void 0)
+        k2 = k;
+      o[k2] = m[k];
+    });
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+      Object.defineProperty(o, "default", { enumerable: true, value: v });
+    } : function(o, v) {
+      o["default"] = v;
+    });
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+      var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function(o2) {
+          var ar = [];
+          for (var k in o2)
+            if (Object.prototype.hasOwnProperty.call(o2, k))
+              ar[ar.length] = k;
+          return ar;
+        };
+        return ownKeys(o);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule)
+          return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
+            if (k[i] !== "default")
+              __createBinding(result, mod, k[i]);
+        }
+        __setModuleDefault(result, mod);
+        return result;
+      };
+    }();
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.parseDriftLog = parseDriftLog;
+    exports2.readDriftLog = readDriftLog;
+    exports2.currentAndPreviousMonth = currentAndPreviousMonth;
+    var fs2 = __importStar(require("fs"));
+    var baseline_js_1 = require_baseline();
+    var kb_root_js_1 = require_kb_root();
+    var HEADING_RE = /^##\s+(\d{4}-\d{2}-\d{2})\s+·\s+(.+)$/;
+    function classifyHeading(rest) {
+      const upper = rest.toUpperCase();
+      if (upper.startsWith("CONFORMED")) {
+        if (upper.includes("APPLIED"))
+          return { type: "conformed-applied", isSystem: false };
+        if (upper.includes("EXEMPTED"))
+          return { type: "conformed-exempted", isSystem: false };
+        if (upper.includes("PROMOTED"))
+          return { type: "conformed-promoted", isSystem: false };
+      }
+      if (upper.startsWith("DISMISSED-CONFORM"))
+        return { type: "dismissed-conform", isSystem: false };
+      if (upper.startsWith("CLOSED-PROMOTION"))
+        return { type: "closed-promotion", isSystem: false };
+      if (upper.startsWith("AUTO-DISMISSED")) {
+        return { type: "auto-dismissed-standard-removed", isSystem: true };
+      }
+      if (upper.startsWith("AUTO-CLOSED-PROMOTION")) {
+        if (upper.includes("RULE CHANGED")) {
+          return { type: "auto-closed-promotion-rule-changed", isSystem: true };
+        }
+        return { type: "auto-closed-promotion-standard-removed", isSystem: true };
+      }
+      if (upper.startsWith("RESOLVED"))
+        return { type: "drift-resolved", isSystem: false };
+      if (upper.startsWith("DISMISSED"))
+        return { type: "drift-dismissed", isSystem: false };
+      if (upper.startsWith("RE-BOOTSTRAP") || upper.includes("BOOTSTRAP")) {
+        return { type: "re-bootstrap", isSystem: true };
+      }
+      return { type: "unknown", isSystem: false };
+    }
+    function extractField(block, label) {
+      const re = new RegExp(`\\*\\*${label}:\\*\\*\\s*(.+?)(?:\\n|$)`);
+      const m = block.match(re);
+      return m ? m[1].trim() : void 0;
+    }
+    function extractFileList(block, label) {
+      const raw = extractField(block, label);
+      if (!raw)
+        return void 0;
+      const out = [];
+      for (const m of raw.matchAll(/`([^`]+)`/g))
+        out.push(m[1]);
+      return out.length > 0 ? out : void 0;
+    }
+    function unquote(s) {
+      if (!s)
+        return s;
+      return s.replace(/^`(.+)`$/, "$1");
+    }
+    function parseDriftLog(content) {
+      const { blocks } = (0, baseline_js_1.splitHeaderAndBlocks)(content);
+      const events = [];
+      for (const block of blocks) {
+        const headingMatch = block.match(HEADING_RE);
+        if (!headingMatch)
+          continue;
+        const date = headingMatch[1];
+        const rest = headingMatch[2];
+        const { type, isSystem } = classifyHeading(rest);
+        const ev = {
+          date,
+          eventType: type,
+          rawHeading: `## ${date} \xB7 ${rest}`,
+          isSystem
+        };
+        const queueKey = unquote(extractField(block, "Queue key"));
+        if (queueKey)
+          ev.queueKey = queueKey;
+        const kbTarget = unquote(extractField(block, "KB target"));
+        if (kbTarget)
+          ev.kbTarget = kbTarget;
+        const kbFile = unquote(extractField(block, "KB file"));
+        if (kbFile)
+          ev.kbFile = kbFile;
+        const files = extractFileList(block, "Files");
+        if (files)
+          ev.files = files;
+        const orig = extractFileList(block, "Originating files");
+        if (orig)
+          ev.originatingFiles = orig;
+        const reason = extractField(block, "Reason");
+        if (reason)
+          ev.reason = reason;
+        const note = extractField(block, "Note");
+        if (note)
+          ev.note = note;
+        events.push(ev);
+      }
+      return events;
+    }
+    function readDriftLog(kbRoot, monthKeys) {
+      const all = [];
+      for (const month of monthKeys) {
+        const file = (0, kb_root_js_1.kbSyncPath)(kbRoot, "drift-log", `${month}.md`);
+        if (!fs2.existsSync(file))
+          continue;
+        all.push(...parseDriftLog(fs2.readFileSync(file, "utf8")));
+      }
+      all.sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
+      return all;
+    }
+    function currentAndPreviousMonth(now = /* @__PURE__ */ new Date()) {
+      const yyyy = now.getUTCFullYear();
+      const mm = now.getUTCMonth();
+      const cur = `${yyyy}-${String(mm + 1).padStart(2, "0")}`;
+      const prevDate = new Date(Date.UTC(yyyy, mm - 1, 1));
+      const prev = `${prevDate.getUTCFullYear()}-${String(prevDate.getUTCMonth() + 1).padStart(2, "0")}`;
+      return [cur, prev];
+    }
+  }
+});
+
 // ../shared/dist/status.js
 var require_status = __commonJS({
   "../shared/dist/status.js"(exports2) {
@@ -3927,6 +4105,7 @@ var require_status = __commonJS({
     var promotions_js_1 = require_promotions();
     var lint_js_1 = require_lint();
     var standards_js_1 = require_standards();
+    var drift_log_js_1 = require_drift_log();
     var execFileP = (0, node_util_1.promisify)(node_child_process_1.execFile);
     function enrichWithStandards(kbRoot, drifts, promotions, conformPendings) {
       const defs = /* @__PURE__ */ new Map();
@@ -3970,16 +4149,22 @@ var require_status = __commonJS({
       }
     }
     async function getStatus2(kbRoot, opts = {}) {
-      const [codeDrift, kbDrift, standardsDrift, currentPending, asp, promotions, lint, head] = await Promise.all([
+      const [codeDrift, kbDrift, standardsDriftCurrent, standardsBacklog, currentPending, asp, promotions, driftLogEvents, lint, head] = await Promise.all([
         Promise.resolve((0, code_drift_js_1.readCodeDrift)(kbRoot)),
         Promise.resolve((0, kb_drift_js_1.readKbDrift)(kbRoot)),
         Promise.resolve((0, standards_drift_js_1.readStandardsDrift)(kbRoot)),
+        Promise.resolve((0, standards_drift_js_1.readStandardsBacklog)(kbRoot)),
         Promise.resolve((0, conform_pending_js_1.readConformPending)(kbRoot, "current")),
         Promise.resolve((0, conform_pending_js_1.readConformPending)(kbRoot, "aspirational")),
         Promise.resolve((0, promotions_js_1.readPromotions)(kbRoot)),
+        Promise.resolve((0, drift_log_js_1.readDriftLog)(kbRoot, (0, drift_log_js_1.currentAndPreviousMonth)())),
         opts.skipLint ? Promise.resolve({ violations: [], ran: false }) : (0, lint_js_1.runLint)(kbRoot, { commandOverride: opts.lintCommand }),
         getCurrentHeadShort(kbRoot)
       ]);
+      const standardsDrift = {
+        entries: [...standardsDriftCurrent.entries, ...standardsBacklog.entries],
+        baseline: standardsDriftCurrent.baseline
+      };
       const stale = (recorded) => head !== null && recorded.length > 0 && !head.startsWith(recorded) && !recorded.startsWith(head);
       const conformCurrent = currentPending ? { ...currentPending, staleAgainstHead: stale(currentPending.head_sha_short) } : null;
       const conformAspirational = asp ? { ...asp, staleAgainstHead: stale(asp.head_sha_short) } : null;
@@ -3999,6 +4184,7 @@ var require_status = __commonJS({
         standardsDrift,
         conformPending: { current: conformCurrent, aspirational: conformAspirational },
         promotions,
+        driftLogEvents,
         lint,
         totals: {
           drifts: driftCount,
@@ -4244,6 +4430,99 @@ var require_prompts = __commonJS({
   }
 });
 
+// ../shared/dist/prompts/verdicts/standards-drift.js
+var require_standards_drift3 = __commonJS({
+  "../shared/dist/prompts/verdicts/standards-drift.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.appliedPrompt = appliedPrompt2;
+    exports2.exemptedPrompt = exemptedPrompt2;
+    exports2.promotedPrompt = promotedPrompt2;
+    exports2.dismissedPrompt = dismissedPrompt2;
+    function appliedPrompt2(v) {
+      return `The code for \`${v.queueKey}\` was fixed. Please run:
+
+kb_conform({ applied: [{ queue_key: "${v.queueKey}" }] })`;
+    }
+    function exemptedPrompt2(v) {
+      const files = v.filePaths.map((p) => `"${p}"`).join(", ");
+      const reason = v.reason.replace(/"/g, '\\"');
+      return `Exempt \`${v.queueKey}\` for the listed files. Please run:
+
+kb_conform({
+  exempted: [{
+    queue_key: "${v.queueKey}",
+    file_paths: [${files}],
+    reason: "${reason}"
+  }]
+})
+
+This appends an exception entry to the rule definition so future Phase 1 sweeps skip these files.`;
+    }
+    function promotedPrompt2(v) {
+      const files = v.originatingFiles.map((p) => `"${p}"`).join(", ");
+      const note = v.note ? `,
+    note: "${v.note.replace(/"/g, '\\"')}"` : "";
+      return `Promote \`${v.queueKey}\` \u2014 the code is correct; the standard should change. Please run:
+
+kb_conform({
+  promoted: [{
+    queue_key: "${v.queueKey}",
+    originating_files: [${files}]${note}
+  }]
+})
+
+The (file, rule) pair will be suppressed from re-detection until the rule definition changes (auto-close on fingerprint mismatch) or a senior reviewer calls closed_promotion.`;
+    }
+    function dismissedPrompt2(v) {
+      const reason = v.reason.replace(/"/g, '\\"');
+      return `Dismiss \`${v.queueKey}\` as a false positive. Please run:
+
+kb_conform({
+  dismissed: [{
+    queue_key: "${v.queueKey}",
+    reason: "${reason}"
+  }]
+})`;
+    }
+  }
+});
+
+// ../shared/dist/prompts/verdicts/promotions.js
+var require_promotions2 = __commonJS({
+  "../shared/dist/prompts/verdicts/promotions.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.closedPromotionPrompt = closedPromotionPrompt2;
+    exports2.rerunPhase1Prompt = rerunPhase1Prompt2;
+    function closedPromotionPrompt2(v) {
+      const files = v.filePaths.map((p) => `"${p}"`).join(", ");
+      const reason = v.reason.replace(/"/g, '\\"');
+      return `Close the promotion for \`${v.queueKey}\` \u2014 the rule is correct; these files are the exception. Please run:
+
+kb_conform({
+  closed_promotion: [{
+    queue_key: "${v.queueKey}",
+    file_paths: [${files}],
+    reason: "${reason}"
+  }]
+})
+
+This removes the suppression entry from the ledger and writes an exception into the rule so the files are permanently exempt.`;
+    }
+    function rerunPhase1Prompt2(mode = "current") {
+      if (mode === "aspirational") {
+        return `The pending aspirational session is stale (the recorded baseline doesn't match HEAD). Please re-run Phase 1 detection:
+
+kb_conform({ mode: "aspirational" })`;
+      }
+      return `The pending session is stale (the recorded baseline doesn't match HEAD). Please re-run Phase 1 detection:
+
+kb_conform()`;
+    }
+  }
+});
+
 // ../shared/dist/section-guide.js
 var require_section_guide = __commonJS({
   "../shared/dist/section-guide.js"(exports2) {
@@ -4252,42 +4531,143 @@ var require_section_guide = __commonJS({
     exports2.SECTION_GUIDE = void 0;
     exports2.primaryActionLabel = primaryActionLabel2;
     exports2.copyActionLabel = copyActionLabel2;
+    var CODE_DRIFT_DIAGRAM = `git push / post-merge hook
+        \u2502
+        \u25BC
+  code-drift.md entry
+        \u2502
+        \u25BC
+  Resolve via Agent
+        \u2502
+   \u250C\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+   \u25BC          \u25BC         \u25BC
+ Update KB  Revert   Dismiss
+(summaries) (reverted) (ghost)
+   \u2502          \u2502         \u2502
+   \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2192 drift-log/`;
+    var KB_DRIFT_DIAGRAM = `KB file edited \u2192 push hook
+        \u2502
+        \u25BC
+  kb-drift.md entry
+        \u2502
+        \u25BC
+  Resolve via Agent
+  (reads diff, verifies code)
+        \u2502
+   \u250C\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2510
+   \u25BC          \u25BC
+ Code      Dismiss
+ confirmed (ghost)
+   \u2502          \u2502
+   \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2192 drift-log/`;
+    var STANDARDS_DRIFT_DIAGRAM = `kb_conform Phase 1 (preFilter)
+        \u2502
+        \u25BC
+   Phase 1.5 (judge)
+        \u2502
+        \u25BC
+  standards-drift.md entry
+        \u2502
+   \u250C\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+   \u25BC         \u25BC        \u25BC         \u25BC          \u25BC
+ Apply    Exempt   Promote   Dismiss   Resolve via Agent
+ (fix)  (rule.    (ledger    (false     (agent
+        excep-     suppress) positive)  judges)
+        tions[])
+   \u2502         \u2502        \u2502         \u2502          \u2502
+   \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2192 drift-log/`;
+    var CONFORM_PENDING_DIAGRAM = `Phase 1 detect
+        \u2502
+        \u25BC
+  .conform-pending/<mode>.json
+        \u2502
+        \u25BC
+  Resolve via Agent
+  (reads each triple,
+   submits one judgment call)
+        \u2502
+   \u250C\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+   \u25BC         \u25BC       \u25BC
+ pass     fail     n/a
+ (skip)  (queues  (skip)
+         drift)
+        \u2502
+        \u2514\u2500\u2500\u2192 standards-drift.md
+             (now in normal verdict flow)`;
+    var PROMOTIONS_DIAGRAM = `previously-promoted (file, rule)
+        \u2502
+        \u25BC
+  standards-promotions.md
+  (the suppression ledger)
+        \u2502
+        \u2502  fingerprint: sha256:abc1234
+        \u2502  suppresses (file, rule) in
+        \u2502  Phase 1 sweeps until either:
+        \u2502
+   \u250C\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+   \u25BC                  \u25BC
+ rule edited?     Close promotion
+ fingerprint      (writes
+ mismatches       exception
+ (auto-close)     into rule)
+        \u2502                  \u2502
+        \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
+                   \u25BC
+              drift-log/`;
+    var LINT_DIAGRAM = `KB file change
+        \u2502
+        \u25BC
+  kb_lint scan
+        \u2502
+        \u25BC
+  schema-level violation
+  (frontmatter / structure)
+        \u2502
+        \u25BC
+  Fix in source file
+  (or pass force_lint to bypass once)`;
     exports2.SECTION_GUIDE = {
       "code-drift": {
         label: "Code Drift",
         what: "Code changed since the last KB sync.",
         todo: "Update the KB to reflect the change.",
-        primaryVerb: "Update"
+        primaryVerb: "Update",
+        lifecycleDiagram: CODE_DRIFT_DIAGRAM
       },
       "kb-drift": {
         label: "KB Drift",
         what: "KB content changed but the mapped code wasn't touched.",
         todo: "Verify the code still matches, or revise the KB.",
-        primaryVerb: "Update"
+        primaryVerb: "Update",
+        lifecycleDiagram: KB_DRIFT_DIAGRAM
       },
       "standards-drift": {
         label: "Standards Drift",
         what: "Code that broke a standard's rule.",
         todo: "Resolve via kb_conform: apply, exempt, promote, or dismiss.",
-        primaryVerb: "Resolve"
+        primaryVerb: "Resolve",
+        lifecycleDiagram: STANDARDS_DRIFT_DIAGRAM
       },
       "conform-pending": {
         label: "Conform Pending",
         what: "Standards rules waiting for your judgment.",
         todo: "Submit your judgment for these rules.",
-        primaryVerb: "Submit"
+        primaryVerb: "Submit",
+        lifecycleDiagram: CONFORM_PENDING_DIAGRAM
       },
       promotions: {
         label: "Pending Promotions",
         what: "Violations promoted on a previous run \u2014 the rule probably needs tightening.",
         todo: "Review the promotion: refine the rule, accept, or dismiss.",
-        primaryVerb: "Review"
+        primaryVerb: "Review",
+        lifecycleDiagram: PROMOTIONS_DIAGRAM
       },
       lint: {
         label: "Lint Issues",
         what: "Schema-level problems in the KB itself.",
         todo: "Fix the lint issue in the source file.",
-        primaryVerb: "Fix"
+        primaryVerb: "Fix",
+        lifecycleDiagram: LINT_DIAGRAM
       }
     };
     function primaryActionLabel2(section) {
@@ -4512,7 +4892,7 @@ var require_dist = __commonJS({
           __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.pipelineSegments = exports2.groupEntries = exports2.buildEntryHandles = exports2.copyActionLabel = exports2.primaryActionLabel = exports2.SECTION_GUIDE = exports2.getActionPrompt = exports2.findRuleLineRange = exports2.findRule = exports2.readStandardDefinition = exports2.parseStandardDefinition = exports2.runLint = exports2.parseLintStderr = exports2.readPromotions = exports2.parsePromotions = exports2.resolveStandardPath = exports2.readConformPending = exports2.parseConformPending = exports2.readStandardsDrift = exports2.parseStandardsDrift = exports2.readKbDrift = exports2.parseKbDrift = exports2.readCodeDrift = exports2.parseCodeDrift = exports2.stableEntryId = void 0;
+    exports2.pipelineSegments = exports2.groupEntries = exports2.buildEntryHandles = exports2.copyActionLabel = exports2.primaryActionLabel = exports2.SECTION_GUIDE = exports2.rerunPhase1Prompt = exports2.closedPromotionPrompt = exports2.dismissedPrompt = exports2.promotedPrompt = exports2.exemptedPrompt = exports2.appliedPrompt = exports2.getActionPrompt = exports2.findRuleLineRange = exports2.findRule = exports2.readStandardDefinition = exports2.parseStandardDefinition = exports2.currentAndPreviousMonth = exports2.readDriftLog = exports2.parseDriftLog = exports2.runLint = exports2.parseLintStderr = exports2.readPromotions = exports2.parsePromotions = exports2.resolveStandardPath = exports2.readConformPending = exports2.parseConformPending = exports2.readStandardsBacklog = exports2.readStandardsDrift = exports2.parseStandardsDrift = exports2.readKbDrift = exports2.parseKbDrift = exports2.readCodeDrift = exports2.parseCodeDrift = exports2.stableEntryId = void 0;
     __exportStar(require_types(), exports2);
     __exportStar(require_kb_root(), exports2);
     __exportStar(require_status(), exports2);
@@ -4541,6 +4921,9 @@ var require_dist = __commonJS({
     Object.defineProperty(exports2, "readStandardsDrift", { enumerable: true, get: function() {
       return standards_drift_js_1.readStandardsDrift;
     } });
+    Object.defineProperty(exports2, "readStandardsBacklog", { enumerable: true, get: function() {
+      return standards_drift_js_1.readStandardsBacklog;
+    } });
     var conform_pending_js_1 = require_conform_pending();
     Object.defineProperty(exports2, "parseConformPending", { enumerable: true, get: function() {
       return conform_pending_js_1.parseConformPending;
@@ -4565,6 +4948,16 @@ var require_dist = __commonJS({
     Object.defineProperty(exports2, "runLint", { enumerable: true, get: function() {
       return lint_js_1.runLint;
     } });
+    var drift_log_js_1 = require_drift_log();
+    Object.defineProperty(exports2, "parseDriftLog", { enumerable: true, get: function() {
+      return drift_log_js_1.parseDriftLog;
+    } });
+    Object.defineProperty(exports2, "readDriftLog", { enumerable: true, get: function() {
+      return drift_log_js_1.readDriftLog;
+    } });
+    Object.defineProperty(exports2, "currentAndPreviousMonth", { enumerable: true, get: function() {
+      return drift_log_js_1.currentAndPreviousMonth;
+    } });
     var standards_js_1 = require_standards();
     Object.defineProperty(exports2, "parseStandardDefinition", { enumerable: true, get: function() {
       return standards_js_1.parseStandardDefinition;
@@ -4581,6 +4974,26 @@ var require_dist = __commonJS({
     var index_js_1 = require_prompts();
     Object.defineProperty(exports2, "getActionPrompt", { enumerable: true, get: function() {
       return index_js_1.getActionPrompt;
+    } });
+    var standards_drift_js_2 = require_standards_drift3();
+    Object.defineProperty(exports2, "appliedPrompt", { enumerable: true, get: function() {
+      return standards_drift_js_2.appliedPrompt;
+    } });
+    Object.defineProperty(exports2, "exemptedPrompt", { enumerable: true, get: function() {
+      return standards_drift_js_2.exemptedPrompt;
+    } });
+    Object.defineProperty(exports2, "promotedPrompt", { enumerable: true, get: function() {
+      return standards_drift_js_2.promotedPrompt;
+    } });
+    Object.defineProperty(exports2, "dismissedPrompt", { enumerable: true, get: function() {
+      return standards_drift_js_2.dismissedPrompt;
+    } });
+    var promotions_js_2 = require_promotions2();
+    Object.defineProperty(exports2, "closedPromotionPrompt", { enumerable: true, get: function() {
+      return promotions_js_2.closedPromotionPrompt;
+    } });
+    Object.defineProperty(exports2, "rerunPhase1Prompt", { enumerable: true, get: function() {
+      return promotions_js_2.rerunPhase1Prompt;
     } });
     var section_guide_js_1 = require_section_guide();
     Object.defineProperty(exports2, "SECTION_GUIDE", { enumerable: true, get: function() {
@@ -4709,13 +5122,90 @@ var SyncWatcher = class {
 };
 
 // src/view.ts
+function activityEventLabel(t) {
+  switch (t) {
+    case "conformed-applied":
+      return "Conformed \xB7 applied";
+    case "conformed-exempted":
+      return "Conformed \xB7 exempted";
+    case "conformed-promoted":
+      return "Conformed \xB7 promoted";
+    case "dismissed-conform":
+      return "Dismissed (conform)";
+    case "closed-promotion":
+      return "Closed promotion";
+    case "auto-dismissed-standard-removed":
+      return "Auto-dismissed (standard removed)";
+    case "auto-closed-promotion-rule-changed":
+      return "Auto-closed (rule changed)";
+    case "auto-closed-promotion-standard-removed":
+      return "Auto-closed (standard removed)";
+    case "drift-resolved":
+      return "Drift resolved";
+    case "drift-dismissed":
+      return "Drift dismissed";
+    case "re-bootstrap":
+      return "Re-bootstrap";
+    default:
+      return "Unknown";
+  }
+}
+function activityBadgeClass(t, isSystem) {
+  if (isSystem)
+    return "event-auto";
+  if (t === "conformed-applied" || t === "drift-resolved")
+    return "event-applied";
+  if (t === "conformed-exempted" || t === "dismissed-conform" || t === "drift-dismissed")
+    return "event-exempted";
+  if (t === "conformed-promoted" || t === "closed-promotion")
+    return "event-promoted";
+  return "event-other";
+}
+var VERDICTS_BY_SECTION = {
+  "standards-drift": [
+    { verdict: "applied", label: "Apply", needsForm: false, fields: {} },
+    {
+      verdict: "exempted",
+      label: "Exempt\u2026",
+      needsForm: true,
+      fields: {
+        filePaths: { required: true, label: "Files to exempt" },
+        reason: { required: true }
+      }
+    },
+    {
+      verdict: "promoted",
+      label: "Promote\u2026",
+      needsForm: true,
+      fields: {
+        filePaths: { required: true, label: "Originating files" },
+        note: { required: false }
+      }
+    },
+    {
+      verdict: "dismissed",
+      label: "Dismiss\u2026",
+      needsForm: true,
+      fields: {
+        reason: { required: true }
+      }
+    }
+  ],
+  promotions: [
+    {
+      verdict: "closed_promotion",
+      label: "Close promotion",
+      needsForm: true,
+      fields: {
+        filePaths: { required: true, label: "Files in the exception" },
+        reason: { required: true }
+      }
+    }
+  ]
+};
 var VIEW_TYPE_INSTRUMENTALITY = "instrumentality-view";
 var ICON_ID = "instrumentality-icon";
 var InstrumentalityView = class extends import_obsidian.ItemView {
-  constructor(leaf, getKbRoot) {
-    super(leaf);
-    this.getKbRoot = getKbRoot;
-  }
   status = null;
   kbRoot = null;
   watcher = null;
@@ -4724,6 +5214,19 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
   hiddenSections = /* @__PURE__ */ new Set();
   severityFilter = /* @__PURE__ */ new Set();
   groupBy = "section";
+  // Phase-4-equivalent state. View-mode + activity controls are kept
+  // in-memory only — they reset on view reopen, which matches the rest
+  // of the plugin's "no config dialog" feel.
+  viewMode = "pending";
+  activityGroupBy = "date";
+  showSystemEvents = true;
+  cb;
+  getKbRoot;
+  constructor(leaf, callbacks) {
+    super(leaf);
+    this.cb = callbacks;
+    this.getKbRoot = callbacks.getKbRoot;
+  }
   getViewType() {
     return VIEW_TYPE_INSTRUMENTALITY;
   }
@@ -4782,8 +5285,63 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     }
     this.renderHeader(root);
     this.renderPipelineStrip(root);
-    this.renderFilterBar(root);
-    this.renderSections(root);
+    this.renderViewModeTabs(root);
+    if (this.viewMode === "activity") {
+      this.renderActivityFilterBar(root);
+      this.renderActivityBody(root);
+    } else {
+      this.renderFilterBar(root);
+      this.renderSections(root);
+    }
+  }
+  renderViewModeTabs(parent) {
+    const tabs = parent.createDiv({ cls: "instrumentality-view-mode-tabs" });
+    const make = (mode, label) => {
+      const tab = tabs.createEl("button", {
+        cls: "instrumentality-view-mode-tab" + (this.viewMode === mode ? " on" : ""),
+        text: label
+      });
+      tab.addEventListener("click", () => {
+        if (this.viewMode === mode)
+          return;
+        this.viewMode = mode;
+        this.render();
+      });
+    };
+    make("pending", "Pending");
+    make("activity", "Activity");
+  }
+  renderActivityFilterBar(parent) {
+    const bar = parent.createDiv({
+      cls: "instrumentality-filter-bar instrumentality-activity-filter-bar"
+    });
+    const groupBox = bar.createDiv({ cls: "instrumentality-chip-group" });
+    groupBox.createSpan({ cls: "group-by-label", text: "Group:" });
+    const modes = [
+      { key: "date", label: "Date" },
+      { key: "queueKey", label: "Queue key" },
+      { key: "eventType", label: "Event type" }
+    ];
+    for (const m of modes) {
+      const chip = groupBox.createSpan({
+        cls: "instrumentality-chip group-by-chip" + (this.activityGroupBy === m.key ? " on" : ""),
+        text: m.label
+      });
+      chip.addEventListener("click", () => {
+        if (this.activityGroupBy === m.key)
+          return;
+        this.activityGroupBy = m.key;
+        this.render();
+      });
+    }
+    const toggleLabel = bar.createEl("label", { cls: "instrumentality-activity-toggle" });
+    const cb = toggleLabel.createEl("input", { attr: { type: "checkbox" } });
+    cb.checked = this.showSystemEvents;
+    toggleLabel.appendText(" Show system events");
+    cb.addEventListener("change", () => {
+      this.showSystemEvents = cb.checked;
+      this.render();
+    });
   }
   /**
    * Workflow at-a-glance: drift → conform → promotion → lint with counts.
@@ -4932,7 +5490,9 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
         return;
       }
       case "standards-drift": {
-        const i = s.standardsDrift.entries.findIndex((e, idx) => (0, import_shared.stableEntryId)(e.queueKey, idx) === h.id);
+        const i = s.standardsDrift.entries.findIndex(
+          (e, idx) => (0, import_shared.stableEntryId)(`${e.mode}:${e.queueKey}`, idx) === h.id
+        );
         if (i >= 0)
           this.renderStandardsDriftRow(parent, s.standardsDrift.entries[i], i);
         return;
@@ -4965,7 +5525,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       }
     }
   }
-  sectionShell(parent, kind, title, count, badgeText, hint) {
+  sectionShell(parent, kind, title, count, badgeText, hint, extraBanner) {
     const card = parent.createDiv({ cls: "instrumentality-section-card", attr: { "data-section": kind } });
     const header = card.createEl("header");
     const h2 = header.createEl("h2");
@@ -4975,7 +5535,59 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       h2.createSpan({ cls: "badge", text: badgeText });
     if (hint)
       header.createDiv({ cls: "group-hint", text: hint });
+    const dismissed = this.cb.getDismissedBanners().has(kind);
+    if (dismissed) {
+      const help = h2.createEl("button", {
+        cls: "instrumentality-banner-question",
+        text: "?",
+        attr: { title: `Show ${import_shared.SECTION_GUIDE[kind].label} lifecycle` }
+      });
+      help.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const banner = card.querySelector(
+          ".instrumentality-banner.education"
+        );
+        if (banner)
+          banner.removeClass("hidden");
+        help.remove();
+      });
+    }
+    this.renderEducationBanner(card, kind, dismissed);
+    if (extraBanner)
+      extraBanner(card);
     return card.createDiv({ cls: "body" });
+  }
+  renderEducationBanner(parent, kind, dismissed) {
+    const guide = import_shared.SECTION_GUIDE[kind];
+    const banner = parent.createDiv({
+      cls: "instrumentality-banner education" + (dismissed ? " hidden" : ""),
+      attr: { "data-banner-kind": kind }
+    });
+    const content = banner.createDiv({ cls: "banner-content" });
+    const explainer = content.createDiv({ cls: "banner-explainer" });
+    explainer.createEl("strong", { text: guide.label });
+    explainer.appendText(" \u2014 " + guide.what + " ");
+    explainer.createEl("em", { text: guide.todo });
+    content.createEl("pre", { cls: "banner-diagram", text: guide.lifecycleDiagram });
+    const dismissBtn = banner.createEl("button", { text: "Got it" });
+    dismissBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      banner.addClass("hidden");
+      this.cb.dismissBanner(kind);
+      const h2 = parent.querySelector("header h2");
+      if (h2 && !h2.querySelector(".instrumentality-banner-question")) {
+        const help = h2.createEl("button", {
+          cls: "instrumentality-banner-question",
+          text: "?",
+          attr: { title: `Show ${guide.label} lifecycle` }
+        });
+        help.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          banner.removeClass("hidden");
+          help.remove();
+        });
+      }
+    });
   }
   placeholder(parent, text) {
     parent.createDiv({ cls: "instrumentality-placeholder", text });
@@ -5101,7 +5713,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     entries.forEach((e, i) => this.renderStandardsDriftRow(body, e, i));
   }
   renderStandardsDriftRow(parent, e, i) {
-    const id = (0, import_shared.stableEntryId)(e.queueKey, i);
+    const id = (0, import_shared.stableEntryId)(`${e.mode}:${e.queueKey}`, i);
     const sev = e.severity ?? null;
     const fileCount = Object.values(e.filesByParty).reduce((s, fs2) => s + fs2.length, 0);
     const firstFile = Object.values(e.filesByParty).flat()[0]?.path;
@@ -5111,6 +5723,13 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       h2.createSpan({ cls: "title", text: e.queueKey });
       if (sev)
         h2.createSpan({ cls: `badge sev-${sev}`, text: sev });
+      if (e.mode === "aspirational") {
+        h2.createSpan({
+          cls: "badge advisory-mode",
+          text: "advisory",
+          attr: { title: "Advisory backlog \u2014 not PR-blocking" }
+        });
+      }
     };
     const meta = `${e.standardId ?? "?"}${e.standardKind ? ` (${e.standardKind})` : ""} \xB7 ${fileCount} file(s)${ruleHint}`;
     const detail = (d) => {
@@ -5153,6 +5772,11 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
         diffableFiles.push({ relPath: f.path, sinceCommit: f.sinceCommit, latestCommit: f.latestCommit });
       }
     }
+    const verdictFiles = [];
+    for (const arr of Object.values(e.filesByParty)) {
+      for (const f of arr)
+        verdictFiles.push(f.path);
+    }
     this.entryShell({
       parent,
       section: "standards-drift",
@@ -5166,7 +5790,10 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       standardId: e.standardId,
       ruleId: e.ruleId,
       authorEntry: e,
-      diffableFiles
+      diffableFiles,
+      modeAttr: e.mode,
+      verdictQueueKey: e.queueKey,
+      verdictFiles
     });
   }
   appendRuleBlock(parent, rule) {
@@ -5215,13 +5842,33 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     const a = this.status.conformPending.aspirational;
     const total = (c?.requested.length ?? 0) + (a?.requested.length ?? 0);
     const stale = c?.staleAgainstHead || a?.staleAgainstHead;
+    const renderStaleBanner = stale ? (card) => {
+      const staleMode = c?.staleAgainstHead ? "current" : "aspirational";
+      const staleSha = c?.staleAgainstHead ? c.head_sha_short : a?.head_sha_short ?? "";
+      const headSha = this.status?.currentHeadShort ?? "(unknown)";
+      const banner = card.createDiv({ cls: "instrumentality-banner stale" });
+      const txt = banner.createDiv({ cls: "banner-text" });
+      txt.createEl("strong", { text: "Pending session is stale." });
+      txt.appendText(" Baseline ");
+      txt.createEl("code", { text: staleSha });
+      txt.appendText(" \xB7 HEAD ");
+      txt.createEl("code", { text: headSha });
+      txt.appendText(". Re-run Phase 1 before submitting judgments.");
+      const btn = banner.createEl("button", { text: "Re-run Phase 1" });
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        await navigator.clipboard.writeText((0, import_shared.rerunPhase1Prompt)(staleMode));
+        new import_obsidian.Notice("Instrumentality: Re-run Phase 1 prompt copied.");
+      });
+    } : void 0;
     const body = this.sectionShell(
       parent,
       "conform-pending",
       import_shared.SECTION_GUIDE["conform-pending"].label,
       total,
       stale ? "baseline stale" : void 0,
-      import_shared.SECTION_GUIDE["conform-pending"].what
+      import_shared.SECTION_GUIDE["conform-pending"].what,
+      renderStaleBanner
     );
     if (total === 0)
       return this.placeholder(body, "No conform pending");
@@ -5313,11 +5960,6 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       const rule = div.createDiv();
       rule.createSpan({ text: "Rule: " });
       rule.createEl("code", { text: e.ruleId ?? "?" });
-      if (e.ruleFingerprint) {
-        const fp = div.createDiv();
-        fp.createSpan({ text: "Fingerprint: " });
-        fp.createEl("code", { text: e.ruleFingerprint });
-      }
       this.appendRuleBlock(div, e.resolvedRule);
       const filesBlock = div.createDiv();
       filesBlock.createEl("strong", { text: "Files:" });
@@ -5331,7 +5973,9 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
           li.createEl("em", { text: f.note });
         }
       }
+      this.renderSuppressionContract(div, e);
     };
+    const verdictFiles = e.files.map((f) => f.path);
     this.entryShell({
       parent,
       section: "promotions",
@@ -5343,7 +5987,55 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       detail,
       sourceFile: e.files[0]?.path,
       standardId: e.standardId,
-      ruleId: e.ruleId
+      ruleId: e.ruleId,
+      verdictQueueKey: e.queueKey,
+      verdictFiles
+    });
+  }
+  // Suppression contract panel: surfaces the ledger semantics inline so
+  // a user staring at a promoted entry knows *why* it isn't re-firing
+  // and *when* it will auto-clear. Fingerprint shown as stored at
+  // promote time — no live recompute.
+  renderSuppressionContract(parent, e) {
+    const panel = parent.createDiv({ cls: "instrumentality-suppression-contract" });
+    panel.createDiv({ cls: "sc-title", text: "Suppression contract" });
+    const earliest = e.files.map((f) => f.promotedAt).sort()[0] ?? null;
+    const fingerprintShort = e.ruleFingerprint ? e.ruleFingerprint.length > 22 ? e.ruleFingerprint.slice(0, 22) + "\u2026" : e.ruleFingerprint : "(none recorded)";
+    const fingerprintTooltip = "Hash inputs: rule.description, rule.severity, canonicalized rule.detect, canonicalized rule.applies_to, plus parties[].applies_to.paths for contracts. Mismatch on next sweep \u2192 auto-close.";
+    const row1 = panel.createDiv({ cls: "sc-row" });
+    row1.createSpan({ cls: "sc-label", text: "Suppressed since:" });
+    row1.appendText(" ");
+    if (earliest)
+      row1.createEl("code", { text: earliest });
+    else
+      row1.createEl("em", { text: "(no files)" });
+    const row2 = panel.createDiv({ cls: "sc-row" });
+    row2.createSpan({ cls: "sc-label", text: "Rule fingerprint:" });
+    row2.appendText(" ");
+    row2.createEl("code", { text: fingerprintShort, attr: { title: fingerprintTooltip } });
+    const row3 = panel.createDiv({ cls: "sc-row" });
+    row3.createSpan({ cls: "sc-label", text: "Auto-closes if:" });
+    row3.appendText(" rule definition changes (fingerprint mismatch on next Phase 1 sweep) or the standard/rule is removed.");
+    const row4 = panel.createDiv({ cls: "sc-row" });
+    row4.createSpan({ cls: "sc-label", text: "Or close manually:" });
+    row4.appendText(" use the ");
+    row4.createEl("em", { text: "Close promotion" });
+    row4.appendText(" verdict to write an exception into the rule.");
+    const actions = panel.createDiv({ cls: "sc-row sc-actions" });
+    const openLedger = actions.createEl("button", { text: "Open ledger" });
+    openLedger.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      if (!this.kbRoot) {
+        new import_obsidian.Notice("Instrumentality: knowledge base not detected.");
+        return;
+      }
+      const abs = path2.join(
+        this.kbRoot,
+        "knowledge",
+        "sync",
+        "standards-promotions.md"
+      );
+      await this.openPath(abs);
     });
   }
   renderLintCard(parent) {
@@ -5396,14 +6088,17 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
   }
   // ── Entry shell + actions ──────────────────────────────────────────────
   entryShell(opts) {
+    const attr = {
+      "data-entry-section": opts.section,
+      "data-entry-id": opts.id,
+      "data-entry-sev": opts.sev,
+      "data-entry-text": opts.text.toLowerCase()
+    };
+    if (opts.modeAttr)
+      attr["data-entry-mode"] = opts.modeAttr;
     const row = opts.parent.createDiv({
       cls: "instrumentality-entry",
-      attr: {
-        "data-entry-section": opts.section,
-        "data-entry-id": opts.id,
-        "data-entry-sev": opts.sev,
-        "data-entry-text": opts.text.toLowerCase()
-      }
+      attr
     });
     const summary = row.createDiv({ cls: "entry-summary" });
     const titleRow = summary.createDiv({ cls: "entry-title-row" });
@@ -5453,6 +6148,15 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
         });
       }
     }
+    const verdictDefs = VERDICTS_BY_SECTION[opts.section];
+    if (verdictDefs && opts.verdictQueueKey) {
+      this.appendVerdictPicker(detail, {
+        section: opts.section,
+        verdictDefs,
+        queueKey: opts.verdictQueueKey,
+        files: opts.verdictFiles ?? []
+      });
+    }
     if (opts.diffableFiles && opts.diffableFiles.length > 0) {
       this.appendDiffDisclosure(detail, opts.diffableFiles);
     }
@@ -5462,6 +6166,235 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     const indexed = this.entryIndex.get(`${opts.section}:${opts.id}`);
     promptPre.appendText(indexed?.prompt ?? "(no prompt available)");
     summary.addEventListener("click", () => row.toggleClass("open", !row.hasClass("open")));
+  }
+  appendVerdictPicker(parent, opts) {
+    const row = parent.createDiv({ cls: "instrumentality-verdict-actions-row" });
+    for (const def of opts.verdictDefs) {
+      const btn = row.createEl("button", {
+        cls: "instrumentality-verdict-btn",
+        text: def.label
+      });
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!def.needsForm) {
+          await this.submitVerdict(opts.section, def, opts.queueKey, {});
+          return;
+        }
+        const entry = parent.closest(".instrumentality-entry");
+        if (!entry)
+          return;
+        let form = entry.querySelector(
+          ".instrumentality-verdict-form"
+        );
+        if (!form) {
+          form = this.buildVerdictForm(opts);
+          parent.appendChild(form);
+        }
+        this.activateVerdictForm(form, def, opts);
+      });
+    }
+  }
+  buildVerdictForm(opts) {
+    const form = createDiv({
+      cls: "instrumentality-verdict-form hidden",
+      attr: { "data-active-verdict": "" }
+    });
+    form.createDiv({ cls: "verdict-form-title" });
+    const filesField = form.createDiv({
+      cls: "verdict-field",
+      attr: { "data-for-field": "filePaths" }
+    });
+    filesField.createEl("label", { cls: "verdict-field-label" });
+    const ul = filesField.createEl("ul", { cls: "verdict-file-list" });
+    for (const p of opts.files) {
+      const li = ul.createEl("li");
+      const lbl = li.createEl("label");
+      const cb = lbl.createEl("input", { attr: { type: "checkbox", value: p } });
+      cb.setAttribute("name", "vfile");
+      lbl.appendText(" ");
+      lbl.createEl("code", { text: p });
+    }
+    const reasonField = form.createDiv({
+      cls: "verdict-field",
+      attr: { "data-for-field": "reason" }
+    });
+    const reasonLbl = reasonField.createEl("label");
+    reasonLbl.appendText("Reason ");
+    reasonLbl.createSpan({ cls: "verdict-required-marker", text: "(required)" });
+    const reason = reasonField.createEl("textarea", {
+      cls: "verdict-reason",
+      attr: { rows: "3", placeholder: "Why?" }
+    });
+    const noteField = form.createDiv({
+      cls: "verdict-field",
+      attr: { "data-for-field": "note" }
+    });
+    const noteLbl = noteField.createEl("label");
+    noteLbl.appendText("Note ");
+    noteLbl.createSpan({ cls: "verdict-optional-marker", text: "(optional)" });
+    noteField.createEl("textarea", {
+      cls: "verdict-note",
+      attr: { rows: "2", placeholder: "Optional context for the senior reviewer" }
+    });
+    const actions = form.createDiv({ cls: "verdict-form-actions" });
+    const submit = actions.createEl("button", {
+      cls: "instrumentality-verdict-submit mod-cta",
+      text: "Send to agent"
+    });
+    submit.setAttribute("disabled", "");
+    const cancel = actions.createEl("button", { text: "Cancel" });
+    const revalidate = () => {
+      const active = form.getAttribute("data-active-verdict");
+      if (!active) {
+        submit.setAttribute("disabled", "");
+        return;
+      }
+      const def = opts.verdictDefs.find((d) => d.verdict === active);
+      if (!def) {
+        submit.setAttribute("disabled", "");
+        return;
+      }
+      let valid = true;
+      if (def.fields.filePaths?.required) {
+        const checked = form.querySelectorAll('input[name="vfile"]:checked');
+        if (checked.length === 0)
+          valid = false;
+      }
+      if (def.fields.reason?.required) {
+        if (!reason.value.trim())
+          valid = false;
+      }
+      if (valid)
+        submit.removeAttribute("disabled");
+      else
+        submit.setAttribute("disabled", "");
+    };
+    form.addEventListener("input", revalidate);
+    form.addEventListener("change", revalidate);
+    submit.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const active = form.getAttribute("data-active-verdict");
+      if (!active)
+        return;
+      const def = opts.verdictDefs.find((d) => d.verdict === active);
+      if (!def)
+        return;
+      const draft = {};
+      const checked = Array.from(
+        form.querySelectorAll('input[name="vfile"]:checked')
+      ).map((i) => i.value);
+      if (checked.length > 0)
+        draft.filePaths = checked;
+      const rEl = form.querySelector(".verdict-reason");
+      if (rEl && rEl.value.trim())
+        draft.reason = rEl.value.trim();
+      const nEl = form.querySelector(".verdict-note");
+      if (nEl && nEl.value.trim())
+        draft.note = nEl.value.trim();
+      await this.submitVerdict(opts.section, def, opts.queueKey, draft);
+      this.resetVerdictForm(form);
+    });
+    cancel.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.resetVerdictForm(form);
+    });
+    return form;
+  }
+  activateVerdictForm(form, def, opts) {
+    form.setAttribute("data-active-verdict", def.verdict);
+    const title = form.querySelector(".verdict-form-title");
+    if (title)
+      title.setText("Resolve as: " + def.label.replace(/…$/, ""));
+    form.querySelectorAll("[data-for-field]").forEach((el) => {
+      const key = el.getAttribute("data-for-field");
+      if (!key)
+        return;
+      const cfg = def.fields[key];
+      el.toggleClass("hidden", !cfg);
+      if (key === "filePaths" && cfg) {
+        const lbl = el.querySelector(".verdict-field-label");
+        if (lbl)
+          lbl.setText(cfg.label);
+      }
+    });
+    form.removeClass("hidden");
+    form.dispatchEvent(new Event("input"));
+  }
+  resetVerdictForm(form) {
+    form.setAttribute("data-active-verdict", "");
+    form.addClass("hidden");
+    form.querySelectorAll('input[name="vfile"]').forEach((i) => i.checked = false);
+    const r = form.querySelector(".verdict-reason");
+    if (r)
+      r.value = "";
+    const n = form.querySelector(".verdict-note");
+    if (n)
+      n.value = "";
+    const submit = form.querySelector(
+      ".instrumentality-verdict-submit"
+    );
+    if (submit)
+      submit.setAttribute("disabled", "");
+  }
+  async submitVerdict(section, def, queueKey, draft) {
+    let prompt;
+    try {
+      switch (def.verdict) {
+        case "applied":
+          prompt = (0, import_shared.appliedPrompt)({ verdict: "applied", queueKey });
+          break;
+        case "exempted":
+          if (!draft.filePaths || draft.filePaths.length === 0)
+            throw new Error("Exempt requires at least one file.");
+          if (!draft.reason || !draft.reason.trim())
+            throw new Error("Exempt requires a reason.");
+          prompt = (0, import_shared.exemptedPrompt)({
+            verdict: "exempted",
+            queueKey,
+            filePaths: draft.filePaths,
+            reason: draft.reason.trim()
+          });
+          break;
+        case "promoted":
+          if (!draft.filePaths || draft.filePaths.length === 0)
+            throw new Error("Promote requires at least one originating file.");
+          prompt = (0, import_shared.promotedPrompt)({
+            verdict: "promoted",
+            queueKey,
+            originatingFiles: draft.filePaths,
+            note: draft.note?.trim() || void 0
+          });
+          break;
+        case "dismissed":
+          if (!draft.reason || !draft.reason.trim())
+            throw new Error("Dismiss requires a reason.");
+          prompt = (0, import_shared.dismissedPrompt)({
+            verdict: "dismissed",
+            queueKey,
+            reason: draft.reason.trim()
+          });
+          break;
+        case "closed_promotion":
+          if (!draft.filePaths || draft.filePaths.length === 0)
+            throw new Error("Close promotion requires at least one file.");
+          if (!draft.reason || !draft.reason.trim())
+            throw new Error("Close promotion requires a reason.");
+          prompt = (0, import_shared.closedPromotionPrompt)({
+            verdict: "closed_promotion",
+            queueKey,
+            filePaths: draft.filePaths,
+            reason: draft.reason.trim()
+          });
+          break;
+        default:
+          throw new Error(`Unknown verdict: ${def.verdict}`);
+      }
+    } catch (err) {
+      new import_obsidian.Notice(`Instrumentality: ${err?.message ?? err}`);
+      return;
+    }
+    await navigator.clipboard.writeText(prompt);
+    new import_obsidian.Notice(`Instrumentality: ${def.verdict.replace(/_/g, " ")} prompt copied.`);
   }
   /**
    * Lazy git-diff disclosure. We don't run git on render — only when the
@@ -5503,18 +6436,37 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
   async gitDiffFor(f) {
     if (!this.kbRoot)
       return "(kb root not detected)";
-    const range = f.latestCommit ? `${f.sinceCommit}..${f.latestCommit}` : f.sinceCommit;
+    const range = f.latestCommit ? `${f.sinceCommit}^..${f.latestCommit}` : `${f.sinceCommit}^`;
+    const absPath = path2.isAbsolute(f.relPath) ? f.relPath : path2.join(this.kbRoot, f.relPath);
+    const repoRoot = await this.resolveRepoRoot(absPath);
+    const relInRepo = path2.relative(repoRoot, absPath);
     return new Promise((resolve, reject) => {
       (0, import_node_child_process.execFile)(
         "git",
-        ["diff", "--no-color", range, "--", f.relPath],
-        { cwd: this.kbRoot, maxBuffer: 8 * 1024 * 1024 },
+        ["diff", "--no-color", range, "--", relInRepo],
+        { cwd: repoRoot, maxBuffer: 8 * 1024 * 1024 },
         (err, stdout) => {
           if (err) {
             reject(err);
             return;
           }
           resolve(stdout || "(no changes)");
+        }
+      );
+    });
+  }
+  resolveRepoRoot(absPath) {
+    return new Promise((resolve, reject) => {
+      (0, import_node_child_process.execFile)(
+        "git",
+        ["rev-parse", "--show-toplevel"],
+        { cwd: path2.dirname(absPath) },
+        (err, stdout) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(stdout.trim());
         }
       );
     });
@@ -5621,6 +6573,135 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       row.toggleClass("hidden", !show);
     });
   }
+  // ── Activity (drift-log timeline) ──────────────────────────────────────
+  renderActivityBody(parent) {
+    const grid = parent.createDiv({ cls: "instrumentality-section-grid" });
+    let events = this.status?.driftLogEvents ?? [];
+    if (!this.showSystemEvents) {
+      events = events.filter((e) => !e.isSystem);
+    }
+    if (events.length === 0) {
+      const card = grid.createDiv({
+        cls: "instrumentality-section-card",
+        attr: { "data-section": "activity" }
+      });
+      const header = card.createEl("header");
+      const h2 = header.createEl("h2");
+      h2.createSpan({ text: "Activity" });
+      h2.createSpan({ cls: "count", text: "0" });
+      const body = card.createDiv({ cls: "body" });
+      this.placeholder(
+        body,
+        "No drift-log events in the current + previous month."
+      );
+      return;
+    }
+    const groups = /* @__PURE__ */ new Map();
+    for (const e of events) {
+      let key;
+      if (this.activityGroupBy === "queueKey")
+        key = e.queueKey || e.kbTarget || e.kbFile || "(unattributed)";
+      else if (this.activityGroupBy === "eventType")
+        key = activityEventLabel(e.eventType);
+      else
+        key = e.date;
+      const arr = groups.get(key) ?? [];
+      arr.push(e);
+      groups.set(key, arr);
+    }
+    const sortedKeys = [...groups.keys()].sort(
+      (a, b) => this.activityGroupBy === "date" ? a < b ? 1 : a > b ? -1 : 0 : a.localeCompare(b)
+    );
+    for (const k of sortedKeys) {
+      const arr = groups.get(k);
+      const card = grid.createDiv({
+        cls: "instrumentality-section-card activity-group",
+        attr: { "data-activity-group": k }
+      });
+      const header = card.createEl("header");
+      const h2 = header.createEl("h2");
+      h2.createSpan({ text: k });
+      h2.createSpan({ cls: "count", text: String(arr.length) });
+      const body = card.createDiv({ cls: "body" });
+      for (const e of arr)
+        this.renderActivityRow(body, e);
+    }
+  }
+  renderActivityRow(parent, e) {
+    const id = `${e.date}:${e.queueKey ?? e.kbTarget ?? e.kbFile ?? ""}:${e.eventType}`;
+    const subject = e.queueKey ?? e.kbTarget ?? e.kbFile ?? "(unattributed)";
+    const row = parent.createDiv({
+      cls: "instrumentality-entry activity-entry",
+      attr: {
+        "data-entry-section": "activity",
+        "data-entry-id": id,
+        "data-entry-sev": "",
+        "data-entry-text": `${subject} ${e.eventType} ${e.reason ?? ""}`.toLowerCase()
+      }
+    });
+    const summary = row.createDiv({ cls: "entry-summary" });
+    const summaryRow = summary.createDiv({ cls: "activity-summary" });
+    summaryRow.createSpan({
+      cls: `badge ${activityBadgeClass(e.eventType, e.isSystem)}`,
+      text: activityEventLabel(e.eventType)
+    });
+    summaryRow.createSpan({ cls: "activity-subject", text: subject });
+    summaryRow.createSpan({ cls: "activity-date", text: e.date });
+    const line = summary.createDiv({ cls: "activity-line" });
+    if (e.reason) {
+      line.appendText(
+        " \u2014 " + (e.reason.length > 100 ? e.reason.slice(0, 100) + "\u2026" : e.reason)
+      );
+    } else {
+      line.createEl("em", { text: "(no reason recorded)" });
+    }
+    const detail = row.createDiv({ cls: "entry-detail" });
+    const meta = detail.createDiv({ cls: "detail-meta" });
+    const eventRow = meta.createDiv();
+    eventRow.createEl("strong", { text: "Event: " });
+    eventRow.createEl("code", { text: e.eventType });
+    meta.createDiv({ text: `Date: ${e.date}` });
+    if (e.queueKey) {
+      const r = meta.createDiv();
+      r.createEl("strong", { text: "Queue key: " });
+      r.createEl("code", { text: e.queueKey });
+    }
+    if (e.kbTarget) {
+      const r = meta.createDiv();
+      r.createEl("strong", { text: "KB target: " });
+      r.createEl("code", { text: e.kbTarget });
+    }
+    if (e.kbFile) {
+      const r = meta.createDiv();
+      r.createEl("strong", { text: "KB file: " });
+      r.createEl("code", { text: e.kbFile });
+    }
+    if (e.files?.length) {
+      const block = meta.createDiv();
+      block.createEl("strong", { text: "Files:" });
+      const ul = block.createEl("ul");
+      for (const f of e.files)
+        ul.createEl("li").createEl("code", { text: f });
+    }
+    if (e.originatingFiles?.length) {
+      const block = meta.createDiv();
+      block.createEl("strong", { text: "Originating files:" });
+      const ul = block.createEl("ul");
+      for (const f of e.originatingFiles)
+        ul.createEl("li").createEl("code", { text: f });
+    }
+    if (e.reason) {
+      const r = meta.createDiv();
+      r.createEl("strong", { text: "Reason: " });
+      r.appendText(e.reason);
+    }
+    if (e.note) {
+      const r = meta.createDiv();
+      r.createEl("strong", { text: "Note: " });
+      r.appendText(e.note);
+    }
+    summary.addEventListener("click", () => row.toggleClass("open", !row.hasClass("open")));
+  }
   // ── Index ──────────────────────────────────────────────────────────────
   buildEntryIndex(status) {
     const out = /* @__PURE__ */ new Map();
@@ -5649,7 +6730,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     status.standardsDrift.entries.forEach(
       (e, i) => push({
         section: "standards-drift",
-        id: (0, import_shared.stableEntryId)(e.queueKey, i),
+        id: (0, import_shared.stableEntryId)(`${e.mode}:${e.queueKey}`, i),
         promptInput: { kind: "standards-drift", entry: e },
         sourceFile: Object.values(e.filesByParty).flat()[0]?.path,
         standardId: e.standardId
@@ -5699,11 +6780,20 @@ var ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill
   <circle cx="12" cy="12" r="1.6"/>
 </svg>`;
 var InstrumentalityPlugin = class extends import_obsidian2.Plugin {
+  dismissedBanners = /* @__PURE__ */ new Set();
   async onload() {
     (0, import_obsidian2.addIcon)(ICON_ID, ICON_SVG);
+    const data = await this.loadData();
+    if (data && Array.isArray(data.dismissedBanners)) {
+      this.dismissedBanners = new Set(data.dismissedBanners);
+    }
     this.registerView(
       VIEW_TYPE_INSTRUMENTALITY,
-      (leaf) => new InstrumentalityView(leaf, () => this.detectKbRoot())
+      (leaf) => new InstrumentalityView(leaf, {
+        getKbRoot: () => this.detectKbRoot(),
+        getDismissedBanners: () => this.dismissedBanners,
+        dismissBanner: (kind) => void this.persistDismissedBanner(kind)
+      })
     );
     this.addRibbonIcon(ICON_ID, "Instrumentality", () => void this.activateView());
     this.addCommand({
@@ -5720,6 +6810,14 @@ var InstrumentalityPlugin = class extends import_obsidian2.Plugin {
           void view.refresh();
         }
       }
+    });
+  }
+  async persistDismissedBanner(kind) {
+    if (this.dismissedBanners.has(kind))
+      return;
+    this.dismissedBanners.add(kind);
+    await this.saveData({
+      dismissedBanners: [...this.dismissedBanners]
     });
   }
   onunload() {

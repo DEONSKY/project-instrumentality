@@ -9,11 +9,15 @@ import type {
 } from "./types.js";
 import { readCodeDrift } from "./parsers/code-drift.js";
 import { readKbDrift } from "./parsers/kb-drift.js";
-import { readStandardsDrift } from "./parsers/standards-drift.js";
+import {
+  readStandardsDrift,
+  readStandardsBacklog,
+} from "./parsers/standards-drift.js";
 import { readConformPending } from "./parsers/conform-pending.js";
 import { readPromotions } from "./parsers/promotions.js";
 import { runLint } from "./parsers/lint.js";
 import { readStandardDefinition, findRule } from "./parsers/standards.js";
+import { readDriftLog, currentAndPreviousMonth } from "./parsers/drift-log.js";
 
 const execFileP = promisify(execFile);
 
@@ -81,19 +85,41 @@ export async function getStatus(
   kbRoot: string,
   opts: GetStatusOptions = {}
 ): Promise<StatusSummary> {
-  const [codeDrift, kbDrift, standardsDrift, currentPending, asp, promotions, lint, head] =
-    await Promise.all([
-      Promise.resolve(readCodeDrift(kbRoot)),
-      Promise.resolve(readKbDrift(kbRoot)),
-      Promise.resolve(readStandardsDrift(kbRoot)),
-      Promise.resolve(readConformPending(kbRoot, "current")),
-      Promise.resolve(readConformPending(kbRoot, "aspirational")),
-      Promise.resolve(readPromotions(kbRoot)),
-      opts.skipLint
-        ? Promise.resolve({ violations: [], ran: false })
-        : runLint(kbRoot, { commandOverride: opts.lintCommand }),
-      getCurrentHeadShort(kbRoot),
-    ]);
+  const [
+    codeDrift,
+    kbDrift,
+    standardsDriftCurrent,
+    standardsBacklog,
+    currentPending,
+    asp,
+    promotions,
+    driftLogEvents,
+    lint,
+    head,
+  ] = await Promise.all([
+    Promise.resolve(readCodeDrift(kbRoot)),
+    Promise.resolve(readKbDrift(kbRoot)),
+    Promise.resolve(readStandardsDrift(kbRoot)),
+    Promise.resolve(readStandardsBacklog(kbRoot)),
+    Promise.resolve(readConformPending(kbRoot, "current")),
+    Promise.resolve(readConformPending(kbRoot, "aspirational")),
+    Promise.resolve(readPromotions(kbRoot)),
+    Promise.resolve(readDriftLog(kbRoot, currentAndPreviousMonth())),
+    opts.skipLint
+      ? Promise.resolve({ violations: [], ran: false })
+      : runLint(kbRoot, { commandOverride: opts.lintCommand }),
+    getCurrentHeadShort(kbRoot),
+  ]);
+
+  // Merge current-mode standards-drift entries with aspirational backlog
+  // entries. Each carries its own `mode` discriminator so the UI can render
+  // them differently (advisory chip + demoted opacity for aspirational).
+  // Baseline tracking stays with the current-mode queue — that's the
+  // PR-blocking artifact; backlog is advisory.
+  const standardsDrift = {
+    entries: [...standardsDriftCurrent.entries, ...standardsBacklog.entries],
+    baseline: standardsDriftCurrent.baseline,
+  };
 
   const stale = (recorded: string) =>
     head !== null && recorded.length > 0 && !head.startsWith(recorded) && !recorded.startsWith(head);
@@ -126,6 +152,7 @@ export async function getStatus(
     standardsDrift,
     conformPending: { current: conformCurrent, aspirational: conformAspirational },
     promotions,
+    driftLogEvents,
     lint,
     totals: {
       drifts: driftCount,

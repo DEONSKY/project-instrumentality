@@ -3,6 +3,7 @@ import type {
   FileRef,
   QueueBaseline,
   StandardsDriftEntry,
+  StandardsDriftMode,
 } from "../types.js";
 import { parseBaseline, splitHeaderAndBlocks } from "./baseline.js";
 import { kbSyncPath } from "../kb-root.js";
@@ -10,7 +11,10 @@ import { kbSyncPath } from "../kb-root.js";
 const FILE_LINE_RE =
   /^\s+-\s+`([^`]+)`\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?/;
 
-export function parseStandardsDrift(content: string): {
+export function parseStandardsDrift(
+  content: string,
+  mode: StandardsDriftMode = "current"
+): {
   entries: StandardsDriftEntry[];
   baseline: QueueBaseline;
 } {
@@ -66,6 +70,7 @@ export function parseStandardsDrift(content: string): {
 
     entries.push({
       kind: "standards-drift",
+      mode,
       queueKey,
       standardId: stdMatch ? stdMatch[1] : null,
       standardKind: stdMatch ? stdMatch[2] || null : null,
@@ -85,5 +90,14 @@ export function readStandardsDrift(kbRoot: string): {
 } {
   const file = kbSyncPath(kbRoot, "standards-drift.md");
   if (!fs.existsSync(file)) return { entries: [], baseline: { sha: null } };
-  return parseStandardsDrift(fs.readFileSync(file, "utf8"));
+  return parseStandardsDrift(fs.readFileSync(file, "utf8"), "current");
+}
+
+export function readStandardsBacklog(kbRoot: string): {
+  entries: StandardsDriftEntry[];
+  baseline: QueueBaseline;
+} {
+  const file = kbSyncPath(kbRoot, "standards-backlog.md");
+  if (!fs.existsSync(file)) return { entries: [], baseline: { sha: null } };
+  return parseStandardsDrift(fs.readFileSync(file, "utf8"), "aspirational");
 }
