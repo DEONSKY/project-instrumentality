@@ -158,6 +158,8 @@ function loadStateFromWorkspace(context: vscode.ExtensionContext): void {
     viewMode?: "pending" | "activity";
     activityGroupBy?: "date" | "queueKey" | "eventType";
     showSystemEvents?: boolean;
+    openSection?: string;
+    submodulesCollapsed?: boolean;
   }>(FILTER_KEY);
   if (saved) {
     currentFilter = {
@@ -171,6 +173,8 @@ function loadStateFromWorkspace(context: vscode.ExtensionContext): void {
           ? saved.activityGroupBy
           : "date",
       showSystemEvents: saved.showSystemEvents !== false,
+      openSection: typeof saved.openSection === "string" ? saved.openSection : undefined,
+      submodulesCollapsed: saved.submodulesCollapsed === true,
     };
   }
   const dismissedSaved = context.globalState.get<SectionKind[]>(DISMISSED_BANNERS_KEY);
@@ -188,6 +192,8 @@ function saveFilter(context: vscode.ExtensionContext, f: DashboardFilter): void 
     viewMode: f.viewMode,
     activityGroupBy: f.activityGroupBy,
     showSystemEvents: f.showSystemEvents,
+    openSection: f.openSection,
+    submodulesCollapsed: f.submodulesCollapsed,
   });
 }
 
@@ -472,6 +478,15 @@ async function handleAction(
   if (action.type === "submodulePush") {
     await handleSubmodulePush();
     return;
+  }
+  if (action.type === "setOpenSection") {
+    // State already updated via setFilter in the webview-side handler;
+    // this branch exists so the action union is exhaustive and so a
+    // future watcher could hook here. Nothing more to do.
+    return;
+  }
+  if (action.type === "toggleSubmodules") {
+    return; // Same pattern as setOpenSection — state already persisted.
   }
   if (action.type === "openLedger") {
     if (!kbRoot) {

@@ -55,6 +55,19 @@ export interface DashboardFilter {
   activityGroupBy: "date" | "queueKey" | "eventType";
   /** Default true. When false, auto-* and re-bootstrap events are hidden. */
   showSystemEvents: boolean;
+  /**
+   * Which section card is expanded in sidebar (accordion) mode. One section
+   * is open at a time; clicking another header switches focus. Stored as a
+   * generic string because submodules isn't a SectionKind. When undefined or
+   * not found in the current render, the first non-empty section is opened.
+   */
+  openSection?: string;
+  /**
+   * Submodules sits OUTSIDE the accordion — it's a pinned status card with
+   * its own independent collapse, because git state is a glance-and-orient
+   * signal rather than a work queue. Defaults to expanded.
+   */
+  submodulesCollapsed?: boolean;
 }
 
 export interface EntryRef {
@@ -81,6 +94,8 @@ export type DashboardAction =
     }
   | { type: "submoduleSync"; subPath: string; parentBranch: string }
   | { type: "submodulePush" }
+  | { type: "setOpenSection"; section: string }
+  | { type: "toggleSubmodules"; collapsed: boolean }
   | { type: "refresh" };
 
 // ── Verdict definitions ─────────────────────────────────────────────────────
@@ -355,6 +370,8 @@ export function renderHtml(
     !status
       ? emptyMessage
       : `
+  ${renderSubmodulesPinned(status, filter)}
+
   ${renderPipelineStrip(status)}
 
   <div class="view-mode-tabs" data-group="viewMode">
@@ -585,6 +602,26 @@ export function renderHtml(
         return;
       }
 
+      // Pinned submodules card: clicking anywhere on the header (except
+      // the action buttons or interactive controls inside it) toggles
+      // collapse. Independent of the accordion below — separate state,
+      // separate visual semantics.
+      const subHeader = target.closest(".submodules-pinned-header");
+      if (subHeader && !target.closest("button, a, input, [data-action='submodulePush'], [data-action='submoduleSync']")) {
+        const card = subHeader.closest(".submodules-pinned");
+        if (!card) return;
+        const wasCollapsed = card.getAttribute("data-collapsed") === "true";
+        const next = !wasCollapsed;
+        card.setAttribute("data-collapsed", String(next));
+        const chev = card.querySelector(".submodules-pinned-chevron");
+        if (chev) chev.textContent = next ? "▸" : "▾";
+        subHeader.setAttribute("aria-expanded", next ? "false" : "true");
+        const body = card.querySelector(".submodule-pinned-body");
+        if (body instanceof HTMLElement) body.style.display = next ? "none" : "";
+        vscode.postMessage({ command: "toggleSubmodules", collapsed: next });
+        return;
+      }
+
       const action = target.getAttribute("data-action");
       if (action) {
         if (action === "showFileDiff") {
@@ -710,6 +747,30 @@ export function renderHtml(
           vscode.postMessage({ command: "reveal", ref: ref });
         }
       }
+
+      // Accordion: clicking a section header toggles which card is the
+      // open one. Only one section is open at a time; clicking the
+      // already-open header is a no-op (collapsing all would leave the
+      // sidebar showing nothing useful). Headers inside .entry-summary,
+      // verdict forms, or other interactive children are ignored — we
+      // only act on the bare header bar of a card.
+      const sectionHeader = target.closest(".section-card > header");
+      if (sectionHeader) {
+        const card = sectionHeader.closest(".section-card");
+        const key = card && card.getAttribute("data-section");
+        if (!key) return;
+        // If the user clicked something inside the header (a button,
+        // chip, etc.), let that handle it instead of switching the
+        // accordion underneath them.
+        if (target.closest("button, a, input, .chip, [data-action]")) return;
+        if (card.getAttribute("data-open") === "true") return;
+        document
+          .querySelectorAll('.section-card[data-open="true"]')
+          .forEach((el) => el.removeAttribute("data-open"));
+        card.setAttribute("data-open", "true");
+        vscode.postMessage({ command: "setOpenSection", section: key });
+        return;
+      }
     });
 
     let searchTimer;
@@ -803,6 +864,108 @@ function renderPipelineStrip(status: StatusSummary): string {
 
 // ── Grouped body ────────────────────────────────────────────────────────────
 
+// Compute section item counts for ordering. Submodules is pinned to the
+// top (per UX request — git state is the orient-yourself signal). The
+// rest fall by descending count so non-empty sections gather at the top
+// and empties drop to the bottom. Ties keep their canonical order so the
+// view doesn't shuffle on every refresh.
+interface SectionRender {
+  key: string;
+  count: number;
+  pinned: boolean;
+  html: string;
+}
+
+function buildSectionsForOrder(
+  status: StatusSummary,
+  index: Map<string, IndexedEntry>,
+  kbRoot: string | null,
+  dismissedBanners: ReadonlySet<SectionKind>
+): SectionRender[] {
+  const conformCount =
+    (status.conformPending.current?.requested.length ?? 0) +
+    (status.conformPending.aspirational?.requested.length ?? 0);
+  // Submodules is rendered OUTSIDE the accordion (renderSubmodulesPinned),
+  // so it deliberately doesn't appear in this list.
+
+  // Canonical order (used as tiebreaker after count-based sort).
+  const sections: SectionRender[] = [
+    {
+      key: "code-drift",
+      count: status.codeDrift.entries.length,
+      pinned: false,
+      html: renderCodeDriftCard(status, index, kbRoot, dismissedBanners),
+    },
+    {
+      key: "kb-drift",
+      count: status.kbDrift.entries.length,
+      pinned: false,
+      html: renderKbDriftCard(status, index, kbRoot, dismissedBanners),
+    },
+    {
+      key: "standards-drift",
+      count: status.standardsDrift.entries.length,
+      pinned: false,
+      html: renderStandardsDriftCard(status, index, kbRoot, dismissedBanners),
+    },
+    {
+      key: "conform-pending",
+      count: conformCount,
+      pinned: false,
+      html: renderConformCard(status, index, dismissedBanners),
+    },
+    {
+      key: "promotions",
+      count: status.promotions.length,
+      pinned: false,
+      html: renderPromotionsCard(status, index, dismissedBanners),
+    },
+    {
+      key: "lint",
+      count: status.lint.violations.length,
+      pinned: false,
+      html: renderLintCard(status, index, dismissedBanners),
+    },
+  ].filter((s) => s.html !== "");
+  return sections;
+}
+
+function orderSections(sections: SectionRender[]): SectionRender[] {
+  // Preserve canonical order as stable tiebreaker.
+  const canonical = new Map(sections.map((s, i) => [s.key, i]));
+  return [...sections].sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    const aHas = a.count > 0;
+    const bHas = b.count > 0;
+    if (aHas !== bHas) return aHas ? -1 : 1;
+    return (canonical.get(a.key) ?? 0) - (canonical.get(b.key) ?? 0);
+  });
+}
+
+// Pick which section to open in the accordion. Honor the user's stored
+// choice if it still has a card; otherwise default to the first non-empty
+// section after ordering, falling back to the first card overall.
+function pickOpenSection(
+  ordered: SectionRender[],
+  preferred: string | undefined
+): string | null {
+  if (ordered.length === 0) return null;
+  if (preferred && ordered.some((s) => s.key === preferred)) return preferred;
+  const firstWithItems = ordered.find((s) => s.count > 0);
+  return (firstWithItems ?? ordered[0]).key;
+}
+
+// Decorate the chosen section's <section> root with data-open="true" so
+// the accordion CSS can size it. Operates on raw HTML strings — cheap
+// for our card count and avoids parsing.
+function markOpenSection(html: string, key: string, open: string | null): string {
+  if (!open || key !== open) return html;
+  return html.replace(
+    /<section\s+class="section-card"\s+data-section="([^"]+)"/,
+    (_match, sec) => `<section class="section-card" data-section="${sec}" data-open="true"`
+  );
+}
+
 function renderGroupedBody(
   status: StatusSummary,
   filter: DashboardFilter,
@@ -811,15 +974,10 @@ function renderGroupedBody(
   dismissedBanners: ReadonlySet<SectionKind>
 ): string {
   if (filter.groupBy === "section") {
-    return [
-      renderCodeDriftCard(status, index, kbRoot, dismissedBanners),
-      renderKbDriftCard(status, index, kbRoot, dismissedBanners),
-      renderStandardsDriftCard(status, index, kbRoot, dismissedBanners),
-      renderConformCard(status, index, dismissedBanners),
-      renderPromotionsCard(status, index, dismissedBanners),
-      renderLintCard(status, index, dismissedBanners),
-      renderSubmodulesCard(status),
-    ].join("");
+    const sections = buildSectionsForOrder(status, index, kbRoot, dismissedBanners);
+    const ordered = orderSections(sections);
+    const open = pickOpenSection(ordered, filter.openSection);
+    return ordered.map((s) => markOpenSection(s.html, s.key, open)).join("");
   }
   const handles = buildEntryHandles(status);
   const groups = groupEntries(handles, filter.groupBy);
@@ -1500,11 +1658,23 @@ function lintRow(v: LintViolation, i: number): string {
   return entryShell(ref, v.severity, text, summary, buildLintDetail(v), false, false, []);
 }
 
-// ── Submodules card ─────────────────────────────────────────────────────────
+// ── Submodules pinned card ─────────────────────────────────────────────────
+//
+// Submodules is rendered as a pinned status card ABOVE the accordion grid.
+// It's structurally distinct because the git state it shows is an
+// orient-yourself glance, not a work queue. The card collapses to a
+// compact summary line (parent branch + colored alignment dots + the
+// "would block" badge) so it stays useful even when minimized, but its
+// open/close state is independent of the accordion's single-open rule.
 
-function renderSubmodulesCard(status: StatusSummary): string {
+function renderSubmodulesPinned(
+  status: StatusSummary,
+  filter: DashboardFilter
+): string {
   const sub = status.submodules;
   if (!sub || sub.entries.length === 0) return "";
+
+  const collapsed = filter.submodulesCollapsed === true;
 
   const parentBranchHtml = sub.parentBranch
     ? `parent on <code>${escapeHtml(sub.parentBranch)}</code>`
@@ -1513,6 +1683,17 @@ function renderSubmodulesCard(status: StatusSummary): string {
   const blockHtml = sub.wouldBlock
     ? `<span class="badge sev-error" title="Pre-push hook will block. Submodules need to match the parent branch.">would block push</span>`
     : "";
+
+  // Compact summary dots — one per submodule, colored by branch alignment.
+  // Visible in both open and closed states so the user always has an
+  // at-a-glance health read without expanding the panel.
+  const dotsHtml = sub.entries
+    .map((e) => {
+      const align = classifyBranch(e, sub.parentBranch);
+      const title = `${e.path} · ${e.branch ?? "detached"}`;
+      return `<span class="submodule-dot-summary submodule-dot-${align}" title="${escapeAttr(title)}">●</span>`;
+    })
+    .join("");
 
   const sharedWarnHtml =
     sub.sharedPointerChanged.length > 0
@@ -1525,19 +1706,29 @@ function renderSubmodulesCard(status: StatusSummary): string {
 
   const pushBtnClass = sub.wouldBlock ? "btn-tiny btn-danger" : "btn-primary btn-tiny";
   const pushBtnLabel = sub.wouldBlock ? "Run push (will block)" : "Run push";
+  const chevron = collapsed ? "▸" : "▾";
+  const ariaExpanded = collapsed ? "false" : "true";
 
-  return `<section class="section-card" data-section="submodules">
-    <header>
-      <h2>Submodules <span class="count">${sub.entries.length}</span> ${blockHtml}</h2>
-      <div class="group-hint">${parentBranchHtml}</div>
+  const bodyHtml = collapsed
+    ? ""
+    : `<div class="submodule-pinned-body">
+        ${sharedWarnHtml}
+        <div class="submodule-list">${rows}</div>
+        <div class="submodule-actions">
+          <button class="btn ${pushBtnClass}" data-action="submodulePush">${escapeHtml(pushBtnLabel)}</button>
+        </div>
+      </div>`;
+
+  return `<section class="submodules-pinned" data-collapsed="${collapsed}">
+    <header class="submodules-pinned-header" aria-expanded="${ariaExpanded}">
+      <span class="submodules-pinned-chevron">${chevron}</span>
+      <span class="submodules-pinned-title">Submodules</span>
+      <span class="count">${sub.entries.length}</span>
+      <span class="submodules-pinned-dots">${dotsHtml}</span>
+      <span class="submodules-pinned-meta">${parentBranchHtml}</span>
+      ${blockHtml}
     </header>
-    <div class="body">
-      ${sharedWarnHtml}
-      <div class="submodule-list">${rows}</div>
-      <div class="submodule-actions">
-        <button class="btn ${pushBtnClass}" data-action="submodulePush">${escapeHtml(pushBtnLabel)}</button>
-      </div>
-    </div>
+    ${bodyHtml}
   </section>`;
 }
 
@@ -2011,11 +2202,18 @@ body[data-mode="sidebar"] .group-by {
 body[data-mode="sidebar"] .section-grid {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  /* Fill the viewport minus the pipeline strip + filter bar + body
+   * padding (24px top/bottom). The accordion needs a bounded height to
+   * give the open card real flex space and meaningful internal scroll. */
+  height: calc(100vh - 24px - 24px);
+  min-height: 0;
 }
 body[data-mode="sidebar"] .section-card > header {
   padding: 6px 10px;
   background: var(--vscode-sideBarSectionHeader-background, var(--bg));
+  cursor: pointer;
+  user-select: none;
 }
 body[data-mode="sidebar"] .section-card h2 {
   font-size: 0.85em;
@@ -2024,6 +2222,59 @@ body[data-mode="sidebar"] .section-card h2 {
 }
 body[data-mode="sidebar"] .section-card .body {
   padding: 2px 8px;
+}
+
+/* ── Accordion (sidebar only) ────────────────────────────────────────
+ * Closed cards collapse to their header. The open card flex-grows into
+ * remaining space and scrolls its body independently. Hover gives a
+ * subtle affordance for "clickable" — the cursor: pointer above is the
+ * primary signal. */
+body[data-mode="sidebar"] .section-card {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+body[data-mode="sidebar"] .section-card > header:hover {
+  background: var(--vscode-list-hoverBackground, var(--vscode-sideBarSectionHeader-background, var(--bg)));
+}
+body[data-mode="sidebar"] .section-card > .body,
+body[data-mode="sidebar"] .section-card > .banner,
+body[data-mode="sidebar"] .section-card > .group-hint {
+  display: none;
+}
+/* Open card sizes to its content. It only shrinks (and its body scrolls)
+ * when (closed headers + open content) exceeds the container height.
+ * Result: a section with a few rows takes a few rows of space, not the
+ * whole sidebar. */
+body[data-mode="sidebar"] .section-card[data-open="true"] {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+body[data-mode="sidebar"] .section-card[data-open="true"] > .body {
+  display: block;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+body[data-mode="sidebar"] .section-card[data-open="true"] > .banner,
+body[data-mode="sidebar"] .section-card[data-open="true"] > .group-hint {
+  display: block;
+}
+/* Down-chevron when open, right-chevron when closed — small visual cue
+ * that complements the cursor: pointer affordance. */
+body[data-mode="sidebar"] .section-card > header h2::before {
+  content: "▸";
+  display: inline-block;
+  font-size: 0.85em;
+  margin-right: 6px;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+body[data-mode="sidebar"] .section-card[data-open="true"] > header h2::before {
+  transform: rotate(90deg);
 }
 body[data-mode="sidebar"] .group-hint {
   padding: 2px 10px 4px;
@@ -2393,6 +2644,80 @@ body[data-mode="sidebar"] pre {
   border-left: 3px solid var(--warn);
   background: var(--code-bg);
   font-size: 0.9em;
+}
+
+/* ── Pinned submodules card ──────────────────────────────────────────
+ * Visually distinct from accordion cards so the user reads it as a
+ * status surface, not a work queue: solid accent border, no chevron
+ * column, header dots give at-a-glance health even when collapsed. */
+.submodules-pinned {
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--accent);
+  border-radius: 4px;
+  background: var(--card-bg);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.submodules-pinned-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  background: var(--vscode-sideBarSectionHeader-background, var(--card-bg));
+}
+.submodules-pinned-header:hover {
+  background: var(--vscode-list-hoverBackground, var(--card-bg));
+}
+.submodules-pinned-chevron {
+  font-size: 0.85em;
+  color: var(--muted);
+  width: 0.9em;
+  display: inline-block;
+  text-align: center;
+}
+.submodules-pinned-title {
+  font-weight: 600;
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.submodules-pinned-header .count {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+.submodules-pinned-dots {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 4px;
+}
+.submodule-dot-summary {
+  font-size: 0.95em;
+  line-height: 1;
+}
+.submodule-dot-aligned  { color: var(--vscode-charts-green, #4caf50); }
+.submodule-dot-blocking { color: var(--vscode-charts-red,   #e51400); }
+.submodule-dot-advisory { color: var(--vscode-charts-blue,  #4a90e2); }
+.submodule-dot-detached { color: var(--muted); }
+.submodules-pinned-meta {
+  margin-left: auto;
+  font-size: 0.82em;
+  color: var(--muted);
+}
+.submodule-pinned-body {
+  padding: 4px 10px 8px;
+  border-top: 1px solid var(--border);
+}
+.submodules-pinned[data-collapsed="true"] .submodule-pinned-body {
+  display: none;
+}
+/* In sidebar mode, when expanded with many submodules, cap the body so
+ * it doesn't push the accordion off-screen. The body scrolls internally
+ * just like an open accordion card. */
+body[data-mode="sidebar"] .submodule-pinned-body {
+  max-height: 40vh;
+  overflow-y: auto;
 }
 .submodule-list { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; }
 .submodule-row {

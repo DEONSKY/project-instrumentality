@@ -219,6 +219,26 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
         this.rerender();
         return;
       }
+      case "setOpenSection": {
+        const section = typeof msg.section === "string" ? msg.section : "";
+        if (!section) return;
+        const current = this.cb.getFilter();
+        // Skip the rerender — the webview already flipped data-open
+        // optimistically and a rerender would steal the user's scroll.
+        // The persisted state is picked up on the next genuine refresh.
+        this.cb.setFilter({ ...current, openSection: section });
+        await this.cb.onAction({ type: "setOpenSection", section });
+        return;
+      }
+      case "toggleSubmodules": {
+        const collapsed = !!msg.collapsed;
+        const current = this.cb.getFilter();
+        // Same optimistic pattern as setOpenSection: webview already
+        // flipped its DOM, host just persists.
+        this.cb.setFilter({ ...current, submodulesCollapsed: collapsed });
+        await this.cb.onAction({ type: "toggleSubmodules", collapsed });
+        return;
+      }
     }
   }
 }

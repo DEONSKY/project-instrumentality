@@ -185,6 +185,21 @@ async function handleMessage(msg: any): Promise<void> {
       rerender();
       return;
     }
+    case "setOpenSection": {
+      const section = typeof msg.section === "string" ? msg.section : "";
+      if (!section) return;
+      const current = cb.getFilter();
+      cb.setFilter({ ...current, openSection: section });
+      await cb.onAction({ type: "setOpenSection", section });
+      return;
+    }
+    case "toggleSubmodules": {
+      const collapsed = !!msg.collapsed;
+      const current = cb.getFilter();
+      cb.setFilter({ ...current, submodulesCollapsed: collapsed });
+      await cb.onAction({ type: "toggleSubmodules", collapsed });
+      return;
+    }
   }
 }
 
