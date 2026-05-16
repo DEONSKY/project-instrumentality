@@ -38,7 +38,8 @@
     },
     "commands": [
       { "command": "instrumentality.refresh", "title": "Instrumentality: Refresh", "icon": "$(refresh)" },
-      { "command": "instrumentality.openDashboard", "title": "Instrumentality: Open Dashboard", "icon": "$(dashboard)" }
+      { "command": "instrumentality.openDashboard", "title": "Instrumentality: Open Dashboard", "icon": "$(dashboard)" },
+      { "command": "instrumentality.publishDrift", "title": "Instrumentality: Publish Drift Queue", "icon": "$(cloud-upload)" }
     ],
     "menus": {
       "view/title": [

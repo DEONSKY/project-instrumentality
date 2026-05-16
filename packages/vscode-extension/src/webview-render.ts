@@ -94,6 +94,7 @@ export type DashboardAction =
     }
   | { type: "submoduleSync"; subPath: string; parentBranch: string }
   | { type: "submodulePush" }
+  | { type: "publishDrift" }
   | { type: "setOpenSection"; section: string }
   | { type: "toggleSubmodules"; collapsed: boolean }
   | { type: "refresh" };
@@ -112,7 +113,8 @@ export type VerdictKey =
   | "exempted"
   | "promoted"
   | "dismissed"
-  | "closed_promotion";
+  | "closed_promotion"
+  | "acknowledged";
 
 export interface VerdictDraft {
   filePaths?: string[];
@@ -132,7 +134,20 @@ interface VerdictDef {
   };
 }
 
+// Acknowledge — soft, non-resolving annotation. Available on all three drift
+// kinds (unlike apply/exempt/promote/dismiss which only apply to
+// standards-drift). The mandatory reason mitigates ack-spam; a later
+// resolving verdict overrides.
+const ACKNOWLEDGED_VERDICT: VerdictDef = {
+  verdict: "acknowledged",
+  label: "Acknowledge…",
+  needsForm: true,
+  fields: { reason: { required: true } },
+};
+
 const VERDICTS_BY_SECTION: Partial<Record<SectionKind, VerdictDef[]>> = {
+  "code-drift": [ACKNOWLEDGED_VERDICT],
+  "kb-drift": [ACKNOWLEDGED_VERDICT],
   "standards-drift": [
     { verdict: "applied", label: "Apply", needsForm: false, fields: {} },
     {
@@ -161,6 +176,7 @@ const VERDICTS_BY_SECTION: Partial<Record<SectionKind, VerdictDef[]>> = {
         reason: { required: true },
       },
     },
+    ACKNOWLEDGED_VERDICT,
   ],
   promotions: [
     {
@@ -358,6 +374,7 @@ export function renderHtml(
         }</div>
     </div>
     <div class="toolbar">
+      <button class="btn" data-cmd="publishDrift" title="Run drift + conform detection and commit the queue files">Publish</button>
       <button class="btn" data-cmd="refresh">Refresh</button>
     </div>
   </header>`
@@ -542,6 +559,7 @@ export function renderHtml(
 
       const cmd = target.getAttribute("data-cmd");
       if (cmd === "refresh") { vscode.postMessage({ command: "refresh" }); return; }
+      if (cmd === "publishDrift") { vscode.postMessage({ command: "publishDrift" }); return; }
 
       const pipelineCell = target.closest(".pipeline-cell");
       if (pipelineCell) {
@@ -2057,6 +2075,24 @@ h1 { margin: 0; font-size: 1.4em; font-weight: 600; }
   margin-top: 6px;
   color: var(--warn);
   font-size: 0.88em;
+}
+.author-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 0.78em;
+  color: var(--muted);
+  background: var(--vscode-editor-inactiveSelectionBackground, rgba(127,127,127,0.15));
+}
+.ack-badge {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border-left: 3px solid var(--vscode-charts-blue, #4a90e2);
+  background: var(--vscode-editor-inactiveSelectionBackground, rgba(127,127,127,0.10));
+  font-size: 0.88em;
+  color: var(--muted);
 }
 .prompt-disclosure {
   margin-top: 10px;

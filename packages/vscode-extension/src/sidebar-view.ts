@@ -168,6 +168,9 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
       case "submodulePush":
         await this.cb.onAction({ type: "submodulePush" });
         return;
+      case "publishDrift":
+        await this.cb.onAction({ type: "publishDrift" });
+        return;
       case "reveal":
         // Sidebar selection — no separate target to reveal to. The host can
         // still mirror the highlight to the dashboard via highlightEntry().

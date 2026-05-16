@@ -130,15 +130,30 @@ function ruleBlockHtml(rule: StandardRule | null | undefined): string {
   return parts.length > 0 ? `<div class="rule-block">${parts.join("")}</div>` : "";
 }
 
+function renderAuthorBadge(author: string | undefined): string {
+  return author ? ` <span class="author-badge" title="Commit author">@${escapeHtml(author)}</span>` : "";
+}
+
+function renderAcknowledgementBlock(ack: { by: string; atCommit: string; atDate: string; reason: string } | undefined): string {
+  if (!ack) return "";
+  return `<div class="ack-badge" title="Acknowledged by ${escapeAttr(ack.by)} at ${escapeAttr(ack.atCommit)} (${escapeAttr(ack.atDate)})">
+    ✓ Acknowledged by <strong>@${escapeHtml(ack.by)}</strong> at <code>${escapeHtml(ack.atCommit)}</code> — "${escapeHtml(ack.reason)}"
+  </div>`;
+}
+
 export function buildCodeDriftDetail(e: CodeDriftEntry): string {
   const filesList = e.codeFiles
-    .map((f) => `<li><code>${escapeHtml(f.path)}</code></li>`)
+    .map(
+      (f) =>
+        `<li><code>${escapeHtml(f.path)}</code>${renderAuthorBadge(f.author)}</li>`
+    )
     .join("");
   const sharedNote = e.hasShared
     ? `<div class="rule-row warn-note">Shared module touched — KB update should reflect cross-cutting impact.</div>`
     : "";
   return `<div class="detail-meta">
     <div><strong>KB target:</strong> <code>${escapeHtml(e.kbTarget)}</code></div>
+    ${renderAcknowledgementBlock(e.acknowledgement)}
     ${sharedNote}
     <div><strong>Changed files:</strong><ul>${filesList}</ul></div>
   </div>`;
@@ -151,7 +166,7 @@ export function buildKbDriftDetail(e: KbDriftEntry): string {
   const since = e.sinceCommit
     ? `<div><strong>Since:</strong> <code>${escapeHtml(e.sinceCommit)}</code> (${escapeHtml(
         e.sinceDate ?? ""
-      )})</div>`
+      )})${renderAuthorBadge(e.author)}</div>`
     : "";
   const areas =
     e.codeAreas.length === 0
@@ -163,6 +178,7 @@ export function buildKbDriftDetail(e: KbDriftEntry): string {
   return `<div class="detail-meta">
     ${renamed}
     ${since}
+    ${renderAcknowledgementBlock(e.acknowledgement)}
     <div><strong>Code areas:</strong> ${areas}</div>
     ${unmapped}
   </div>`;
@@ -183,7 +199,12 @@ export function buildStandardsDriftDetail(e: StandardsDriftEntry): string {
   const partyBlocks = Object.entries(e.filesByParty)
     .map(([party, files]) => {
       const label = party === "_" ? "Files" : `Files (party: ${escapeHtml(party)})`;
-      const lis = files.map((f) => `<li><code>${escapeHtml(f.path)}</code></li>`).join("");
+      const lis = files
+        .map(
+          (f) =>
+            `<li><code>${escapeHtml(f.path)}</code>${renderAuthorBadge(f.author)}</li>`
+        )
+        .join("");
       return `<div><strong>${label}:</strong><ul>${lis}</ul></div>`;
     })
     .join("");
@@ -192,6 +213,7 @@ export function buildStandardsDriftDetail(e: StandardsDriftEntry): string {
     ${ruleLine}
     ${ruleBlockHtml(e.resolvedRule)}
     ${reason}
+    ${renderAcknowledgementBlock(e.acknowledgement)}
     ${partyBlocks}
   </div>`;
 }

@@ -1,0 +1,70 @@
+# Soft-mode KB drift check.
+#
+# Runs the drift + conform readonly detection against the PR HEAD and
+# compares to the published knowledge/sync/*.md files. Reports a check
+# status: success when matched, failure when diverged.
+#
+# Soft-launched: NOT added to the branch-protection required checks
+# initially. Reports informationally for several weeks; promote to required
+# once accuracy is observed.
+#
+# Escape hatches:
+#   - `KB_DRIFT_CI_DISABLED=1` repo/env variable: skip the check entirely.
+#   - `skip-drift-check` label on the PR: skip the check for that PR.
+#
+# Acknowledged entries are treated as still pending — author ack does not
+# bypass this gate.
+
+name: kb-drift-check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    if: ${{ vars.KB_DRIFT_CI_DISABLED != '1' && !contains(github.event.pull_request.labels.*.name, 'skip-drift-check') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so the drift detection can resolve baselines and
+          # walk commit ranges (the in-memory runner does `git log`).
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install KB MCP dependencies
+        # Only the runtime deps the readonly detection needs (simple-git,
+        # gray-matter, js-yaml). Adjust if the tool grows new ones.
+        working-directory: knowledge/_mcp
+        run: |
+          if [ -f package.json ]; then
+            npm ci --omit=dev || npm install --omit=dev
+          fi
+
+      - name: Run drift CI check
+        id: check
+        run: node knowledge/_mcp/scripts/drift-ci-check.js
+
+      - name: Step summary on failure
+        if: failure()
+        run: |
+          {
+            echo "## kb-drift-check — divergence detected"
+            echo ""
+            echo "The published \`knowledge/sync/*.md\` queue files don't match what drift detection sees in this PR."
+            echo ""
+            echo "Run **Publish drift** in the Instrumentality extension (or \`kb_drift\` + \`kb_conform\` in Claude) before merging."
+            echo ""
+            echo "This is a soft check (informational) for now — it does not block merge."
+          } >> "$GITHUB_STEP_SUMMARY"

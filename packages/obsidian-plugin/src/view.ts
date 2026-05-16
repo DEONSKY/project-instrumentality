@@ -18,6 +18,7 @@ import {
   promotedPrompt,
   dismissedPrompt,
   closedPromotionPrompt,
+  acknowledgedPrompt,
   rerunPhase1Prompt,
   buildPushPlan,
   syncSubmoduleBranch,
@@ -36,6 +37,7 @@ import {
   type PromptInput,
   type StandardRule,
   type DriftLogEvent,
+  type DriftKind,
   type GroupBy,
   type EntryHandle,
   type SectionKind,
@@ -58,7 +60,8 @@ type VerdictKey =
   | "exempted"
   | "promoted"
   | "dismissed"
-  | "closed_promotion";
+  | "closed_promotion"
+  | "acknowledged";
 
 interface VerdictDef {
   verdict: VerdictKey;
@@ -110,7 +113,18 @@ function activityBadgeClass(t: string, isSystem: boolean): string {
   return "event-other";
 }
 
+// Acknowledge — soft, non-resolving annotation valid on all three drift
+// kinds. Mirrors the extension's ACKNOWLEDGED_VERDICT.
+const ACKNOWLEDGED_VERDICT: VerdictDef = {
+  verdict: "acknowledged",
+  label: "Acknowledge…",
+  needsForm: true,
+  fields: { reason: { required: true } },
+};
+
 const VERDICTS_BY_SECTION: Partial<Record<SectionKind, VerdictDef[]>> = {
+  "code-drift": [ACKNOWLEDGED_VERDICT],
+  "kb-drift": [ACKNOWLEDGED_VERDICT],
   "standards-drift": [
     { verdict: "applied", label: "Apply", needsForm: false, fields: {} },
     {
@@ -139,6 +153,7 @@ const VERDICTS_BY_SECTION: Partial<Record<SectionKind, VerdictDef[]>> = {
         reason: { required: true },
       },
     },
+    ACKNOWLEDGED_VERDICT,
   ],
   promotions: [
     {
@@ -231,7 +246,11 @@ export class InstrumentalityView extends ItemView {
       return;
     }
     try {
-      this.status = await getStatus(root, { skipLint: true });
+      // Live mode — overlays drift/conform in-memory entries onto the
+      // committed snapshot so the dashboard reflects working-tree state.
+      // Falls back to disk-read when knowledge/_mcp/scripts/live-status.js
+      // isn't present (consumer projects without the MCP source in tree).
+      this.status = await getStatus(root, { skipLint: true, live: true });
     } catch (err: any) {
       console.error("[instrumentality] getStatus failed:", err);
       this.status = null;
@@ -368,6 +387,9 @@ export class InstrumentalityView extends ItemView {
     this.renderHooksBadge(meta);
 
     const tools = header.createDiv({ cls: "instrumentality-tools" });
+    const publish = tools.createEl("button", { text: "Publish", cls: "mod-cta" });
+    publish.title = "Run drift + conform detection and commit the queue files";
+    publish.addEventListener("click", () => void this.handlePublishDrift());
     const refresh = tools.createEl("button", { text: "Refresh", cls: "mod-cta" });
     refresh.addEventListener("click", () => void this.refresh());
   }
@@ -772,6 +794,15 @@ export class InstrumentalityView extends ItemView {
       const row = div.createDiv();
       row.createSpan({ text: "KB target: " });
       row.createEl("code", { text: e.kbTarget });
+      this.renderAcknowledgement(div, e.acknowledgement);
+      const filesBlock = div.createDiv();
+      filesBlock.createEl("strong", { text: "Changed files:" });
+      const ul = filesBlock.createEl("ul");
+      for (const f of e.codeFiles) {
+        const li = ul.createEl("li");
+        li.createEl("code", { text: f.path });
+        if (f.author) this.renderAuthorBadge(li, f.author);
+      }
     };
     this.entryShell({
       parent,
@@ -786,6 +817,8 @@ export class InstrumentalityView extends ItemView {
       diffableFiles: e.codeFiles
         .filter((f) => !!f.sinceCommit)
         .map((f) => ({ relPath: f.path, sinceCommit: f.sinceCommit!, latestCommit: f.latestCommit })),
+      verdictQueueKey: e.kbTarget,
+      driftKind: "code-drift",
     });
   }
 
@@ -826,7 +859,9 @@ export class InstrumentalityView extends ItemView {
         row.createSpan({ text: "Since: " });
         row.createEl("code", { text: e.sinceCommit });
         row.createSpan({ text: ` (${e.sinceDate ?? ""})` });
+        if (e.author) this.renderAuthorBadge(row, e.author);
       }
+      this.renderAcknowledgement(div, e.acknowledgement);
       const areas = div.createDiv();
       areas.createSpan({ text: "Code areas: " });
       if (e.codeAreas.length === 0) {
@@ -851,6 +886,8 @@ export class InstrumentalityView extends ItemView {
       diffableFiles: e.sinceCommit
         ? [{ relPath: path.join("knowledge", e.kbFile), sinceCommit: e.sinceCommit, latestCommit: e.latestCommit }]
         : [],
+      verdictQueueKey: e.kbFile,
+      driftKind: "kb-drift",
     });
   }
 
@@ -914,6 +951,7 @@ export class InstrumentalityView extends ItemView {
         row.createEl("strong", { text: "Drift reason: " });
         row.appendText(e.reason);
       }
+      this.renderAcknowledgement(div, e.acknowledgement);
       for (const [party, files] of Object.entries(e.filesByParty)) {
         const block = div.createDiv();
         block.createEl("strong", {
@@ -923,6 +961,7 @@ export class InstrumentalityView extends ItemView {
         for (const f of files) {
           const li = ul.createEl("li");
           li.createEl("code", { text: f.path });
+          if (f.author) this.renderAuthorBadge(li, f.author);
         }
       }
     };
@@ -955,7 +994,34 @@ export class InstrumentalityView extends ItemView {
       modeAttr: e.mode,
       verdictQueueKey: e.queueKey,
       verdictFiles,
+      driftKind: "standards-drift",
     });
+  }
+
+  private renderAuthorBadge(parent: HTMLElement, author: string): void {
+    parent.createSpan({
+      cls: "instrumentality-author-badge",
+      text: ` @${author}`,
+      attr: { title: "Commit author" },
+    });
+  }
+
+  private renderAcknowledgement(
+    parent: HTMLElement,
+    ack: { by: string; atCommit: string; atDate: string; reason: string } | undefined
+  ): void {
+    if (!ack) return;
+    const box = parent.createDiv({
+      cls: "instrumentality-ack-badge",
+      attr: {
+        title: `Acknowledged by ${ack.by} at ${ack.atCommit} (${ack.atDate})`,
+      },
+    });
+    box.appendText("✓ Acknowledged by ");
+    box.createEl("strong", { text: `@${ack.by}` });
+    box.appendText(" at ");
+    box.createEl("code", { text: ack.atCommit });
+    box.appendText(` — "${ack.reason}"`);
   }
 
   private appendRuleBlock(parent: HTMLElement, rule: StandardRule | null | undefined): void {
@@ -1617,6 +1683,127 @@ export class InstrumentalityView extends ItemView {
     );
   }
 
+  // ── Publish drift ──────────────────────────────────────────────────────
+  //
+  // Runs drift.runTool() + conform.runTool() in write mode, then stages and
+  // commits any changes to knowledge/sync/*.md as a single
+  // `chore(kb): publish drift queue` commit. Mirrors the VSCode extension's
+  // handlePublishDrift exactly.
+
+  private async handlePublishDrift(): Promise<void> {
+    if (!this.kbRoot) {
+      new Notice("Instrumentality: knowledge base not detected.");
+      return;
+    }
+    const scriptDrift = path.join(this.kbRoot, "knowledge", "_mcp", "tools", "drift.js");
+    const scriptConform = path.join(this.kbRoot, "knowledge", "_mcp", "tools", "conform.js");
+    const fs = await import("node:fs");
+    if (!fs.existsSync(scriptDrift)) {
+      new Notice(
+        "Instrumentality: publish requires knowledge/_mcp/tools/drift.js (missing in this workspace)."
+      );
+      return;
+    }
+    const ok = await confirmModal(this.app, {
+      title: "Publish drift queue?",
+      detail:
+        "Runs drift + conform detection in write mode, then commits any changes to knowledge/sync/*.md as `chore(kb): publish drift queue`. Does not push.",
+      confirmLabel: "Publish",
+    });
+    if (!ok) return;
+
+    try {
+      await this.runNodeTool(scriptDrift, this.kbRoot);
+      if (fs.existsSync(scriptConform)) {
+        await this.runNodeTool(scriptConform, this.kbRoot);
+      }
+    } catch (err: any) {
+      new Notice(
+        `Instrumentality: drift detection failed: ${err?.message ?? err}`
+      );
+      return;
+    }
+
+    const queueFiles = [
+      "knowledge/sync/code-drift.md",
+      "knowledge/sync/kb-drift.md",
+      "knowledge/sync/standards-drift.md",
+      "knowledge/sync/standards-backlog.md",
+    ].filter((f) => fs.existsSync(path.join(this.kbRoot!, f)));
+
+    if (queueFiles.length === 0) {
+      new Notice(
+        "Instrumentality: nothing to publish — no queue files present."
+      );
+      return;
+    }
+
+    try {
+      await this.runGit(["add", "--", ...queueFiles], this.kbRoot);
+    } catch (err: any) {
+      new Notice(`Instrumentality: git add failed: ${err?.message ?? err}`);
+      return;
+    }
+
+    let stagedNames = "";
+    try {
+      stagedNames = (
+        await this.runGit(
+          ["diff", "--cached", "--name-only", "--", ...queueFiles],
+          this.kbRoot
+        )
+      ).trim();
+    } catch {
+      /* fall through */
+    }
+    if (!stagedNames) {
+      new Notice(
+        "Instrumentality: nothing to publish — drift queue is already up to date."
+      );
+      void this.refresh();
+      return;
+    }
+
+    try {
+      await this.runGit(
+        ["commit", "-m", "chore(kb): publish drift queue"],
+        this.kbRoot
+      );
+    } catch (err: any) {
+      new Notice(`Instrumentality: git commit failed: ${err?.message ?? err}`);
+      return;
+    }
+    new Notice(
+      `Instrumentality: published drift queue (${
+        stagedNames.split("\n").length
+      } file(s)). Push when ready.`
+    );
+    void this.refresh();
+  }
+
+  private runNodeTool(scriptPath: string, cwd: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      execFile(
+        process.execPath,
+        [
+          "-e",
+          `require(${JSON.stringify(scriptPath)}).runTool({}).then(() => {}).catch((e) => { process.stderr.write(String(e && e.message || e)); process.exit(1); })`,
+        ],
+        { cwd, maxBuffer: 16 * 1024 * 1024 },
+        (err) => (err ? reject(err) : resolve())
+      );
+    });
+  }
+
+  private runGit(args: string[], cwd: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      execFile("git", args, { cwd, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+        if (err) reject(err);
+        else resolve(stdout);
+      });
+    });
+  }
+
   // ── Entry shell + actions ──────────────────────────────────────────────
 
   private entryShell(opts: {
@@ -1644,6 +1831,12 @@ export class InstrumentalityView extends ItemView {
     verdictQueueKey?: string;
     /** File paths offered as checkboxes in the verdict form. */
     verdictFiles?: string[];
+    /**
+     * Drift kind for verdicts that route per-kind (currently only
+     * `acknowledged`). For code-drift / kb-drift / standards-drift sections
+     * this is set so the picker can build the correct MCP-call prompt.
+     */
+    driftKind?: DriftKind;
   }): void {
     const attr: Record<string, string> = {
       "data-entry-section": opts.section,
@@ -1716,6 +1909,7 @@ export class InstrumentalityView extends ItemView {
         verdictDefs,
         queueKey: opts.verdictQueueKey,
         files: opts.verdictFiles ?? [],
+        driftKind: opts.driftKind,
       });
     }
 
@@ -1744,6 +1938,7 @@ export class InstrumentalityView extends ItemView {
       verdictDefs: VerdictDef[];
       queueKey: string;
       files: string[];
+      driftKind?: DriftKind;
     }
   ): void {
     const row = parent.createDiv({ cls: "instrumentality-verdict-actions-row" });
@@ -1756,7 +1951,7 @@ export class InstrumentalityView extends ItemView {
         e.stopPropagation();
         if (!def.needsForm) {
           // Direct submit (e.g. Apply).
-          await this.submitVerdict(opts.section, def, opts.queueKey, {});
+          await this.submitVerdict(opts.section, def, opts.queueKey, {}, opts.driftKind);
           return;
         }
         // Toggle the form: hide any other open form in this entry, show
@@ -1780,6 +1975,7 @@ export class InstrumentalityView extends ItemView {
     verdictDefs: VerdictDef[];
     queueKey: string;
     files: string[];
+    driftKind?: DriftKind;
   }): HTMLElement {
     const form = createDiv({
       cls: "instrumentality-verdict-form hidden",
@@ -1874,7 +2070,7 @@ export class InstrumentalityView extends ItemView {
       if (rEl && rEl.value.trim()) draft.reason = rEl.value.trim();
       const nEl = form.querySelector(".verdict-note") as HTMLTextAreaElement | null;
       if (nEl && nEl.value.trim()) draft.note = nEl.value.trim();
-      await this.submitVerdict(opts.section, def, opts.queueKey, draft);
+      await this.submitVerdict(opts.section, def, opts.queueKey, draft, opts.driftKind);
       this.resetVerdictForm(form);
     });
     cancel.addEventListener("click", (e) => {
@@ -1932,13 +2128,26 @@ export class InstrumentalityView extends ItemView {
     section: SectionKind,
     def: VerdictDef,
     queueKey: string,
-    draft: { filePaths?: string[]; reason?: string; note?: string }
+    draft: { filePaths?: string[]; reason?: string; note?: string },
+    driftKind?: DriftKind
   ): Promise<void> {
     // Same safety belt as the VSCode extension: client-side validation
     // already covered this, but messages are untrusted input semantically.
     let prompt: string;
     try {
       switch (def.verdict) {
+        case "acknowledged": {
+          if (!driftKind) throw new Error("Acknowledge requires a drift kind.");
+          if (!draft.reason || !draft.reason.trim())
+            throw new Error("Acknowledge requires a reason.");
+          prompt = acknowledgedPrompt({
+            verdict: "acknowledged",
+            kind: driftKind,
+            entryKey: queueKey,
+            reason: draft.reason.trim(),
+          });
+          break;
+        }
         case "applied":
           prompt = appliedPrompt({ verdict: "applied", queueKey });
           break;

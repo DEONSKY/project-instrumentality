@@ -168,7 +168,31 @@ LOCAL="knowledge/_mcp/server.js"
 BUNDLED="${_SERVER_SCRIPT}"
 SERVER="$LOCAL"
 [ -f "$BUNDLED" ] && SERVER="$BUNDLED"
-node -e "
+
+# ── Branch-aware drift handling ───────────────────────────────────────────────
+#
+# Protected branches (default: main|master, configurable via
+# \`git config kb.protectedBranches "main|master|release"\`):
+#   Run full drift + conform detection, stage + auto-commit the queue files
+#   into this push. Preserves the original "PM sees drifts immediately on
+#   remote" behavior.
+#
+# Feature branches:
+#   Run detection in readonly mode (no fs writes, no commit). Print the
+#   pending-entry count as a hint, exit 0. Authors publish via the
+#   "Publish drift" command in the extension when they're ready.
+PUSHED_BRANCH="\${PARENT_BRANCH:-$(git symbolic-ref --short HEAD 2>/dev/null)}"
+PROTECTED_PATTERN=$(git config kb.protectedBranches 2>/dev/null)
+[ -z "$PROTECTED_PATTERN" ] && PROTECTED_PATTERN="main|master"
+IS_PROTECTED=0
+case "$PUSHED_BRANCH" in
+  "") IS_PROTECTED=0 ;;
+  *) printf '%s' "$PUSHED_BRANCH" | grep -Eq "^($PROTECTED_PATTERN)\\$" && IS_PROTECTED=1 ;;
+esac
+
+if [ "$IS_PROTECTED" = "1" ]; then
+  # Protected branch — full detection + auto-commit (original behavior).
+  node -e "
 const drift = require('$SERVER/../tools/drift');
 drift.runTool({ remote: '$1' }).then(result => {
   if (result.error) {
@@ -185,9 +209,8 @@ drift.runTool({ remote: '$1' }).then(result => {
 }).catch(() => {});
 " 2>&1 || true
 
-# kb-conform: surface non-functional standards drift alongside drift
-if [ -f "$SERVER/../tools/conform.js" ]; then
-node -e "
+  if [ -f "$SERVER/../tools/conform.js" ]; then
+  node -e "
 const conform = require('$SERVER/../tools/conform');
 conform.runTool({}).then(result => {
   if (result.error) {
@@ -205,14 +228,48 @@ conform.runTool({}).then(result => {
   }
 }).catch(() => {});
 " 2>&1 || true
-fi
+  fi
 
-# Commit drift files so they travel with the push — PM sees them on remote immediately
-# Guard against re-entry: if this hook already created a drift commit, skip
-if [ -z "$KB_DRIFT_COMMITTING" ]; then
-  git add knowledge/sync/code-drift.md knowledge/sync/kb-drift.md knowledge/sync/standards-drift.md knowledge/sync/standards-backlog.md 2>/dev/null || true
-  if ! git diff --cached --quiet -- knowledge/sync/code-drift.md knowledge/sync/kb-drift.md knowledge/sync/standards-drift.md knowledge/sync/standards-backlog.md 2>/dev/null; then
-    KB_DRIFT_COMMITTING=1 git commit -m "chore(kb): update drift queue" 2>/dev/null && printf '[kb-drift] drift/conform queues committed — included in this push\\n' >&2 || true
+  # Commit drift files so they travel with the push — PM sees them on remote immediately.
+  # Guard against re-entry: if this hook already created a drift commit, skip.
+  if [ -z "$KB_DRIFT_COMMITTING" ]; then
+    git add knowledge/sync/code-drift.md knowledge/sync/kb-drift.md knowledge/sync/standards-drift.md knowledge/sync/standards-backlog.md 2>/dev/null || true
+    if ! git diff --cached --quiet -- knowledge/sync/code-drift.md knowledge/sync/kb-drift.md knowledge/sync/standards-drift.md knowledge/sync/standards-backlog.md 2>/dev/null; then
+      KB_DRIFT_COMMITTING=1 git commit -m "chore(kb): update drift queue" 2>/dev/null && printf '[kb-drift] drift/conform queues committed — included in this push\\n' >&2 || true
+    fi
+  fi
+else
+  # Feature branch — advisory readonly run only. No fs writes, no commit.
+  node -e "
+const drift = require('$SERVER/../tools/drift');
+drift.runTool({ remote: '$1', readonly: true, include_diffs: false }).then(result => {
+  if (result.error) return;
+  const state = result._state || {};
+  const c = (state.codeEntries || []).length;
+  const k = (state.kbEntries || []).length;
+  const total = c + k;
+  if (total > 0) {
+    process.stderr.write('[kb-drift] ' + total + ' unpublished drift entr' + (total === 1 ? 'y' : 'ies') + ' on this branch (' + c + ' code→KB, ' + k + ' KB→code).\\\\n');
+    process.stderr.write('[kb-drift]   Run \"Publish drift\" in the extension to include them in your push.\\\\n');
+  }
+}).catch(() => {});
+" 2>&1 || true
+
+  if [ -f "$SERVER/../tools/conform.js" ]; then
+  node -e "
+const conform = require('$SERVER/../tools/conform');
+conform.runTool({ readonly: true, include_diffs: false }).then(result => {
+  if (result.error) return;
+  const requested = (result.requested_evaluations || []).length;
+  const flagged = ((result._state && result._state.entries) || []).length;
+  if (requested > 0 || flagged > 0) {
+    const parts = [];
+    if (flagged > 0) parts.push(flagged + ' auto-flagged');
+    if (requested > 0) parts.push(requested + ' need agent judgment');
+    process.stderr.write('[kb-conform] ' + parts.join(', ') + ' — readonly preview only on feature branches.\\\\n');
+  }
+}).catch(() => {});
+" 2>&1 || true
   fi
 fi
 `

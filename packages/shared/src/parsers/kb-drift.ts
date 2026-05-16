@@ -1,7 +1,16 @@
 import * as fs from "node:fs";
-import type { KbDriftEntry, QueueBaseline } from "../types.js";
+import type { Acknowledgement, KbDriftEntry, QueueBaseline } from "../types.js";
 import { parseBaseline, splitHeaderAndBlocks } from "./baseline.js";
 import { kbSyncPath } from "../kb-root.js";
+
+const ACK_RE =
+  /\*\*Acknowledged\*\*:\s*@(\S+)\s+at\s+`([^`]+)`\s+\(([^)]+)\)\s+—\s+"([^"]+)"/;
+
+function parseAck(block: string): Acknowledgement | undefined {
+  const m = block.match(ACK_RE);
+  if (!m) return undefined;
+  return { by: m[1], atCommit: m[2], atDate: m[3], reason: m[4] };
+}
 
 export function parseKbDrift(content: string): {
   entries: KbDriftEntry[];
@@ -18,7 +27,9 @@ export function parseKbDrift(content: string): {
 
     const renamedMatch = block.match(/\*\*Renamed from:\*\*\s*`([^`]+)`/);
     const sinceMatch = block.match(/\*\*Since:\*\*\s*`([^`]+)`\s*\(([^)]+)\)/);
-    const latestMatch = block.match(/\*\*Latest:\*\*\s*`([^`]+)`\s*\(([^)]+)\)/);
+    const latestMatch = block.match(
+      /\*\*Latest:\*\*\s*`([^`]+)`\s*\(([^)]+)\)(?:\s+—\s+by\s+@(\S+))?/
+    );
     const unmapped = /KB spec changed without mapped code paths/.test(block);
 
     const codeAreas: string[] = [];
@@ -77,7 +88,10 @@ export function parseKbDrift(content: string): {
     if (latestMatch) {
       entry.latestCommit = latestMatch[1];
       entry.latestDate = latestMatch[2];
+      if (latestMatch[3]) entry.author = latestMatch[3];
     }
+    const ack = parseAck(block);
+    if (ack) entry.acknowledgement = ack;
     entries.push(entry);
   }
 

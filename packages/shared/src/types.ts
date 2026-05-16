@@ -7,6 +7,28 @@ export interface FileRef {
   latestCommit?: string;
   latestDate?: string;
   renamedFrom?: string;
+  /**
+   * Commit author for the change range, derived from `git log --format=%ae`
+   * over sinceCommit..latestCommit. Lets reviewers see at a glance whether
+   * a drift came from themselves vs. someone else.
+   */
+  author?: string;
+}
+
+/**
+ * Author-attested "real change, but doesn't invalidate the KB." Soft signal —
+ * the entry stays in the queue but is visually muted and reviewers can filter
+ * it out. A later resolving verdict (apply / dismiss / etc.) overrides this.
+ */
+export interface Acknowledgement {
+  /** Author handle (email local-part or git config name). */
+  by: string;
+  /** Commit SHA at which the acknowledgement was recorded. */
+  atCommit: string;
+  /** ISO date string. */
+  atDate: string;
+  /** Mandatory — prevents ack-spam. */
+  reason: string;
 }
 
 export interface CodeDriftEntry {
@@ -14,6 +36,7 @@ export interface CodeDriftEntry {
   kbTarget: string;
   codeFiles: FileRef[];
   hasShared: boolean;
+  acknowledgement?: Acknowledgement;
 }
 
 export interface KbDriftEntry {
@@ -28,6 +51,8 @@ export interface KbDriftEntry {
   latestCommit?: string;
   latestDate?: string;
   unmapped: boolean;
+  author?: string;
+  acknowledgement?: Acknowledgement;
 }
 
 export interface StandardRule {
@@ -72,6 +97,7 @@ export interface StandardsDriftEntry {
   filesByParty: Record<string, FileRef[]>;
   resolvedRule?: StandardRule | null;
   resolvedStandard?: ResolvedStandardRef | null;
+  acknowledgement?: Acknowledgement;
 }
 
 export interface PromotionEntry {
@@ -129,6 +155,7 @@ export type DriftLogEventType =
   | "auto-closed-promotion-standard-removed"
   | "drift-resolved"
   | "drift-dismissed"
+  | "drift-acknowledged"
   | "re-bootstrap"
   | "unknown";
 
@@ -180,11 +207,31 @@ export interface ClosedPromotionVerdict {
   reason: string;
 }
 
+/**
+ * Non-resolving verdict — annotates the entry as author-vetted but leaves it
+ * in the queue for downstream reviewers. Carries a mandatory reason.
+ *
+ * Unlike the other verdicts (which only target standards-drift), this one is
+ * valid on all three drift kinds, so it carries `kind` to route the prompt
+ * to the right MCP tool (kb_drift vs kb_conform).
+ */
+export interface AcknowledgedVerdict {
+  verdict: "acknowledged";
+  kind: DriftKind;
+  /**
+   * Identifies the entry. For code-drift this is the kbTarget, for kb-drift
+   * the kbFile, for standards-drift the queueKey.
+   */
+  entryKey: string;
+  reason: string;
+}
+
 export type StandardsVerdict =
   | AppliedVerdict
   | ExemptedVerdict
   | PromotedVerdict
-  | DismissedVerdict;
+  | DismissedVerdict
+  | AcknowledgedVerdict;
 
 export type PromotionVerdict = ClosedPromotionVerdict;
 

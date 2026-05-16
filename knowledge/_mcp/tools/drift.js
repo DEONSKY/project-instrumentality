@@ -130,20 +130,36 @@ function setBaseline(header, sha) {
  *   dedup_baselines: boolean — collapse duplicate baseline lines in queue
  *     files (introduced by `merge=union` when two branches each wrote their
  *     own baseline). Keeps the descendant SHA; warns on diverged histories.
+ *
+ * Live / readonly mode:
+ *   readonly: true — compute drift in memory but skip every fs write
+ *     (queue files, drift-log, baseline advance). Used by the live watcher
+ *     in the VSCode extension and the soft-mode CI check. The result shape
+ *     stays the same, including `_diffs` when `include_diffs` is set, so the
+ *     caller can render entries straight from the response without touching
+ *     the persisted queue files.
+ *
+ * Acknowledge (Phase 2 — non-resolving annotation):
+ *   acknowledge: [{ queue: 'code-drift'|'kb-drift', queue_key, reason }]
+ *     Annotates an entry as author-vetted ("real change, doesn't affect KB"),
+ *     stamps an `**Acknowledged**: @author at SHA — "reason"` marker on the
+ *     entry block, and logs a `drift-acknowledged` event. The entry stays in
+ *     the queue; a subsequent resolving verdict still overrides.
  */
-async function runTool({ since = 'last-sync', summaries, reverted, kb_confirmed, dismiss, remote, force_baseline, purge, dedup_baselines, include_diffs = true } = {}) {
+async function runTool({ since = 'last-sync', summaries, reverted, kb_confirmed, dismiss, acknowledge, remote, force_baseline, purge, dedup_baselines, include_diffs = true, readonly = false } = {}) {
   if (dedup_baselines) return dedupBaselines()
-  if (force_baseline || purge) return resetBaselines({ force_baseline, purge })
-  if (summaries && Array.isArray(summaries)) return resolveWithSummaries(summaries)
-  if (reverted && Array.isArray(reverted)) return resolveReverted(reverted)
-  if (kb_confirmed && Array.isArray(kb_confirmed)) return resolveKbConfirmed(kb_confirmed)
-  if (dismiss && Array.isArray(dismiss)) return resolveDismissed(dismiss)
-  return detectDrift(since, remote, { includeDiffs: include_diffs })
+  if (force_baseline || purge) return resetBaselines({ force_baseline, purge, readonly })
+  if (summaries && Array.isArray(summaries)) return resolveWithSummaries(summaries, { readonly })
+  if (reverted && Array.isArray(reverted)) return resolveReverted(reverted, { readonly })
+  if (kb_confirmed && Array.isArray(kb_confirmed)) return resolveKbConfirmed(kb_confirmed, { readonly })
+  if (dismiss && Array.isArray(dismiss)) return resolveDismissed(dismiss, { readonly })
+  if (acknowledge && Array.isArray(acknowledge)) return resolveAcknowledge(acknowledge, { readonly })
+  return detectDrift(since, remote, { includeDiffs: include_diffs, readonly })
 }
 
 // ── Phase 1: detect drift ─────────────────────────────────────────────────────
 
-async function detectDrift(since, remote, { includeDiffs = true } = {}) {
+async function detectDrift(since, remote, { includeDiffs = true, readonly = false } = {}) {
   const mainGit = simpleGit(process.cwd())
   const rules = loadRules(KB_ROOT)
 
@@ -174,7 +190,7 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
       const meta = {}
       bCode = await resolveLastSyncRef(mainGit, remote, meta)
       process.stderr.write(`[kb-drift] warning: code-drift baseline ${old} unreachable in parent repo (likely squash-merged or never fetched); re-bootstrapping. New baseline: ${bCode || '(none — skipping)'}\n`)
-      appendToDriftLog([{ event_type: 're-bootstrap', repo: 'parent', queue: 'code-drift', old_sha: old, new_sha: bCode, resolver_used: meta.via }])
+      if (!readonly) appendToDriftLog([{ event_type: 're-bootstrap', repo: 'parent', queue: 'code-drift', old_sha: old, new_sha: bCode, resolver_used: meta.via }])
       rebootstrapEvents.push({ repo: 'parent', queue: 'code-drift', old_sha: old, new_sha: bCode, resolver_used: meta.via })
     }
     if (bKb && !(await baselineReachable(mainGit, bKb))) {
@@ -182,7 +198,7 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
       const meta = {}
       bKb = await resolveLastSyncRef(mainGit, remote, meta)
       process.stderr.write(`[kb-drift] warning: kb-drift baseline ${old} unreachable in parent repo (likely squash-merged or never fetched); re-bootstrapping. New baseline: ${bKb || '(none — skipping)'}\n`)
-      appendToDriftLog([{ event_type: 're-bootstrap', repo: 'parent', queue: 'kb-drift', old_sha: old, new_sha: bKb, resolver_used: meta.via }])
+      if (!readonly) appendToDriftLog([{ event_type: 're-bootstrap', repo: 'parent', queue: 'kb-drift', old_sha: old, new_sha: bKb, resolver_used: meta.via }])
       rebootstrapEvents.push({ repo: 'parent', queue: 'kb-drift', old_sha: old, new_sha: bKb, resolver_used: meta.via })
     }
 
@@ -249,7 +265,7 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
           const meta = {}
           try { subRef = await resolveLastSyncRef(subGit, remote, meta) } catch { subRef = null }
           process.stderr.write(`[kb-drift] warning: submodule ${sub.path} baseline ${old} unreachable (likely squash-merged or never fetched); re-bootstrapping. New baseline: ${subRef || '(none — skipping)'}\n`)
-          appendToDriftLog([{ event_type: 're-bootstrap', repo: `submodule:${sub.path}`, queue: 'code-drift', old_sha: old, new_sha: subRef, resolver_used: meta.via }])
+          if (!readonly) appendToDriftLog([{ event_type: 're-bootstrap', repo: `submodule:${sub.path}`, queue: 'code-drift', old_sha: old, new_sha: subRef, resolver_used: meta.via }])
           rebootstrapEvents.push({ repo: `submodule:${sub.path}`, queue: 'code-drift', old_sha: old, new_sha: subRef, resolver_used: meta.via })
         }
         if (subRef === null) {
@@ -316,11 +332,11 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
     if (status === 'D') continue
 
     const range = resolveCommitRange(index, indexPath, indexOldPath)
-        || { sinceCommit: fallbackCommit, sinceDate: fallbackDate, latestCommit: null, latestDate: null }
-    const { sinceCommit, sinceDate, latestCommit, latestDate } = range
+        || { sinceCommit: fallbackCommit, sinceDate: fallbackDate, latestCommit: null, latestDate: null, author: null }
+    const { sinceCommit, sinceDate, latestCommit, latestDate, author } = range
 
     if (status === 'R' && oldFile) {
-      const result = handleCodeRename(codeState, file, oldFile, sinceCommit, sinceDate, latestCommit, latestDate, isShared, patterns)
+      const result = handleCodeRename(codeState, file, oldFile, sinceCommit, sinceDate, latestCommit, latestDate, isShared, patterns, author)
       if (result.outcome === 'new') codeEntriesNew++
       else if (result.outcome === 're_detected') codeEntriesReDetected++
       if (result.stalePattern) stalePatterns.push(result.stalePattern)
@@ -330,7 +346,7 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
     const best = pickBestMatch(file, patterns)
     if (best) {
       const kbTarget = resolveKbTarget(best, file)
-      const outcome = upsertCodeDriftEntry(codeState, kbTarget, file, sinceCommit, sinceDate, latestCommit, latestDate, isShared)
+      const outcome = upsertCodeDriftEntry(codeState, kbTarget, file, sinceCommit, sinceDate, latestCommit, latestDate, isShared, undefined, author)
       if (outcome === 'new') codeEntriesNew++
       else if (outcome === 're_detected') codeEntriesReDetected++
     }
@@ -363,11 +379,11 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
     if (status === 'D') continue
 
     const range = resolveCommitRange(index, indexPath, indexOldPath)
-        || { sinceCommit: fallbackCommit, sinceDate: fallbackDate, latestCommit: null, latestDate: null }
-    const { sinceCommit, sinceDate, latestCommit, latestDate } = range
+        || { sinceCommit: fallbackCommit, sinceDate: fallbackDate, latestCommit: null, latestDate: null, author: null }
+    const { sinceCommit, sinceDate, latestCommit, latestDate, author } = range
 
     if (status === 'R' && oldFile && isKbContentFile(oldFile)) {
-      const result = handleKbRename(kbState, file, oldFile, sinceCommit, sinceDate, latestCommit, latestDate, patterns)
+      const result = handleKbRename(kbState, file, oldFile, sinceCommit, sinceDate, latestCommit, latestDate, patterns, author)
       if (result.outcome === 'new') kbEntriesNew++
       else if (result.outcome === 're_detected') kbEntriesReDetected++
       continue
@@ -377,19 +393,24 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
     // treat the new KB path as a fresh add (matches the prior behavior).
     const relative = file.replace(/^knowledge\//, '')
     const codePaths = reverseMapKbTarget(relative, patterns)
-    const outcome = upsertKbDriftEntry(kbState, relative, codePaths, sinceCommit, sinceDate, latestCommit, latestDate)
+    const outcome = upsertKbDriftEntry(kbState, relative, codePaths, sinceCommit, sinceDate, latestCommit, latestDate, author)
     if (outcome === 'new') kbEntriesNew++
     else if (outcome === 're_detected') kbEntriesReDetected++
   }
 
   // Advance both baselines to HEAD (always — cleanliness lives in the queue,
-  // not in the baseline) and write both files once.
+  // not in the baseline) and write both files once. In readonly mode we still
+  // advance the in-memory header so the returned state mirrors what *would*
+  // have been written, but skip the fs writes — the live watcher and CI check
+  // both consume the returned `_state` instead of re-reading from disk.
   if (headSha) {
     codeState.header = setBaseline(codeState.header, headSha)
     kbState.header = setBaseline(kbState.header, headSha)
   }
-  writeCodeDriftEntries(codeState.header, codeState.entries)
-  writeKbDriftEntries(kbState.header, kbState.entries)
+  if (!readonly) {
+    writeCodeDriftEntries(codeState.header, codeState.entries)
+    writeKbDriftEntries(kbState.header, kbState.entries)
+  }
 
   const codeEntriesWritten = codeEntriesNew + codeEntriesReDetected
   const kbEntriesWritten = kbEntriesNew + kbEntriesReDetected
@@ -469,12 +490,23 @@ async function detectDrift(since, remote, { includeDiffs = true } = {}) {
     result._diffs = await buildDiffsPayload({ codeState, kbState, submodules })
   }
 
+  // In readonly mode, surface the computed entries so the caller (live
+  // watcher, CI check) can render them without re-reading the queue file.
+  // Format matches what readCodeDriftEntries / readKbDriftEntries return.
+  if (readonly) {
+    result._state = {
+      codeEntries: codeState.entries,
+      kbEntries: kbState.entries,
+      headSha
+    }
+  }
+
   return result
 }
 
 // ── Phase 2a: code→kb resolved — KB updated ──────────────────────────────────
 
-async function resolveWithSummaries(summaries) {
+async function resolveWithSummaries(summaries, { readonly = false } = {}) {
   const { entries: codeEntries, header } = readCodeDriftEntries()
   const openCodeTargets = new Set(codeEntries.map(e => e.kbTarget))
   const openKbFiles = new Set(readKbDriftEntries().entries.map(e => e.kbFile))
@@ -506,8 +538,10 @@ async function resolveWithSummaries(summaries) {
     .filter(e => closedTargets.has(e.kbTarget))
     .flatMap(e => e.codeFiles.map(f => f.latestCommit || f.sinceCommit))
   const nextHeader = await advanceQueueBaseline(header, resolvedShas)
-  writeCodeDriftEntries(nextHeader, remaining)
-  appendToDriftLog(logRecords)
+  if (!readonly) {
+    writeCodeDriftEntries(nextHeader, remaining)
+    appendToDriftLog(logRecords)
+  }
 
   const result = { resolved: closed.length, closed, not_found: notFound }
   if (closed.length > 0) {
@@ -527,7 +561,7 @@ async function resolveWithSummaries(summaries) {
 
 // ── Phase 2b: code→kb resolved — code file reverted ──────────────────────────
 
-async function resolveReverted(reverted) {
+async function resolveReverted(reverted, { readonly = false } = {}) {
   const codeFiles = reverted.map(r => r.code_file || r)
   const { entries, header } = readCodeDriftEntries()
   const logRecords = []
@@ -553,8 +587,10 @@ async function resolveReverted(reverted) {
     .map(code_file => ({ code_file, reason: 'no open entry in sync/code-drift.md references this code_file' }))
 
   const nextHeader = await advanceQueueBaseline(header, resolvedShas)
-  writeCodeDriftEntries(nextHeader, updated)
-  appendToDriftLog(logRecords)
+  if (!readonly) {
+    writeCodeDriftEntries(nextHeader, updated)
+    appendToDriftLog(logRecords)
+  }
 
   const result = { reverted: matchedFiles.size, closed, not_found: notFound }
   if (notFound.length > 0) {
@@ -567,7 +603,7 @@ async function resolveReverted(reverted) {
 
 // ── Phase 2c: kb→code resolved ────────────────────────────────────────────────
 
-async function resolveKbConfirmed(kb_confirmed) {
+async function resolveKbConfirmed(kb_confirmed, { readonly = false } = {}) {
   const kbFiles = kb_confirmed.map(r => r.kb_file || r)
   const rules = loadRules(KB_ROOT)
   const patterns = rules.getCodePathPatterns()
@@ -605,8 +641,10 @@ async function resolveKbConfirmed(kb_confirmed) {
     .filter(e => closedFiles.has(e.kbFile))
     .map(e => e.latestCommit || e.sinceCommit)
   const nextHeader = await advanceQueueBaseline(header, resolvedShas)
-  writeKbDriftEntries(nextHeader, remaining)
-  appendToDriftLog(logRecords)
+  if (!readonly) {
+    writeKbDriftEntries(nextHeader, remaining)
+    appendToDriftLog(logRecords)
+  }
 
   const result = { confirmed: closed.length, closed, not_found: notFound }
   if (warnings.length > 0) result.warnings = warnings
@@ -629,7 +667,7 @@ async function resolveKbConfirmed(kb_confirmed) {
 
 const DISMISS_QUEUES = new Set(['code-drift', 'kb-drift'])
 
-async function resolveDismissed(dismiss) {
+async function resolveDismissed(dismiss, { readonly = false } = {}) {
   const closed = []
   const notFound = []
   const logRecords = []
@@ -683,15 +721,17 @@ async function resolveDismissed(dismiss) {
     logRecords.push({ event_type: 'dismissed', queue, queue_key, reason })
   }
 
-  if (codeDirty) {
-    const nextHeader = await advanceQueueBaseline(codeState.header, codeResolvedShas)
-    writeCodeDriftEntries(nextHeader, codeState.entries)
+  if (!readonly) {
+    if (codeDirty) {
+      const nextHeader = await advanceQueueBaseline(codeState.header, codeResolvedShas)
+      writeCodeDriftEntries(nextHeader, codeState.entries)
+    }
+    if (kbDirty) {
+      const nextHeader = await advanceQueueBaseline(kbState.header, kbResolvedShas)
+      writeKbDriftEntries(nextHeader, kbState.entries)
+    }
+    appendToDriftLog(logRecords)
   }
-  if (kbDirty) {
-    const nextHeader = await advanceQueueBaseline(kbState.header, kbResolvedShas)
-    writeKbDriftEntries(nextHeader, kbState.entries)
-  }
-  appendToDriftLog(logRecords)
 
   const result = { dismissed: closed.length, closed, not_found: notFound }
   if (notFound.length > 0) {
@@ -702,9 +742,104 @@ async function resolveDismissed(dismiss) {
   return result
 }
 
+// ── Phase 2e: acknowledge — non-resolving annotation ─────────────────────────
+//
+// Acknowledged entries stay in the queue but render with an `**Acknowledged**`
+// badge so downstream reviewers can filter for "non-acknowledged only" without
+// losing the audit trail. The mandatory `reason` mitigates ack-spam; later
+// resolving verdicts (apply / dismiss / etc.) still override.
+
+async function resolveAcknowledge(ack, { readonly = false } = {}) {
+  const codeState = readCodeDriftEntries()
+  const kbState = readKbDriftEntries()
+  const closed = []
+  const notFound = []
+  const logRecords = []
+  let codeDirty = false
+  let kbDirty = false
+
+  // Anchor the acknowledgement to the current author + HEAD so the marker
+  // identifies who signed off and against which state.
+  const git = simpleGit(process.cwd())
+  let ackBy = null
+  let ackCommit = null
+  let ackDate = new Date().toISOString().split('T')[0]
+  try {
+    const email = (await git.raw(['config', 'user.email'])).trim()
+    ackBy = authorHandleFromEmail(email)
+  } catch { /* fall through to error per-item */ }
+  try {
+    const log = await git.log({ maxCount: 1 })
+    if (log.latest) {
+      ackCommit = log.latest.hash.slice(0, 7)
+      ackDate = log.latest.date.split('T')[0]
+    }
+  } catch { /* fall through to error per-item */ }
+
+  for (const item of ack) {
+    const queue = item?.queue
+    const queue_key = item?.queue_key || item?.kb_target || item?.kb_file
+    const reason = typeof item?.reason === 'string' ? item.reason.trim() : ''
+
+    if (!DISMISS_QUEUES.has(queue)) {
+      notFound.push({ queue, queue_key, reason_missing: `queue must be one of ${[...DISMISS_QUEUES].join(', ')}` })
+      continue
+    }
+    if (!queue_key) {
+      notFound.push({ queue, queue_key, reason_missing: 'queue_key (or kb_target/kb_file) is required' })
+      continue
+    }
+    if (!reason) {
+      notFound.push({ queue, queue_key, reason_missing: 'reason is required and must be a non-empty string' })
+      continue
+    }
+    if (!ackBy || !ackCommit) {
+      notFound.push({ queue, queue_key, reason_missing: 'cannot resolve author / HEAD for acknowledgement (git config user.email + a commit on HEAD required)' })
+      continue
+    }
+
+    const ackPayload = { by: ackBy, atCommit: ackCommit, atDate: ackDate, reason }
+
+    if (queue === 'code-drift') {
+      const target = codeState.entries.find(e => e.kbTarget === queue_key)
+      if (!target) {
+        notFound.push({ queue, queue_key, reason_missing: 'no open entry in sync/code-drift.md with this queue_key' })
+        continue
+      }
+      target.acknowledgement = ackPayload
+      codeDirty = true
+    } else {
+      const target = kbState.entries.find(e => e.kbFile === queue_key)
+      if (!target) {
+        notFound.push({ queue, queue_key, reason_missing: 'no open entry in sync/kb-drift.md with this queue_key' })
+        continue
+      }
+      target.acknowledgement = ackPayload
+      kbDirty = true
+    }
+
+    closed.push({ queue, queue_key, reason, by: ackBy, at_commit: ackCommit })
+    logRecords.push({ event_type: 'acknowledged', queue, queue_key, reason, by: ackBy, at_commit: ackCommit })
+  }
+
+  if (!readonly) {
+    if (codeDirty) writeCodeDriftEntries(codeState.header, codeState.entries)
+    if (kbDirty) writeKbDriftEntries(kbState.header, kbState.entries)
+    if (logRecords.length > 0) appendToDriftLog(logRecords)
+  }
+
+  const result = { acknowledged: closed.length, closed, not_found: notFound }
+  if (notFound.length > 0) {
+    result.error = closed.length === 0
+      ? 'No entries acknowledged. See not_found for details.'
+      : `${notFound.length} of ${ack.length} acknowledge inputs were invalid. See not_found for details.`
+  }
+  return result
+}
+
 // ── Admin escape hatch: force_baseline / purge ───────────────────────────────
 
-async function resetBaselines({ force_baseline, purge }) {
+async function resetBaselines({ force_baseline, purge, readonly = false }) {
   const git = simpleGit(process.cwd())
   let sha = null
   if (force_baseline) {
@@ -738,18 +873,20 @@ async function resetBaselines({ force_baseline, purge }) {
   const codeEntries = purge ? [] : codeState.entries
   const kbEntries = purge ? [] : kbState.entries
 
-  writeCodeDriftEntries(codeState.header, codeEntries)
-  writeKbDriftEntries(kbState.header, kbEntries)
+  if (!readonly) {
+    writeCodeDriftEntries(codeState.header, codeEntries)
+    writeKbDriftEntries(kbState.header, kbEntries)
 
-  if (purge) {
-    appendToDriftLog([{
-      event_type: 'purged',
-      baseline: sha,
-      code_count: codeCountBefore,
-      kb_count: kbCountBefore,
-      code_body: codeBodyBefore,
-      kb_body: kbBodyBefore
-    }])
+    if (purge) {
+      appendToDriftLog([{
+        event_type: 'purged',
+        baseline: sha,
+        code_count: codeCountBefore,
+        kb_count: kbCountBefore,
+        code_body: codeBodyBefore,
+        kb_body: kbBodyBefore
+      }])
+    }
   }
 
   return {
@@ -886,6 +1023,25 @@ function extractQueueBody(filePath) {
   return content.slice(headerEnd + 1).trimEnd()
 }
 
+// ── Acknowledgement marker — shared format across both queues ────────────────
+//
+// Acknowledged entries stay in the queue but render with an `**Acknowledged**`
+// badge. Same syntax in code-drift.md and kb-drift.md so reviewers learn one
+// shape; standards-drift uses the same line in conform.js.
+
+const ACK_LINE_RE = /\*\*Acknowledged\*\*:\s*@(\S+)\s+at\s+`([^`]+)`\s+\(([^)]+)\)\s+—\s+"([^"]+)"/
+
+function parseAcknowledgement(block) {
+  const m = block.match(ACK_LINE_RE)
+  if (!m) return null
+  return { by: m[1], atCommit: m[2], atDate: m[3], reason: m[4] }
+}
+
+function formatAcknowledgement(ack) {
+  const reason = (ack.reason || '').replace(/"/g, '\\"')
+  return `- **Acknowledged**: @${ack.by} at \`${ack.atCommit}\` (${ack.atDate}) — "${reason}"`
+}
+
 // ── code-drift.md parse / serialize ──────────────────────────────────────────
 
 function readCodeDriftEntries() {
@@ -900,20 +1056,22 @@ function readCodeDriftEntries() {
     const headingMatch = block.match(/^## (.+)/)
     const kbTarget = headingMatch ? headingMatch[1].trim() : null
     const hasShared = /\*\*Shared module:\*\*\s*true/.test(block)
+    const acknowledgement = parseAcknowledgement(block)
     const codeFiles = []
     for (const line of block.split('\n')) {
-      const m = line.match(/^\s+-\s+`([^`]+)`(?:\s+←\s+renamed from\s+`([^`]+)`)?\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?/)
+      const m = line.match(/^\s+-\s+`([^`]+)`(?:\s+←\s+renamed from\s+`([^`]+)`)?\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?(?:\s+—\s+by\s+@(\S+))?/)
       if (m) {
         codeFiles.push({
           path: m[1],
           ...(m[2] && { renamedFrom: m[2] }),
           sinceCommit: m[3],
           sinceDate: m[4],
-          ...(m[5] && { latestCommit: m[5], latestDate: m[6] })
+          ...(m[5] && { latestCommit: m[5], latestDate: m[6] }),
+          ...(m[7] && { author: m[7] })
         })
       }
     }
-    return { kbTarget, codeFiles, hasShared }
+    return { kbTarget, codeFiles, hasShared, ...(acknowledgement && { acknowledgement }) }
   }).filter(e => e.kbTarget)
 
   return { header, entries }
@@ -926,9 +1084,11 @@ function writeCodeDriftEntries(header, entries) {
       const latestNote = f.latestCommit && f.latestCommit !== f.sinceCommit
         ? `, latest \`${f.latestCommit}\` (${f.latestDate})`
         : ''
-      return `  - \`${f.path}\`${renameNote} — since \`${f.sinceCommit}\` (${f.sinceDate})${latestNote}`
+      const authorNote = f.author ? ` — by @${f.author}` : ''
+      return `  - \`${f.path}\`${renameNote} — since \`${f.sinceCommit}\` (${f.sinceDate})${latestNote}${authorNote}`
     })
     const sharedLine = entry.hasShared ? '\n- **Shared module:** true' : ''
+    const ackLine = entry.acknowledgement ? `\n${formatAcknowledgement(entry.acknowledgement)}` : ''
     // Detect when kb_target doesn't exist on disk but sibling files in the same
     // folder do — likely means the project uses a consolidated file instead of
     // one-file-per-table. Emit a hint so the agent updates the right file.
@@ -944,7 +1104,7 @@ function writeCodeDriftEntries(header, entries) {
         }
       }
     }
-    return `## ${entry.kbTarget}\n\n- **KB target:** \`${entry.kbTarget}\`\n- **Code files:**\n${fileLines.join('\n')}${sharedLine}${consolidatedHint}`
+    return `## ${entry.kbTarget}\n\n- **KB target:** \`${entry.kbTarget}\`\n- **Code files:**\n${fileLines.join('\n')}${sharedLine}${ackLine}${consolidatedHint}`
   }).join('\n\n')
   fs.writeFileSync(CODE_DRIFT_PATH, header + (body ? '\n' + body + '\n' : ''), 'utf8')
 }
@@ -955,14 +1115,15 @@ function writeCodeDriftEntries(header, entries) {
  * 're_detected' when an existing file's Latest was bumped to a newer commit,
  * or null when no change was made.
  */
-function upsertCodeDriftEntry(state, kbTarget, codeFile, sinceCommit, sinceDate, latestCommit, latestDate, isShared, renamedFrom) {
+function upsertCodeDriftEntry(state, kbTarget, codeFile, sinceCommit, sinceDate, latestCommit, latestDate, isShared, renamedFrom, author) {
   const existing = state.entries.find(e => e.kbTarget === kbTarget)
   const fileShape = {
     path: codeFile,
     sinceCommit,
     sinceDate,
     ...(latestCommit && { latestCommit, latestDate }),
-    ...(renamedFrom && { renamedFrom })
+    ...(renamedFrom && { renamedFrom }),
+    ...(author && { author })
   }
 
   if (existing) {
@@ -976,6 +1137,7 @@ function upsertCodeDriftEntry(state, kbTarget, codeFile, sinceCommit, sinceDate,
       if (latestToRecord !== currentLatest) {
         existingFile.latestCommit = latestToRecord
         existingFile.latestDate = latestDateToRecord
+        if (author) existingFile.author = author
         if (isShared) existing.hasShared = true
         return 're_detected'
       }
@@ -1009,8 +1171,9 @@ function readKbDriftEntries() {
     const kbFile = headingMatch ? headingMatch[1].trim() : null
     const renamedMatch = block.match(/\*\*Renamed from:\*\*\s*`([^`]+)`/)
     const sinceMatch = block.match(/\*\*Since:\*\*\s*`([^`]+)`\s*\(([^)]+)\)/)
-    const latestMatch = block.match(/\*\*Latest:\*\*\s*`([^`]+)`\s*\(([^)]+)\)/)
+    const latestMatch = block.match(/\*\*Latest:\*\*\s*`([^`]+)`\s*\(([^)]+)\)(?:\s+—\s+by\s+@(\S+))?/)
     const unmapped = /KB spec changed without mapped code paths/.test(block)
+    const acknowledgement = parseAcknowledgement(block)
 
     const codeAreas = []
     let inCodeAreas = false
@@ -1046,6 +1209,8 @@ function readKbDriftEntries() {
       references,
       ...(sinceMatch && { sinceCommit: sinceMatch[1], sinceDate: sinceMatch[2] }),
       ...(latestMatch && { latestCommit: latestMatch[1], latestDate: latestMatch[2] }),
+      ...(latestMatch && latestMatch[3] && { author: latestMatch[3] }),
+      ...(acknowledgement && { acknowledgement }),
       unmapped
     }
   }).filter(e => e.kbFile)
@@ -1071,13 +1236,15 @@ function writeKbDriftEntries(header, entries) {
       }
     }
     const sinceLine = entry.sinceCommit ? `\n- **Since:** \`${entry.sinceCommit}\` (${entry.sinceDate})` : ''
+    const latestAuthor = entry.author ? ` — by @${entry.author}` : ''
     const latestLine = entry.latestCommit && entry.latestCommit !== entry.sinceCommit
-      ? `\n- **Latest:** \`${entry.latestCommit}\` (${entry.latestDate})`
+      ? `\n- **Latest:** \`${entry.latestCommit}\` (${entry.latestDate})${latestAuthor}`
       : ''
     const unmappedHint = entry.unmapped
       ? `\n- **⚠ KB spec changed without mapped code paths.** Verify that the implementation still matches this spec. To enable automatic code-area tracking, add a \`code_path_patterns\` entry in \`_rules.md\` for this file.`
       : ''
-    return `## ${entry.kbFile}\n\n- **KB file:** \`${entry.kbFile}\`${renamedLine}${refsLine}\n- **Code areas to review:**\n${areaLines}${sinceLine}${latestLine}${unmappedHint}`
+    const ackLine = entry.acknowledgement ? `\n${formatAcknowledgement(entry.acknowledgement)}` : ''
+    return `## ${entry.kbFile}\n\n- **KB file:** \`${entry.kbFile}\`${renamedLine}${refsLine}\n- **Code areas to review:**\n${areaLines}${sinceLine}${latestLine}${ackLine}${unmappedHint}`
   }).join('\n\n')
   fs.writeFileSync(KB_DRIFT_PATH, header + (body ? '\n' + body + '\n' : ''), 'utf8')
 }
@@ -1087,7 +1254,7 @@ function writeKbDriftEntries(header, entries) {
  * Returns 'new' when a fresh entry is created, 're_detected' when an existing
  * entry's Latest was bumped to a newer commit, or null when no change.
  */
-function upsertKbDriftEntry(state, kbFile, codeAreas, sinceCommit, sinceDate, latestCommit, latestDate) {
+function upsertKbDriftEntry(state, kbFile, codeAreas, sinceCommit, sinceDate, latestCommit, latestDate, author) {
   const existing = state.entries.find(e => e.kbFile === kbFile)
   if (existing) {
     const latestToRecord = latestCommit || sinceCommit
@@ -1096,6 +1263,7 @@ function upsertKbDriftEntry(state, kbFile, codeAreas, sinceCommit, sinceDate, la
     if (latestToRecord !== currentLatest) {
       existing.latestCommit = latestToRecord
       existing.latestDate = latestDateToRecord
+      if (author) existing.author = author
       return 're_detected'
     }
     return null
@@ -1108,6 +1276,7 @@ function upsertKbDriftEntry(state, kbFile, codeAreas, sinceCommit, sinceDate, la
     sinceCommit,
     sinceDate,
     ...(latestCommit && { latestCommit, latestDate }),
+    ...(author && { author }),
     unmapped: codeAreas.length === 0
   })
   return 'new'
@@ -1122,7 +1291,7 @@ function upsertKbDriftEntry(state, kbFile, codeAreas, sinceCommit, sinceDate, la
  * - No match for new: flag stale pattern warning
  * Returns { outcome: 'new'|'re_detected'|null, stalePattern }.
  */
-function handleCodeRename(state, newPath, oldPath, sinceCommit, sinceDate, latestCommit, latestDate, isShared, patterns) {
+function handleCodeRename(state, newPath, oldPath, sinceCommit, sinceDate, latestCommit, latestDate, isShared, patterns, author) {
   const oldBest = pickBestMatch(oldPath, patterns)
   const newBest = pickBestMatch(newPath, patterns)
   const oldTarget = oldBest ? resolveKbTarget(oldBest, oldPath) : null
@@ -1132,12 +1301,12 @@ function handleCodeRename(state, newPath, oldPath, sinceCommit, sinceDate, lates
   let stalePattern = null
 
   if (oldTarget && newTarget && oldTarget === newTarget) {
-    replaceCodeFileInEntry(state, oldTarget, oldPath, newPath, sinceCommit, sinceDate, latestCommit, latestDate)
+    replaceCodeFileInEntry(state, oldTarget, oldPath, newPath, sinceCommit, sinceDate, latestCommit, latestDate, author)
     outcome = 'new'
   } else {
     if (oldTarget) removeCodeFileFromEntry(state, oldTarget, oldPath)
     if (newTarget) {
-      outcome = upsertCodeDriftEntry(state, newTarget, newPath, sinceCommit, sinceDate, latestCommit, latestDate, isShared, oldPath)
+      outcome = upsertCodeDriftEntry(state, newTarget, newPath, sinceCommit, sinceDate, latestCommit, latestDate, isShared, oldPath, author)
     }
   }
 
@@ -1157,7 +1326,7 @@ function handleCodeRename(state, newPath, oldPath, sinceCommit, sinceDate, lates
  * creates a kb-drift entry with rename metadata.
  * Returns { outcome: 'new'|'re_detected'|null }.
  */
-function handleKbRename(state, newPath, oldPath, sinceCommit, sinceDate, latestCommit, latestDate, patterns) {
+function handleKbRename(state, newPath, oldPath, sinceCommit, sinceDate, latestCommit, latestDate, patterns, author) {
   const oldRelative = oldPath.replace(/^knowledge\//, '')
   const newRelative = newPath.replace(/^knowledge\//, '')
 
@@ -1182,6 +1351,7 @@ function handleKbRename(state, newPath, oldPath, sinceCommit, sinceDate, latestC
     sinceCommit,
     sinceDate,
     ...(latestCommit && { latestCommit, latestDate }),
+    ...(author && { author }),
     unmapped: false
   })
   return { outcome: 'new' }
@@ -1190,17 +1360,18 @@ function handleKbRename(state, newPath, oldPath, sinceCommit, sinceDate, latestC
 /**
  * Replace a code file path in an existing code-drift entry (same KB target rename).
  */
-function replaceCodeFileInEntry(state, kbTarget, oldPath, newPath, sinceCommit, sinceDate, latestCommit, latestDate) {
+function replaceCodeFileInEntry(state, kbTarget, oldPath, newPath, sinceCommit, sinceDate, latestCommit, latestDate, author) {
   const existing = state.entries.find(e => e.kbTarget === kbTarget)
   const shape = {
     path: newPath,
     sinceCommit,
     sinceDate,
     ...(latestCommit && { latestCommit, latestDate }),
+    ...(author && { author }),
     renamedFrom: oldPath
   }
   if (!existing) {
-    upsertCodeDriftEntry(state, kbTarget, newPath, sinceCommit, sinceDate, latestCommit, latestDate, false, oldPath)
+    upsertCodeDriftEntry(state, kbTarget, newPath, sinceCommit, sinceDate, latestCommit, latestDate, false, oldPath, author)
     return
   }
   const idx = existing.codeFiles.findIndex(f => f.path === oldPath)
@@ -1268,6 +1439,14 @@ function appendToDriftLog(entries) {
     if (entry.event_type === 'dismissed') {
       block += `\n## ${date} · DISMISSED · ${entry.queue}\n`
       block += `\n- **Queue key:** \`${entry.queue_key}\``
+      block += `\n- **Reason:** ${entry.reason}\n`
+      continue
+    }
+    if (entry.event_type === 'acknowledged') {
+      block += `\n## ${date} · ACKNOWLEDGED · ${entry.queue}\n`
+      block += `\n- **Queue key:** \`${entry.queue_key}\``
+      if (entry.by) block += `\n- **By:** @${entry.by}`
+      if (entry.at_commit) block += `\n- **At:** \`${entry.at_commit}\``
       block += `\n- **Reason:** ${entry.reason}\n`
       continue
     }
@@ -1453,19 +1632,23 @@ async function buildCommitIndex(git, baseline, toRef = 'HEAD') {
   const index = new Map()
   let output
   try {
-    output = await git.raw(['log', '--name-status', '-M', '--reverse',
-      '--pretty=format:__C %H %cI', `${baseline}..${toRef}`])
+    // %ae uses .mailmap when available — gives the canonical email for the
+    // author. The local-part is what's surfaced as `@author` on file lines.
+    output = await git.raw(['log', '--name-status', '-M', '--reverse', '--use-mailmap',
+      '--pretty=format:__C %H %cI %ae', `${baseline}..${toRef}`])
   } catch { return index }
   if (!output) return index
 
   let currentSha = null
   let currentDate = null
+  let currentAuthor = null
   for (const line of output.split('\n')) {
     if (line.startsWith('__C ')) {
-      const m = line.match(/^__C ([a-f0-9]+) (.+)$/)
+      const m = line.match(/^__C ([a-f0-9]+) (\S+) (.+)$/)
       if (m) {
         currentSha = m[1]
         currentDate = m[2].split('T')[0]
+        currentAuthor = authorHandleFromEmail(m[3])
       }
       continue
     }
@@ -1473,7 +1656,7 @@ async function buildCommitIndex(git, baseline, toRef = 'HEAD') {
     const parts = line.split('\t')
     const code = parts[0].trim()
     if (!code) continue
-    const entry = { sha: currentSha, date: currentDate }
+    const entry = { sha: currentSha, date: currentDate, author: currentAuthor }
     if (code.startsWith('R') || code.startsWith('C')) {
       const newPath = parts[2]
       if (newPath) appendCommit(index, newPath, entry)
@@ -1483,6 +1666,18 @@ async function buildCommitIndex(git, baseline, toRef = 'HEAD') {
     }
   }
   return index
+}
+
+// Extract the @handle that surfaces in the published .md from a commit email.
+// Strips the `@domain` and any noreply suffix so `mert.yilmaz@tme.eu` →
+// `mert.yilmaz` and `12345+mert@users.noreply.github.com` → `mert`.
+function authorHandleFromEmail(email) {
+  if (!email || typeof email !== 'string') return null
+  const local = email.trim().split('@')[0]
+  if (!local) return null
+  // GitHub noreply format: `<id>+<handle>` — keep the handle.
+  const plus = local.indexOf('+')
+  return plus !== -1 ? local.slice(plus + 1) : local
 }
 
 function appendCommit(index, key, entry) {
@@ -1508,7 +1703,10 @@ function resolveCommitRange(index, newPath, oldPath) {
     sinceCommit,
     sinceDate: first.date,
     latestCommit: latestCommit !== sinceCommit ? latestCommit : null,
-    latestDate: latestCommit !== sinceCommit ? last.date : null
+    latestDate: latestCommit !== sinceCommit ? last.date : null,
+    // Author of the most recent commit in the range — what the UI surfaces as
+    // a per-file `@author` badge so reviewers see at a glance whose touch this is.
+    author: last.author || null
   }
 }
 
@@ -2054,9 +2252,11 @@ module.exports = {
         reverted: { type: 'array', description: 'Phase 2b: code reverted — close code-drift.md entries without writing KB notes', items: { type: 'object', properties: { code_file: { type: 'string' } }, required: ['code_file'] } },
         kb_confirmed: { type: 'array', description: 'Phase 2c: kb→code reviewed — close kb-drift.md entries', items: { type: 'object', properties: { kb_file: { type: 'string' } }, required: ['kb_file'] } },
         dismiss: { type: 'array', description: 'Phase 2d: close a structurally-broken ghost entry (kb_target/kb_file that points at a file that will never exist, typically because an upstream code_path_patterns rule captured a versioned/timestamped basename). Use the exact entry heading as `queue_key` and a human-readable `reason`. Logged as DISMISSED separately from RESOLVED so dismissals remain visible as a signal that upstream rules need attention.', items: { type: 'object', properties: { queue: { type: 'string', enum: ['code-drift', 'kb-drift'], description: 'Which queue the entry lives in.' }, queue_key: { type: 'string', description: 'Exact entry heading as it appears in the queue file (kb_target for code-drift, kb_file for kb-drift).' }, reason: { type: 'string', description: 'Why this entry cannot be resolved the normal way.' } }, required: ['queue', 'queue_key', 'reason'] } },
+        acknowledge: { type: 'array', description: 'Phase 2e: stamp an entry as author-vetted ("real change, doesn\'t affect KB") without removing it. Renders as an `**Acknowledged**: @author at SHA — "reason"` badge on the entry block. The entry stays in the queue; a later resolving verdict (summaries / reverted / kb_confirmed / dismiss) overrides.', items: { type: 'object', properties: { queue: { type: 'string', enum: ['code-drift', 'kb-drift'] }, queue_key: { type: 'string' }, reason: { type: 'string' } }, required: ['queue', 'queue_key', 'reason'] } },
         force_baseline: { type: 'string', description: 'Admin escape hatch: reset both queue baselines to this SHA (or "HEAD"). Use when the queue has gone stale and needs a manual reset.' },
         purge: { type: 'boolean', description: 'With force_baseline: also clear all queue entries. Default: false.' },
-        include_diffs: { type: 'boolean', description: 'Include `_diffs` with pre-fetched git diffs, stats, and commit subjects for every open entry. Default: true. Set false for quick status scans.', default: true }
+        include_diffs: { type: 'boolean', description: 'Include `_diffs` with pre-fetched git diffs, stats, and commit subjects for every open entry. Default: true. Set false for quick status scans.', default: true },
+        readonly: { type: 'boolean', description: 'Compute results in memory but skip every fs write (queue files, drift-log, baseline advance). Returned `_state` carries the would-have-written entries. Used by the live watcher in the extension and the soft-mode CI check.', default: false }
       }
     }
   }

@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import type {
+  Acknowledgement,
   FileRef,
   QueueBaseline,
   StandardsDriftEntry,
@@ -9,7 +10,16 @@ import { parseBaseline, splitHeaderAndBlocks } from "./baseline.js";
 import { kbSyncPath } from "../kb-root.js";
 
 const FILE_LINE_RE =
-  /^\s+-\s+`([^`]+)`\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?/;
+  /^\s+-\s+`([^`]+)`\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?(?:\s+—\s+by\s+@(\S+))?/;
+
+const ACK_RE =
+  /\*\*Acknowledged\*\*:\s*@(\S+)\s+at\s+`([^`]+)`\s+\(([^)]+)\)\s+—\s+"([^"]+)"/;
+
+function parseAck(block: string): Acknowledgement | undefined {
+  const m = block.match(ACK_RE);
+  if (!m) return undefined;
+  return { by: m[1], atCommit: m[2], atDate: m[3], reason: m[4] };
+}
 
 export function parseStandardsDrift(
   content: string,
@@ -65,10 +75,11 @@ export function parseStandardsDrift(
         f.latestCommit = m[4];
         f.latestDate = m[5];
       }
+      if (m[6]) f.author = m[6];
       filesByParty[partyKey].push(f);
     }
 
-    entries.push({
+    const entry: StandardsDriftEntry = {
       kind: "standards-drift",
       mode,
       queueKey,
@@ -78,7 +89,10 @@ export function parseStandardsDrift(
       severity: ruleMatch ? ruleMatch[2] : null,
       reason: reasonMatch ? reasonMatch[1].trim() : null,
       filesByParty,
-    });
+    };
+    const ack = parseAck(block);
+    if (ack) entry.acknowledgement = ack;
+    entries.push(entry);
   }
 
   return { entries, baseline };

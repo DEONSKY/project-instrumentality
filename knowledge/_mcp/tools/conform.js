@@ -123,6 +123,7 @@ function readQueue(filePath, header) {
     const stdMatch = block.match(/\*\*Standard:\*\*\s*`([^`]+)`(?:\s*\(([^)]+)\))?/)
     const ruleMatch = block.match(/\*\*Rule:\*\*\s*`([^`]+)`\s*—\s*(\w+)/)
     const reasonMatch = block.match(/\*\*Reason:\*\*\s*(.+?)(?:\n|$)/)
+    const acknowledgement = parseAcknowledgement(block)
 
     // Files can be in a single "Files:" block OR per-party "Files (party: X):" blocks
     const filesByParty = {} // null key for non-contract single block
@@ -139,14 +140,15 @@ function readQueue(filePath, header) {
       }
       if (/^- \*\*/.test(line)) { inFiles = false; continue }
       if (!inFiles) continue
-      const m = line.match(/^\s+-\s+`([^`]+)`\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?/)
+      const m = line.match(/^\s+-\s+`([^`]+)`\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?(?:\s+—\s+by\s+@(\S+))?/)
       if (m) {
         const partyKey = currentParty || '_'
         filesByParty[partyKey].push({
           path: m[1],
           sinceCommit: m[2],
           sinceDate: m[3],
-          ...(m[4] && { latestCommit: m[4], latestDate: m[5] })
+          ...(m[4] && { latestCommit: m[4], latestDate: m[5] }),
+          ...(m[6] && { author: m[6] })
         })
       }
     }
@@ -158,7 +160,8 @@ function readQueue(filePath, header) {
       ruleId: ruleMatch ? ruleMatch[1] : null,
       severity: ruleMatch ? ruleMatch[2] : null,
       reason: reasonMatch ? reasonMatch[1].trim() : null,
-      filesByParty
+      filesByParty,
+      ...(acknowledgement && { acknowledgement })
     }
   }).filter(e => e.queueKey)
 
@@ -184,7 +187,8 @@ function writeQueue(filePath, header, entries) {
     }
     const kindNote = entry.standardKind ? ` (${entry.standardKind})` : ''
     const reasonLine = entry.reason ? `\n- **Reason:** ${entry.reason}` : ''
-    return `## ${entry.queueKey}\n\n- **Standard:** \`${entry.standardId}\`${kindNote}\n- **Rule:** \`${entry.ruleId}\` — ${entry.severity || 'warn'}\n${filesBlock}${reasonLine}`
+    const ackLine = entry.acknowledgement ? `\n${formatAcknowledgement(entry.acknowledgement)}` : ''
+    return `## ${entry.queueKey}\n\n- **Standard:** \`${entry.standardId}\`${kindNote}\n- **Rule:** \`${entry.ruleId}\` — ${entry.severity || 'warn'}\n${filesBlock}${reasonLine}${ackLine}`
   }).join('\n\n')
 
   fs.writeFileSync(filePath, header + (body ? '\n' + body + '\n' : ''), 'utf8')
@@ -194,7 +198,32 @@ function formatFileLine(f) {
   const latestNote = f.latestCommit && f.latestCommit !== f.sinceCommit
     ? `, latest \`${f.latestCommit}\` (${f.latestDate})`
     : ''
-  return `  - \`${f.path}\` — since \`${f.sinceCommit}\` (${f.sinceDate})${latestNote}`
+  const authorNote = f.author ? ` — by @${f.author}` : ''
+  return `  - \`${f.path}\` — since \`${f.sinceCommit}\` (${f.sinceDate})${latestNote}${authorNote}`
+}
+
+// Shared acknowledgement marker — same syntax as in drift.js so reviewers
+// learn one shape across all three queue files.
+
+const ACK_LINE_RE = /\*\*Acknowledged\*\*:\s*@(\S+)\s+at\s+`([^`]+)`\s+\(([^)]+)\)\s+—\s+"([^"]+)"/
+
+function parseAcknowledgement(block) {
+  const m = block.match(ACK_LINE_RE)
+  if (!m) return null
+  return { by: m[1], atCommit: m[2], atDate: m[3], reason: m[4] }
+}
+
+function formatAcknowledgement(ack) {
+  const reason = (ack.reason || '').replace(/"/g, '\\"')
+  return `- **Acknowledged**: @${ack.by} at \`${ack.atCommit}\` (${ack.atDate}) — "${reason}"`
+}
+
+function authorHandleFromEmail(email) {
+  if (!email || typeof email !== 'string') return null
+  const local = email.trim().split('@')[0]
+  if (!local) return null
+  const plus = local.indexOf('+')
+  return plus !== -1 ? local.slice(plus + 1) : local
 }
 
 // ── Audit log ────────────────────────────────────────────────────────────────
@@ -251,6 +280,14 @@ function appendToDriftLog(entries) {
     if (entry.event_type === 'auto-closed-promotion-standard-removed') {
       block += `\n## ${date} · AUTO-CLOSED-PROMOTION · standard removed\n`
       block += `\n- **Queue key:** \`${entry.queue_key}\``
+      block += `\n- **Reason:** ${entry.reason}\n`
+      continue
+    }
+    if (entry.event_type === 'acknowledged') {
+      block += `\n## ${date} · ACKNOWLEDGED · standards-drift\n`
+      block += `\n- **Queue key:** \`${entry.queue_key}\``
+      if (entry.by) block += `\n- **By:** @${entry.by}`
+      if (entry.at_commit) block += `\n- **At:** \`${entry.at_commit}\``
       block += `\n- **Reason:** ${entry.reason}\n`
       continue
     }
@@ -353,7 +390,7 @@ async function resolveBootstrapRef(git) {
 // ── Phase 1 detect ────────────────────────────────────────────────────────────
 
 async function detect(opts) {
-  const { mode = 'current', scope, since, includeDiffs = true, path_filter } = opts
+  const { mode = 'current', scope, since, includeDiffs = true, path_filter, readonly = false } = opts
   // Forbid path_filter in current mode: current-mode Phase 1 advances baseline
   // to HEAD on success, so a filtered sweep would silently skip files that fall
   // outside the filter on the next run.
@@ -495,7 +532,7 @@ async function detect(opts) {
     }
     return true
   })
-  if (autoDismissed.length) appendToDriftLog(autoDismissed)
+  if (autoDismissed.length && !readonly) appendToDriftLog(autoDismissed)
 
   // Auto-close promotion ledger entries whose standard is gone or whose rule
   // fingerprint has changed (i.e. a senior reviewer updated the standard).
@@ -535,8 +572,10 @@ async function detect(opts) {
   }
   if (autoClosedPromotions.length) {
     ledgerState.entries = survivingLedger
-    writeLedger(ledgerState)
-    appendToDriftLog(autoClosedPromotions)
+    if (!readonly) {
+      writeLedger(ledgerState)
+      appendToDriftLog(autoClosedPromotions)
+    }
   }
 
   // Build suppression set: (queueKey → Set<filePath>) of pairs awaiting senior
@@ -662,11 +701,15 @@ async function detect(opts) {
     }
   }
 
-  // Persist any auto-flagged (deterministic fail) entries
-  writeQueue(queuePath, queueState.header, queueState.entries)
-  // Persist ledger too — applyFileChangesToLedger may have rewritten paths or
-  // dropped rows for deleted files; writing unconditionally keeps disk in sync.
-  writeLedger(ledgerState)
+  // Persist any auto-flagged (deterministic fail) entries. In readonly mode
+  // the live watcher gets the entries via the response payload (`_state`)
+  // without writing to disk.
+  if (!readonly) {
+    writeQueue(queuePath, queueState.header, queueState.entries)
+    // Persist ledger too — applyFileChangesToLedger may have rewritten paths or
+    // dropped rows for deleted files; writing unconditionally keeps disk in sync.
+    writeLedger(ledgerState)
+  }
 
   // Build prompt for surviving triples that need LLM judgment
   let prompt = null
@@ -689,7 +732,8 @@ async function detect(opts) {
 
   // Stash pending evaluations on disk so Phase 1.5 can verify completeness.
   // Lives under sync/.conform-pending/ — treated as a transient cache, not a
-  // queue file. Cleared on each new Phase 1 run.
+  // queue file. Cleared on each new Phase 1 run. Skip in readonly mode —
+  // the live watcher should never overwrite a real pending session.
   const pending = {
     mode,
     scope: scope || null,
@@ -697,7 +741,7 @@ async function detect(opts) {
     head_sha_short: headShort,
     head_date: headDate
   }
-  writePending(pending)
+  if (!readonly) writePending(pending)
 
   // Optional diff prefetch — only meaningful in current-diff mode
   let diffs
@@ -710,7 +754,7 @@ async function detect(opts) {
   // because we always advance to HEAD on every successful run.
   if (mode !== 'aspirational') {
     queueState.header = setBaseline(queueState.header, headSha)
-    writeQueue(queuePath, queueState.header, queueState.entries)
+    if (!readonly) writeQueue(queuePath, queueState.header, queueState.entries)
   }
 
   return {
@@ -722,7 +766,10 @@ async function detect(opts) {
     sprawl_warnings: sprawlWarnings,
     auto_dismissed: autoDismissed.length,
     ...(configWarnings.length > 0 && { config_warnings: configWarnings }),
-    ...(diffs && { _diffs: diffs })
+    ...(diffs && { _diffs: diffs }),
+    // Live watcher / CI consume the in-memory entries instead of re-reading
+    // the queue file. Same shape as readQueue().entries.
+    ...(readonly && { _state: { entries: queueState.entries, headSha } })
   }
 }
 
@@ -1308,6 +1355,58 @@ async function resolveDismissed(items, mode = 'current') {
   return { resolved: removed.length, removed, missing }
 }
 
+// Acknowledge — non-resolving annotation. Stamps `**Acknowledged**: @author`
+// on the entry block but leaves the entry in the queue. CI still treats acked
+// entries as pending; a later resolving verdict overrides.
+async function resolveAcknowledge(items, { mode = 'current', readonly = false } = {}) {
+  if (!Array.isArray(items)) return { error: 'acknowledge must be an array of {queue_key, reason}' }
+  const queuePath = mode === 'aspirational' ? STANDARDS_BACKLOG_PATH : STANDARDS_DRIFT_PATH
+  const queueHeader = mode === 'aspirational' ? STANDARDS_BACKLOG_HEADER : STANDARDS_DRIFT_HEADER
+  const state = readQueue(queuePath, queueHeader)
+
+  const git = simpleGit(process.cwd())
+  let ackBy = null
+  let ackCommit = null
+  let ackDate = new Date().toISOString().split('T')[0]
+  try {
+    const email = (await git.raw(['config', 'user.email'])).trim()
+    ackBy = authorHandleFromEmail(email)
+  } catch { /* fall through to per-item error */ }
+  try {
+    const log = await git.log({ maxCount: 1 })
+    if (log.latest) {
+      ackCommit = log.latest.hash.slice(0, 7)
+      ackDate = log.latest.date.split('T')[0]
+    }
+  } catch { /* fall through to per-item error */ }
+
+  const acknowledged = []
+  const missing = []
+  const logEntries = []
+  for (const it of items) {
+    if (!it || !it.queue_key) {
+      return { error: `acknowledge item requires queue_key: ${JSON.stringify(it)}` }
+    }
+    const reason = typeof it.reason === 'string' ? it.reason.trim() : ''
+    if (!reason) {
+      return { error: `acknowledge item requires a non-empty reason: ${JSON.stringify(it)}` }
+    }
+    const e = findEntryByKey(state, it.queue_key)
+    if (!e) { missing.push(it.queue_key); continue }
+    if (!ackBy || !ackCommit) {
+      return { error: 'cannot resolve author / HEAD for acknowledgement (git config user.email + a commit on HEAD required)' }
+    }
+    e.acknowledgement = { by: ackBy, atCommit: ackCommit, atDate: ackDate, reason }
+    acknowledged.push(it.queue_key)
+    logEntries.push({ event_type: 'acknowledged', queue_key: it.queue_key, reason, by: ackBy, at_commit: ackCommit })
+  }
+  if (!readonly) {
+    writeQueue(queuePath, state.header, state.entries)
+    if (logEntries.length) appendToDriftLog(logEntries)
+  }
+  return { acknowledged: acknowledged.length, queue_keys: acknowledged, missing }
+}
+
 // ── Admin helpers ────────────────────────────────────────────────────────────
 
 async function forceBaseline(opts) {
@@ -1349,13 +1448,16 @@ async function runTool(args = {}) {
     promoted,
     dismissed,
     closed_promotion,
+    acknowledge,
     force_baseline,
     purge,
-    include_diffs = true
+    include_diffs = true,
+    readonly = false
   } = args
 
   if (force_baseline || purge) return forceBaseline({ force_baseline, purge, mode })
   if (Array.isArray(submit_judgments)) return submitJudgments({ submit_judgments, mode })
+  if (Array.isArray(acknowledge)) return resolveAcknowledge(acknowledge, { mode, readonly })
 
   const resolutionArgs = { applied, exempted, promoted, dismissed, closed_promotion }
   const provided = Object.entries(resolutionArgs).filter(([, v]) => Array.isArray(v))
@@ -1392,7 +1494,7 @@ async function runTool(args = {}) {
   if (Array.isArray(promoted)) return resolvePromoted(promoted, mode)
   if (Array.isArray(dismissed)) return resolveDismissed(dismissed, mode)
   if (Array.isArray(closed_promotion)) return resolveClosedPromotion(closed_promotion)
-  return detect({ since, mode, scope, path_filter, includeDiffs: include_diffs })
+  return detect({ since, mode, scope, path_filter, includeDiffs: include_diffs, readonly })
 }
 
 module.exports = {
@@ -1435,9 +1537,11 @@ module.exports = {
         promoted: { type: 'array', description: 'Phase 2: standard should change (logged; no automatic edit)', items: { type: 'object', required: ['queue_key', 'originating_files'], properties: { queue_key: { type: 'string' }, originating_files: { type: 'array', items: { type: 'string' } }, note: { type: 'string' } } } },
         dismissed: { type: 'array', description: 'Phase 2: false positive', items: { type: 'object', required: ['queue_key', 'reason'], properties: { queue_key: { type: 'string' }, reason: { type: 'string' } } } },
         closed_promotion: { type: 'array', description: 'Senior reviewer close-out: removes a previously-promoted (file, rule) from the suppression ledger AND writes an exception into the rule (so the file is permanently fine). Use when reviewer decided NOT to update the standard. If the reviewer DID update the standard, no call is needed — the next sweep auto-closes via fingerprint change.', items: { type: 'object', required: ['queue_key', 'file_paths', 'reason'], properties: { queue_key: { type: 'string' }, file_paths: { type: 'array', items: { type: 'string' } }, reason: { type: 'string' } } } },
+        acknowledge: { type: 'array', description: 'Non-resolving annotation: stamps the entry with `**Acknowledged**: @author at SHA — "reason"` and leaves it in the queue. CI still treats acked entries as pending; a later resolving verdict overrides.', items: { type: 'object', required: ['queue_key', 'reason'], properties: { queue_key: { type: 'string' }, reason: { type: 'string' } } } },
         force_baseline: { type: 'string', description: 'Admin: reset baseline to a SHA or "HEAD"' },
         purge: { type: 'boolean', description: 'Admin: with force_baseline, also clear all entries' },
-        include_diffs: { type: 'boolean', description: 'Phase 1: pre-fetch diffs into result._diffs (default: true)' }
+        include_diffs: { type: 'boolean', description: 'Phase 1: pre-fetch diffs into result._diffs (default: true)' },
+        readonly: { type: 'boolean', description: 'Compute results in memory but skip every fs write. Used by the live watcher in the extension and the soft-mode CI check.' }
       }
     }
   }

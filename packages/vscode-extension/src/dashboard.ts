@@ -135,6 +135,9 @@ async function handleMessage(msg: any): Promise<void> {
     case "submodulePush":
       await cb.onAction({ type: "submodulePush" });
       return;
+    case "publishDrift":
+      await cb.onAction({ type: "publishDrift" });
+      return;
     case "reveal":
       await cb.onReveal(msg.ref);
       return;

@@ -1,7 +1,11 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { promisify } from "node:util";
 import type {
+  CodeDriftEntry,
   ConformPending,
+  KbDriftEntry,
   StandardDefinition,
   StandardsDriftEntry,
   PromotionEntry,
@@ -81,12 +85,24 @@ export interface GetStatusOptions {
   skipLint?: boolean;
   /** Override lint command (e.g. "npx kb-lint") for consumer projects. */
   lintCommand?: string;
+  /**
+   * Live mode — instead of reading the committed `knowledge/sync/*.md` files,
+   * spawn the live-status runner which calls `drift.runTool({ readonly: true })`
+   * and `conform.runTool({ readonly: true })` and overlays the in-memory
+   * entries onto the returned summary. Use this for the watcher in the
+   * extension: the dashboard reflects the working-tree state without writing
+   * to disk. Falls back to disk-read silently if the runner script isn't
+   * present (consumer projects without the MCP source in tree).
+   */
+  live?: boolean;
 }
 
 export async function getStatus(
   kbRoot: string,
   opts: GetStatusOptions = {}
 ): Promise<StatusSummary> {
+  const liveOverlay = opts.live ? await runLiveStatus(kbRoot) : null;
+
   const [
     codeDrift,
     kbDrift,
@@ -117,14 +133,32 @@ export async function getStatus(
     getHooksStatus(kbRoot).catch(() => null),
   ]);
 
+  // Overlay live computations onto the disk-read summaries when present.
+  // Baseline stays from the disk-read header; only the entry sets are
+  // swapped. Standards-drift current + backlog are kept separate by the
+  // runner (entries[] vs backlogEntries[]) so the existing merge logic
+  // below still applies.
+  const codeDriftFinal = liveOverlay
+    ? { entries: liveOverlay.codeEntries, baseline: codeDrift.baseline }
+    : codeDrift;
+  const kbDriftFinal = liveOverlay
+    ? { entries: liveOverlay.kbEntries, baseline: kbDrift.baseline }
+    : kbDrift;
+  const standardsCurrentFinal = liveOverlay
+    ? { entries: liveOverlay.standardsEntries, baseline: standardsDriftCurrent.baseline }
+    : standardsDriftCurrent;
+  const standardsBacklogFinal = liveOverlay
+    ? { entries: liveOverlay.backlogEntries, baseline: standardsBacklog.baseline }
+    : standardsBacklog;
+
   // Merge current-mode standards-drift entries with aspirational backlog
   // entries. Each carries its own `mode` discriminator so the UI can render
   // them differently (advisory chip + demoted opacity for aspirational).
   // Baseline tracking stays with the current-mode queue — that's the
   // PR-blocking artifact; backlog is advisory.
   const standardsDrift = {
-    entries: [...standardsDriftCurrent.entries, ...standardsBacklog.entries],
-    baseline: standardsDriftCurrent.baseline,
+    entries: [...standardsCurrentFinal.entries, ...standardsBacklogFinal.entries],
+    baseline: standardsCurrentFinal.baseline,
   };
 
   const stale = (recorded: string) =>
@@ -143,7 +177,7 @@ export async function getStatus(
   ]);
 
   const driftCount =
-    codeDrift.entries.length + kbDrift.entries.length + standardsDrift.entries.length;
+    codeDriftFinal.entries.length + kbDriftFinal.entries.length + standardsDrift.entries.length;
   const conformPendingCount =
     (conformCurrent?.requested.length ?? 0) +
     (conformAspirational?.requested.length ?? 0);
@@ -153,8 +187,8 @@ export async function getStatus(
   return {
     kbRoot,
     currentHeadShort: head,
-    codeDrift,
-    kbDrift,
+    codeDrift: codeDriftFinal,
+    kbDrift: kbDriftFinal,
     standardsDrift,
     conformPending: { current: conformCurrent, aspirational: conformAspirational },
     promotions,
@@ -171,4 +205,56 @@ export async function getStatus(
       grand: driftCount + conformPendingCount + promotions.length + lintErrors + lintWarnings,
     },
   };
+}
+
+// ── Live-status runner ───────────────────────────────────────────────────────
+//
+// Spawns knowledge/_mcp/scripts/live-status.js. Returns null when the script
+// is absent (consumer projects without the MCP source) or on any error — the
+// caller falls back to the disk-read state.
+
+interface LiveOverlay {
+  headSha: string | null;
+  codeEntries: CodeDriftEntry[];
+  kbEntries: KbDriftEntry[];
+  standardsEntries: StandardsDriftEntry[];
+  backlogEntries: StandardsDriftEntry[];
+}
+
+function runLiveStatus(kbRoot: string): Promise<LiveOverlay | null> {
+  const script = path.join(kbRoot, "knowledge", "_mcp", "scripts", "live-status.js");
+  if (!fs.existsSync(script)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [script], {
+      cwd: kbRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.on("error", () => resolve(null));
+    child.on("close", () => {
+      const trimmed = stdout.trim();
+      if (!trimmed) return resolve(null);
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed.error) return resolve(null);
+        // Tag standards entries with their mode so the existing merge logic
+        // and `mode`-aware UI rendering still works. The runner returns them
+        // un-tagged since they come straight from the in-memory state.
+        const tagMode = (entries: StandardsDriftEntry[], mode: "current" | "aspirational") =>
+          entries.map((e) => ({ ...e, mode }));
+        resolve({
+          headSha: parsed.headSha ?? null,
+          codeEntries: parsed.codeEntries ?? [],
+          kbEntries: parsed.kbEntries ?? [],
+          standardsEntries: tagMode(parsed.standardsEntries ?? [], "current"),
+          backlogEntries: tagMode(parsed.backlogEntries ?? [], "aspirational"),
+        });
+      } catch {
+        resolve(null);
+      }
+    });
+  });
 }

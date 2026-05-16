@@ -30,6 +30,7 @@ export {
   exemptedPrompt,
   promotedPrompt,
   dismissedPrompt,
+  acknowledgedPrompt,
 } from "./prompts/verdicts/standards-drift.js";
 export {
   closedPromotionPrompt,

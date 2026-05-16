@@ -1,10 +1,24 @@
 import * as fs from "node:fs";
-import type { CodeDriftEntry, FileRef, QueueBaseline } from "../types.js";
+import type {
+  Acknowledgement,
+  CodeDriftEntry,
+  FileRef,
+  QueueBaseline,
+} from "../types.js";
 import { parseBaseline, splitHeaderAndBlocks } from "./baseline.js";
 import { kbSyncPath } from "../kb-root.js";
 
 const FILE_LINE_RE =
-  /^\s+-\s+`([^`]+)`(?:\s+←\s+renamed from\s+`([^`]+)`)?\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?/;
+  /^\s+-\s+`([^`]+)`(?:\s+←\s+renamed from\s+`([^`]+)`)?\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?(?:\s+—\s+by\s+@(\S+))?/;
+
+const ACK_RE =
+  /\*\*Acknowledged\*\*:\s*@(\S+)\s+at\s+`([^`]+)`\s+\(([^)]+)\)\s+—\s+"([^"]+)"/;
+
+function parseAck(block: string): Acknowledgement | undefined {
+  const m = block.match(ACK_RE);
+  if (!m) return undefined;
+  return { by: m[1], atCommit: m[2], atDate: m[3], reason: m[4] };
+}
 
 export function parseCodeDrift(content: string): {
   entries: CodeDriftEntry[];
@@ -34,10 +48,14 @@ export function parseCodeDrift(content: string): {
         f.latestCommit = m[5];
         f.latestDate = m[6];
       }
+      if (m[7]) f.author = m[7];
       codeFiles.push(f);
     }
 
-    entries.push({ kind: "code-drift", kbTarget, codeFiles, hasShared });
+    const entry: CodeDriftEntry = { kind: "code-drift", kbTarget, codeFiles, hasShared };
+    const ack = parseAck(block);
+    if (ack) entry.acknowledgement = ack;
+    entries.push(entry);
   }
 
   return { entries, baseline };
