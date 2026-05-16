@@ -4527,7 +4527,7 @@ var require_status = __commonJS({
       }
     }
     async function getStatus2(kbRoot, opts = {}) {
-      const liveOverlay = opts.live ? await runLiveStatus(kbRoot) : null;
+      const liveOverlay = opts.live ? await runLiveStatus(kbRoot, opts.bundledRunnerPath) : null;
       const [codeDrift, kbDrift, standardsDriftCurrent, standardsBacklog, currentPending, asp, promotions, driftLogEvents, lint, head, submodules, hooks] = await Promise.all([
         Promise.resolve((0, code_drift_js_1.readCodeDrift)(kbRoot)),
         Promise.resolve((0, kb_drift_js_1.readKbDrift)(kbRoot)),
@@ -4584,9 +4584,15 @@ var require_status = __commonJS({
         livePatterns: liveOverlay ? liveOverlay.codePatterns : null
       };
     }
-    function runLiveStatus(kbRoot) {
-      const script = path3.join(kbRoot, "knowledge", "_mcp", "scripts", "live-status.js");
-      if (!fs2.existsSync(script))
+    function runLiveStatus(kbRoot, bundledRunnerPath) {
+      const vendored = path3.join(kbRoot, "knowledge", "_mcp", "scripts", "live-status.js");
+      let script = null;
+      if (fs2.existsSync(vendored)) {
+        script = vendored;
+      } else if (bundledRunnerPath && fs2.existsSync(bundledRunnerPath)) {
+        script = bundledRunnerPath;
+      }
+      if (!script)
         return Promise.resolve(null);
       return new Promise((resolve2) => {
         const child = (0, node_child_process_1.spawn)(process.execPath, [script], {
@@ -5663,8 +5669,9 @@ var import_shared = __toESM(require_dist());
 // src/watcher.ts
 var fs = __toESM(require("fs"));
 var path = __toESM(require("path"));
-var DEBOUNCE_MS = 750;
+var DEBOUNCE_MS = 500;
 var POLL_FALLBACK_MS = 5e3;
+var IGNORED_DIR_SEGMENTS = [".git", "node_modules", "dist", "build", ".obsidian", "out", "target"];
 function patternBaseDir(pattern) {
   const idx = pattern.search(/[*?[]/);
   if (idx === -1)
@@ -5681,6 +5688,11 @@ var SyncWatcher = class {
   fsWatcher = null;
   extraWatchers = [];
   codeRootWatchers = /* @__PURE__ */ new Map();
+  // Always-on recursive watcher on kbRoot. Mirrors the VS Code __fallback__
+  // approach — if _rules.md patterns don't match how this platform observes
+  // a file (commonly across submodule git boundaries) saves still fire a
+  // debounced refresh. Noise dirs are filtered inside the callback.
+  rootFallbackWatcher = null;
   pollHandle = null;
   debounceTimer = null;
   lastMtimeSum = 0;
@@ -5716,6 +5728,38 @@ var SyncWatcher = class {
       }, POLL_FALLBACK_MS);
     }
     this.reconcileExtraWatchers(extraPaths);
+    this.ensureRootFallback();
+  }
+  /**
+   * Install (or re-install) the always-on recursive watcher on kbRoot.
+   * Noise paths (`.git/`, `node_modules/`, build dirs) are filtered in
+   * the callback so an `npm install` doesn't fire a refresh per file.
+   * On platforms where `filename` is null (some macOS versions) the
+   * filter is skipped and we accept extra refresh ticks — the 300ms
+   * debounce makes those harmless.
+   */
+  ensureRootFallback() {
+    if (this.rootFallbackWatcher)
+      return;
+    if (!fs.existsSync(this.kbRoot))
+      return;
+    const handler = (_event, filename) => {
+      if (filename) {
+        const rel = typeof filename === "string" ? filename : filename.toString("utf8");
+        const head = rel.split(path.sep)[0];
+        if (IGNORED_DIR_SEGMENTS.includes(head))
+          return;
+        for (const seg of IGNORED_DIR_SEGMENTS) {
+          if (rel.includes(path.sep + seg + path.sep))
+            return;
+        }
+      }
+      this.scheduleFire();
+    };
+    try {
+      this.rootFallbackWatcher = fs.watch(this.kbRoot, { recursive: true }, handler);
+    } catch {
+    }
   }
   /**
    * Refresh the set of extra (submodule HEAD) watchers. Cheaper than
@@ -5790,6 +5834,13 @@ var SyncWatcher = class {
     if (this.fsWatcher) {
       this.fsWatcher.close();
       this.fsWatcher = null;
+    }
+    if (this.rootFallbackWatcher) {
+      try {
+        this.rootFallbackWatcher.close();
+      } catch {
+      }
+      this.rootFallbackWatcher = null;
     }
     for (const w of this.extraWatchers) {
       try {
@@ -6022,7 +6073,12 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       return;
     }
     try {
-      this.status = await (0, import_shared.getStatus)(root, { skipLint: true, live: true });
+      const bundledRunnerPath = path2.join(__dirname, "runner", "scripts", "live-status.js");
+      this.status = await (0, import_shared.getStatus)(root, {
+        skipLint: true,
+        live: true,
+        bundledRunnerPath
+      });
     } catch (err) {
       console.error("[instrumentality] getStatus failed:", err);
       this.status = null;

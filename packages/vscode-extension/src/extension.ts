@@ -69,11 +69,10 @@ let submoduleWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
 let sourceWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
 let lastLivePatterns: string[] | null = null;
 
-// 300ms tradeoff: short enough that the sidebar reflects a save almost
-// immediately, long enough to coalesce a formatter-on-save burst into one
-// refresh. The live drift readonly pass takes 200–500ms so a tighter
-// debounce would just queue subprocesses without speeding up the UI.
-const DEBOUNCE_MS = 300;
+// 500ms tradeoff: long enough to coalesce a formatter-on-save burst (and
+// to soak up the live drift readonly pass which takes 200–500ms), short
+// enough that the sidebar still feels responsive to a single save.
+const DEBOUNCE_MS = 500;
 const PARSE_RETRY_MS = 500;
 const FILTER_KEY = "instrumentality.dashboardFilter";
 // Education banners are per-section and survive across workspaces — once
@@ -347,14 +346,16 @@ function reconcileSubmoduleWatchers(
  * sub-groups stay current without a manual reload.
  *
  * Behavior:
- *   - When patterns are null/empty (rules failed to load, fresh activation
- *     before the first refresh) install a single workspace-wide fallback
- *     under the sentinel key `__fallback__`.
- *   - When patterns are present, install one watcher per pattern keyed by
- *     the pattern string; remove any watchers whose key no longer appears.
- *   - Diff is keyed by string equality on the glob — same logic the
- *     submodule reconciler uses, just over rule-defined globs instead of
- *     gitdir HEADs.
+ *   - The workspace-wide `__fallback__` watcher is ALWAYS installed. VS
+ *     Code's `files.watcherExclude` already filters node_modules/.git/etc
+ *     by default, so the cost is a handful of extra refresh ticks during
+ *     a build — coalesced by the 300ms debounce into one actual refresh.
+ *     Keeping it permanently avoids a class of "the rules pattern didn't
+ *     match how VS Code observes this file" bugs, especially across
+ *     submodule git boundaries.
+ *   - When live patterns are present, per-pattern watchers are layered on
+ *     top as belt-and-suspenders (helpful in workspaces where the user
+ *     has tuned watcherExclude aggressively and the fallback is starved).
  */
 function reconcileSourceWatchers(
   context: vscode.ExtensionContext,
@@ -368,15 +369,13 @@ function reconcileSourceWatchers(
   }
 
   const want = new Set<string>();
+  want.add("__fallback__");
   if (Array.isArray(livePatterns) && livePatterns.length > 0) {
     for (const p of livePatterns) {
       if (typeof p === "string" && p.trim()) want.add(p);
     }
-    lastLivePatterns = [...want];
+    lastLivePatterns = [...want].filter((k) => k !== "__fallback__");
   } else {
-    // Fallback — covers the activation gap before the first successful
-    // refresh and the case where `_rules.md` is missing.
-    want.add("__fallback__");
     lastLivePatterns = null;
   }
 

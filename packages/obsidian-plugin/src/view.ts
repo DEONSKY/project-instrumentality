@@ -261,9 +261,16 @@ export class InstrumentalityView extends ItemView {
     try {
       // Live mode — overlays drift/conform in-memory entries onto the
       // committed snapshot so the dashboard reflects working-tree state.
-      // Falls back to disk-read when knowledge/_mcp/scripts/live-status.js
-      // isn't present (consumer projects without the MCP source in tree).
-      this.status = await getStatus(root, { skipLint: true, live: true });
+      // Vendored knowledge/_mcp/scripts/live-status.js wins when present;
+      // otherwise the bundled runner shipped with this plugin
+      // (__dirname/runner/scripts/live-status.js) is used so vaults that
+      // only have the KB content still get the live overlay.
+      const bundledRunnerPath = path.join(__dirname, "runner", "scripts", "live-status.js");
+      this.status = await getStatus(root, {
+        skipLint: true,
+        live: true,
+        bundledRunnerPath,
+      });
     } catch (err: any) {
       console.error("[instrumentality] getStatus failed:", err);
       this.status = null;

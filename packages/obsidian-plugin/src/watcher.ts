@@ -1,12 +1,18 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-// Raised from 300ms once we started watching source-file roots — editor
-// saves fire in bursts (formatter on save, multi-file refactors), and the
-// live drift detection does extra git work in readonly mode. 750ms lets a
-// burst coalesce into a single refresh.
-const DEBOUNCE_MS = 750;
+// 500ms tradeoff: long enough to coalesce a formatter-on-save burst (and
+// to soak up the live drift readonly pass which takes 200–500ms), short
+// enough that the view still feels responsive to a single save.
+const DEBOUNCE_MS = 500;
 const POLL_FALLBACK_MS = 5000;
+
+// Paths whose changes are uninteresting for drift detection. Filtered
+// inside the kbRoot fallback watcher so an `npm install` or a build
+// doesn't fire a refresh per artifact. Match against the watcher's
+// `filename` arg (relative to kbRoot) — uses leading-segment check so
+// `node_modules` matches but `path/node_modules/foo` also matches.
+const IGNORED_DIR_SEGMENTS = [".git", "node_modules", "dist", "build", ".obsidian", "out", "target"];
 
 /**
  * Extract the watchable directory root from a glob pattern. `src/**`/*.ts`
@@ -38,6 +44,11 @@ export class SyncWatcher {
   private fsWatcher: fs.FSWatcher | null = null;
   private extraWatchers: fs.FSWatcher[] = [];
   private codeRootWatchers: Map<string, fs.FSWatcher> = new Map();
+  // Always-on recursive watcher on kbRoot. Mirrors the VS Code __fallback__
+  // approach — if _rules.md patterns don't match how this platform observes
+  // a file (commonly across submodule git boundaries) saves still fire a
+  // debounced refresh. Noise dirs are filtered inside the callback.
+  private rootFallbackWatcher: fs.FSWatcher | null = null;
   private pollHandle: ReturnType<typeof setInterval> | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastMtimeSum = 0;
@@ -77,6 +88,38 @@ export class SyncWatcher {
     }
 
     this.reconcileExtraWatchers(extraPaths);
+    this.ensureRootFallback();
+  }
+
+  /**
+   * Install (or re-install) the always-on recursive watcher on kbRoot.
+   * Noise paths (`.git/`, `node_modules/`, build dirs) are filtered in
+   * the callback so an `npm install` doesn't fire a refresh per file.
+   * On platforms where `filename` is null (some macOS versions) the
+   * filter is skipped and we accept extra refresh ticks — the 300ms
+   * debounce makes those harmless.
+   */
+  private ensureRootFallback(): void {
+    if (this.rootFallbackWatcher) return;
+    if (!fs.existsSync(this.kbRoot)) return;
+    const handler = (_event: fs.WatchEventType, filename: string | Buffer | null) => {
+      if (filename) {
+        const rel = typeof filename === "string" ? filename : filename.toString("utf8");
+        const head = rel.split(path.sep)[0];
+        if (IGNORED_DIR_SEGMENTS.includes(head)) return;
+        for (const seg of IGNORED_DIR_SEGMENTS) {
+          if (rel.includes(path.sep + seg + path.sep)) return;
+        }
+      }
+      this.scheduleFire();
+    };
+    try {
+      this.rootFallbackWatcher = fs.watch(this.kbRoot, { recursive: true }, handler);
+    } catch {
+      // Recursive not supported on this platform — skip. Per-pattern
+      // watchers from setCodePatterns still cover the common case;
+      // the 5s poll catches missed sync-folder events.
+    }
   }
 
   /**
@@ -156,6 +199,10 @@ export class SyncWatcher {
     if (this.fsWatcher) {
       this.fsWatcher.close();
       this.fsWatcher = null;
+    }
+    if (this.rootFallbackWatcher) {
+      try { this.rootFallbackWatcher.close(); } catch { /* already closed */ }
+      this.rootFallbackWatcher = null;
     }
     for (const w of this.extraWatchers) {
       try {
