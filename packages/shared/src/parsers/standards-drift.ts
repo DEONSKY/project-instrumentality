@@ -70,6 +70,7 @@ export function parseStandardsDrift(
         path: m[1],
         sinceCommit: m[2],
         sinceDate: m[3],
+        source: "committed",
       };
       if (m[4]) {
         f.latestCommit = m[4];
@@ -89,6 +90,7 @@ export function parseStandardsDrift(
       severity: ruleMatch ? ruleMatch[2] : null,
       reason: reasonMatch ? reasonMatch[1].trim() : null,
       filesByParty,
+      source: "committed",
     };
     const ack = parseAck(block);
     if (ack) entry.acknowledgement = ack;

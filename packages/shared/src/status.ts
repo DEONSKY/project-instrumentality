@@ -91,17 +91,27 @@ export interface GetStatusOptions {
    * and `conform.runTool({ readonly: true })` and overlays the in-memory
    * entries onto the returned summary. Use this for the watcher in the
    * extension: the dashboard reflects the working-tree state without writing
-   * to disk. Falls back to disk-read silently if the runner script isn't
-   * present (consumer projects without the MCP source in tree).
+   * to disk. Falls back to disk-read silently if no runner script is found.
    */
   live?: boolean;
+  /**
+   * Absolute path to a fallback live-status.js to spawn when the consumer
+   * project doesn't vendor `knowledge/_mcp/` in tree. The VS Code extension
+   * passes its bundled runner here (`<extensionPath>/dist/runner/scripts/
+   * live-status.js`) so the overlay works in any project, vendored or not.
+   * Vendored path always wins when both exist — it's the version that
+   * matches the consumer's own sync semantics.
+   */
+  bundledRunnerPath?: string;
 }
 
 export async function getStatus(
   kbRoot: string,
   opts: GetStatusOptions = {}
 ): Promise<StatusSummary> {
-  const liveOverlay = opts.live ? await runLiveStatus(kbRoot) : null;
+  const liveOverlay = opts.live
+    ? await runLiveStatus(kbRoot, opts.bundledRunnerPath)
+    : null;
 
   const [
     codeDrift,
@@ -204,14 +214,20 @@ export async function getStatus(
       lintWarnings,
       grand: driftCount + conformPendingCount + promotions.length + lintErrors + lintWarnings,
     },
+    livePatterns: liveOverlay ? liveOverlay.codePatterns : null,
   };
 }
 
 // ── Live-status runner ───────────────────────────────────────────────────────
 //
-// Spawns knowledge/_mcp/scripts/live-status.js. Returns null when the script
-// is absent (consumer projects without the MCP source) or on any error — the
-// caller falls back to the disk-read state.
+// Spawns the readonly live-status runner. Probe order:
+//   1. `<kbRoot>/knowledge/_mcp/scripts/live-status.js` (vendored — wins
+//      when present so consumer drift logic stays in lockstep with the
+//      consumer's own kb-mcp version).
+//   2. `bundledRunnerPath` from the caller (the VS Code extension's
+//      shipped copy under `<extensionPath>/dist/runner/scripts/`).
+// Returns null when neither resolves or on any spawn error — caller falls
+// back to the disk-read state silently.
 
 interface LiveOverlay {
   headSha: string | null;
@@ -219,11 +235,27 @@ interface LiveOverlay {
   kbEntries: KbDriftEntry[];
   standardsEntries: StandardsDriftEntry[];
   backlogEntries: StandardsDriftEntry[];
+  /**
+   * Code-path globs from `knowledge/_rules.md` so the extension can scope its
+   * source-file watcher to the patterns the detector actually cares about.
+   * Null when rules loading failed in the runner — the extension falls back
+   * to a workspace-wide watcher.
+   */
+  codePatterns: string[] | null;
 }
 
-function runLiveStatus(kbRoot: string): Promise<LiveOverlay | null> {
-  const script = path.join(kbRoot, "knowledge", "_mcp", "scripts", "live-status.js");
-  if (!fs.existsSync(script)) return Promise.resolve(null);
+function runLiveStatus(
+  kbRoot: string,
+  bundledRunnerPath: string | undefined
+): Promise<LiveOverlay | null> {
+  const vendored = path.join(kbRoot, "knowledge", "_mcp", "scripts", "live-status.js");
+  let script: string | null = null;
+  if (fs.existsSync(vendored)) {
+    script = vendored;
+  } else if (bundledRunnerPath && fs.existsSync(bundledRunnerPath)) {
+    script = bundledRunnerPath;
+  }
+  if (!script) return Promise.resolve(null);
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [script], {
       cwd: kbRoot,
@@ -251,6 +283,7 @@ function runLiveStatus(kbRoot: string): Promise<LiveOverlay | null> {
           kbEntries: parsed.kbEntries ?? [],
           standardsEntries: tagMode(parsed.standardsEntries ?? [], "current"),
           backlogEntries: tagMode(parsed.backlogEntries ?? [], "aspirational"),
+          codePatterns: Array.isArray(parsed.codePatterns) ? parsed.codePatterns : null,
         });
       } catch {
         resolve(null);

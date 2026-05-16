@@ -29,6 +29,12 @@ export interface SectionGuide {
   todo: string;
   primaryVerb: string;
   lifecycleDiagram: string;
+  /**
+   * Short blurb rendered above the per-section "Uncommitted preview" sub-group
+   * so the author understands those entries are local-only until they publish.
+   * Optional — sections that have no preview (e.g. conform-pending) omit it.
+   */
+  uncommittedHint?: string;
 }
 
 const CODE_DRIFT_DIAGRAM = `git push / post-merge hook
@@ -139,6 +145,8 @@ export const SECTION_GUIDE: Record<SectionKind, SectionGuide> = {
     todo: "Update the KB to reflect the change — or acknowledge if the change doesn't affect the KB.",
     primaryVerb: "Update",
     lifecycleDiagram: CODE_DRIFT_DIAGRAM,
+    uncommittedHint:
+      "Code edits in your working tree that would drift the KB. Publish to share with reviewers.",
   },
   "kb-drift": {
     label: "KB Drift",
@@ -146,6 +154,8 @@ export const SECTION_GUIDE: Record<SectionKind, SectionGuide> = {
     todo: "Verify the code still matches, revise the KB, or acknowledge if benign.",
     primaryVerb: "Update",
     lifecycleDiagram: KB_DRIFT_DIAGRAM,
+    uncommittedHint:
+      "KB edits in your working tree without a matching code touch. Publish to share with reviewers.",
   },
   "standards-drift": {
     label: "Standards Drift",
@@ -153,6 +163,8 @@ export const SECTION_GUIDE: Record<SectionKind, SectionGuide> = {
     todo: "Resolve via kb_conform: apply, exempt, promote, dismiss, or acknowledge.",
     primaryVerb: "Resolve",
     lifecycleDiagram: STANDARDS_DRIFT_DIAGRAM,
+    uncommittedHint:
+      "Standards violations from edits in your working tree. Publish to share with reviewers.",
   },
   "conform-pending": {
     label: "Conform Pending",

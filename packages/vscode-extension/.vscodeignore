@@ -4,8 +4,14 @@ src/**
 test/**
 out/**
 node_modules/**
+scripts/**
 **/*.map
 **/*.ts
 tsconfig.json
 esbuild.config.js
 .gitignore
+# Carve-outs: ship the bundled runner + its npm deps + the templates it
+# resolves via __dirname. Without these the consumer-project fallback in
+# packages/shared/src/status.ts:runLiveStatus has nothing to spawn.
+!dist/runner/**
+!dist/_templates/**

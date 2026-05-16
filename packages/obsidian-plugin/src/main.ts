@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf, addIcon } from "obsidian";
+import { Plugin, WorkspaceLeaf, addIcon, TAbstractFile, TFile } from "obsidian";
 import { findKbRoot, type SectionKind } from "@instrumentality/shared";
 import { InstrumentalityView, VIEW_TYPE_INSTRUMENTALITY, ICON_ID } from "./view";
 
@@ -75,6 +75,24 @@ export default class InstrumentalityPlugin extends Plugin {
         }
       },
     });
+
+    // KB drift fires on markdown edits the user makes inside the vault.
+    // Routing through Vault.on captures the same write path the user sees
+    // in their editor — fs.watch on `knowledge/sync/` would only catch the
+    // post-publish snapshot, not in-progress edits. Each event funnels
+    // into the open views' watcher debouncer so we don't double-refresh.
+    const handleVaultEvent = (file: TAbstractFile) => {
+      if (!(file instanceof TFile)) return;
+      // Only markdown edits matter for kb-drift; code-side preview is
+      // covered by the watcher's fs.watch over rules-pattern roots.
+      if (file.extension !== "md") return;
+      for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_INSTRUMENTALITY)) {
+        (leaf.view as InstrumentalityView).notifySourceChanged();
+      }
+    };
+    this.registerEvent(this.app.vault.on("modify", handleVaultEvent));
+    this.registerEvent(this.app.vault.on("create", handleVaultEvent));
+    this.registerEvent(this.app.vault.on("delete", handleVaultEvent));
   }
 
   private async persistDismissedBanner(kind: SectionKind): Promise<void> {

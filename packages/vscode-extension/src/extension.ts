@@ -61,7 +61,18 @@ let watchers: vscode.FileSystemWatcher[] = [];
 // submodules can change at runtime — add/remove via .gitmodules — so we
 // keep them in a separate map keyed by the watched path).
 let submoduleWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
+// Source-file watchers scoped to the rules `code_path_patterns`. Reconciled
+// per-refresh keyed by the glob pattern — so when `_rules.md` adds or
+// removes a pattern, we only churn the affected watcher. When no patterns
+// are known (fresh activation, rules failed to load), we install a single
+// workspace-wide fallback watcher under the sentinel key `__fallback__`.
+let sourceWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
+let lastLivePatterns: string[] | null = null;
 
+// 300ms tradeoff: short enough that the sidebar reflects a save almost
+// immediately, long enough to coalesce a formatter-on-save burst into one
+// refresh. The live drift readonly pass takes 200–500ms so a tighter
+// debounce would just queue subprocesses without speeding up the UI.
 const DEBOUNCE_MS = 300;
 const PARSE_RETRY_MS = 500;
 const FILTER_KEY = "instrumentality.dashboardFilter";
@@ -158,6 +169,8 @@ export function deactivate(): void {
   watchers = [];
   for (const w of submoduleWatchers.values()) w.dispose();
   submoduleWatchers.clear();
+  for (const w of sourceWatchers.values()) w.dispose();
+  sourceWatchers.clear();
   if (pollInterval) clearInterval(pollInterval);
 }
 
@@ -270,6 +283,11 @@ function detectAndWatch(context: vscode.ExtensionContext): void {
     context.subscriptions.push(headWatcher);
   }
 
+  // Install the fallback source-file watcher up front so the very first
+  // user edit triggers a refresh — without this, we'd miss edits made
+  // before the initial refresh resolves and surfaces livePatterns.
+  reconcileSourceWatchers(context, lastLivePatterns);
+
   restartPoll();
   void refresh();
 }
@@ -318,6 +336,67 @@ function reconcileSubmoduleWatchers(
     w.onDidCreate(onChange);
     w.onDidDelete(onChange);
     submoduleWatchers.set(p, w);
+    context.subscriptions.push(w);
+  }
+}
+
+/**
+ * Reconcile the source-file watcher set against the latest live patterns
+ * surfaced by the live-status runner. These watchers exist so edits to
+ * code/KB files trigger a debounced refresh and the "Uncommitted preview"
+ * sub-groups stay current without a manual reload.
+ *
+ * Behavior:
+ *   - When patterns are null/empty (rules failed to load, fresh activation
+ *     before the first refresh) install a single workspace-wide fallback
+ *     under the sentinel key `__fallback__`.
+ *   - When patterns are present, install one watcher per pattern keyed by
+ *     the pattern string; remove any watchers whose key no longer appears.
+ *   - Diff is keyed by string equality on the glob — same logic the
+ *     submodule reconciler uses, just over rule-defined globs instead of
+ *     gitdir HEADs.
+ */
+function reconcileSourceWatchers(
+  context: vscode.ExtensionContext,
+  livePatterns: string[] | null
+): void {
+  if (!kbRoot) {
+    for (const w of sourceWatchers.values()) w.dispose();
+    sourceWatchers.clear();
+    lastLivePatterns = null;
+    return;
+  }
+
+  const want = new Set<string>();
+  if (Array.isArray(livePatterns) && livePatterns.length > 0) {
+    for (const p of livePatterns) {
+      if (typeof p === "string" && p.trim()) want.add(p);
+    }
+    lastLivePatterns = [...want];
+  } else {
+    // Fallback — covers the activation gap before the first successful
+    // refresh and the case where `_rules.md` is missing.
+    want.add("__fallback__");
+    lastLivePatterns = null;
+  }
+
+  for (const [key, w] of sourceWatchers) {
+    if (!want.has(key)) {
+      w.dispose();
+      sourceWatchers.delete(key);
+    }
+  }
+  const onChange = () => scheduleRefresh();
+  for (const key of want) {
+    if (sourceWatchers.has(key)) continue;
+    const glob = key === "__fallback__" ? "**/*" : key;
+    const w = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(vscode.Uri.file(kbRoot), glob)
+    );
+    w.onDidChange(onChange);
+    w.onDidCreate(onChange);
+    w.onDidDelete(onChange);
+    sourceWatchers.set(key, w);
     context.subscriptions.push(w);
   }
 }
@@ -380,9 +459,13 @@ async function fetchStatus(): Promise<StatusSummary> {
   const lintCommand = cfg.get<string>("lint.command", "").trim() || undefined;
   // Live mode: compute drift/conform in memory via the readonly runner so the
   // dashboard reflects the working tree, not the last published .md snapshot.
-  // Falls back transparently to disk-read when the runner script isn't present
-  // (consumer projects without knowledge/_mcp/ in tree).
-  return getStatus(kbRoot!, { lintCommand, live: true });
+  // The vendored knowledge/_mcp/scripts/live-status.js wins when present; the
+  // bundled runner under the extension's install dir is the fallback for
+  // consumer projects that install kb-mcp via npm only.
+  const bundledRunnerPath = extContext
+    ? path.join(extContext.extensionPath, "dist", "runner", "scripts", "live-status.js")
+    : undefined;
+  return getStatus(kbRoot!, { lintCommand, live: true, bundledRunnerPath });
 }
 
 function applyStatus(status: StatusSummary): void {
@@ -393,6 +476,7 @@ function applyStatus(status: StatusSummary): void {
   refreshDashboardIfOpen(status);
   maybeNotify(status);
   if (extContext) reconcileSubmoduleWatchers(extContext, status);
+  if (extContext) reconcileSourceWatchers(extContext, status.livePatterns ?? null);
 }
 
 function setSpinner(spinning: boolean): void {

@@ -8,6 +8,9 @@ import {
   buildEntryHandles,
   groupEntries,
   SECTION_GUIDE,
+  splitBySource,
+  UNCOMMITTED_LABEL,
+  PUBLISHED_LABEL,
   type StatusSummary,
   type CodeDriftEntry,
   type KbDriftEntry,
@@ -1168,17 +1171,20 @@ function renderEntryByHandle(
     case "code-drift": {
       const i = status.codeDrift.entries.findIndex((e) => stableEntryId(e.kbTarget, status.codeDrift.entries.indexOf(e)) === h.id);
       if (i < 0) return "";
-      return codeDriftRow(status.codeDrift.entries[i], i, kbRoot);
+      const e = status.codeDrift.entries[i];
+      return codeDriftRow(e, i, kbRoot, e.source === "working-tree");
     }
     case "kb-drift": {
       const i = status.kbDrift.entries.findIndex((e) => stableEntryId(e.kbFile, status.kbDrift.entries.indexOf(e)) === h.id);
       if (i < 0) return "";
-      return kbDriftRow(status.kbDrift.entries[i], i, kbRoot);
+      const e = status.kbDrift.entries[i];
+      return kbDriftRow(e, i, kbRoot, e.source === "working-tree");
     }
     case "standards-drift": {
       const i = status.standardsDrift.entries.findIndex((e) => stableEntryId(e.queueKey, status.standardsDrift.entries.indexOf(e)) === h.id);
       if (i < 0) return "";
-      return standardsDriftRow(status.standardsDrift.entries[i], i, kbRoot);
+      const e = status.standardsDrift.entries[i];
+      return standardsDriftRow(e, i, kbRoot, e.source === "working-tree");
     }
     case "conform-pending": {
       for (const p of [status.conformPending.current, status.conformPending.aspirational]) {
@@ -1217,10 +1223,12 @@ function entryShell(
   hasStandardRule: boolean,
   diffableFiles: DiffableFile[],
   modeAttr?: string,
-  verdictFiles?: string[]
+  verdictFiles?: string[],
+  isUncommitted: boolean = false
 ): string {
   const sevAttr = sev ?? "";
   const modeHtml = modeAttr ? ` data-entry-mode="${escapeAttr(modeAttr)}"` : "";
+  const bucketAttr = isUncommitted ? ` data-entry-bucket="uncommitted"` : "";
   const standardBtns = hasStandard
     ? `<button class="btn btn-tiny" data-action="openStandard">Open Standard</button>` +
       (hasStandardRule
@@ -1231,7 +1239,12 @@ function entryShell(
   const diffSection = renderDiffSection(diffableFiles);
   const sendLabel = primaryActionLabel(ref.section);
   const copyLabel = copyActionLabel(ref.section);
-  const verdictDefs = VERDICTS_BY_SECTION[ref.section] ?? [];
+  // Verdict buttons resolve queue entries via downstream MCP tools. Those
+  // tools target the **published** .md queue, which uncommitted-preview
+  // entries aren't part of yet — hide the verdict row to avoid a confusing
+  // "applied to nothing" code path. Send/Copy/Open are still useful (author
+  // can ask the agent to help finish the change before publishing).
+  const verdictDefs = isUncommitted ? [] : VERDICTS_BY_SECTION[ref.section] ?? [];
   const verdictBtns = verdictDefs
     .map((v) => {
       // applied → direct submit (no form). Others open the inline form.
@@ -1249,7 +1262,7 @@ function entryShell(
     data-entry-section="${escapeAttr(ref.section)}"
     data-entry-id="${escapeAttr(ref.id)}"
     data-entry-sev="${escapeAttr(sevAttr)}"
-    data-entry-text="${escapeAttr(searchableText)}"${modeHtml}>
+    data-entry-text="${escapeAttr(searchableText)}"${modeHtml}${bucketAttr}>
     <div class="entry-summary">${summaryHtml}</div>
     <div class="entry-detail">
       ${detailMetaHtml}
@@ -1386,6 +1399,53 @@ function educationBannerHtml(kind: SectionKind, dismissed: boolean): string {
   </div>`;
 }
 
+/**
+ * Render a section body split into "Uncommitted preview" and "Published"
+ * buckets. Each visible bucket gets a sub-header showing label + count + the
+ * per-section hint (when uncommitted). When only one bucket has entries, the
+ * sub-header is omitted to keep the card visually quiet.
+ */
+function renderBucketedBody<T extends { source?: "committed" | "working-tree" }>(
+  entries: readonly T[],
+  rowFn: (entry: T, index: number, bucket: "uncommitted" | "published") => string,
+  emptyMessage: string,
+  sectionKind: SectionKind
+): string {
+  if (entries.length === 0) {
+    return `<div class="placeholder">${escapeHtml(emptyMessage)}</div>`;
+  }
+  const { uncommitted, published } = splitBySource(entries);
+  // When everything sits in one bucket, render rows directly — keep the
+  // card looking like it always has.
+  if (uncommitted.length === 0) {
+    return published.map((e, i) => rowFn(e, i, "published")).join("");
+  }
+  if (published.length === 0) {
+    const hint = SECTION_GUIDE[sectionKind].uncommittedHint;
+    const header = renderBucketHeader(UNCOMMITTED_LABEL, uncommitted.length, hint);
+    return header + uncommitted.map((e, i) => rowFn(e, i, "uncommitted")).join("");
+  }
+  // Both buckets present — render uncommitted first (most actionable for
+  // the author) then published.
+  const uncommittedHeader = renderBucketHeader(
+    UNCOMMITTED_LABEL,
+    uncommitted.length,
+    SECTION_GUIDE[sectionKind].uncommittedHint
+  );
+  const publishedHeader = renderBucketHeader(PUBLISHED_LABEL, published.length);
+  return (
+    uncommittedHeader +
+    uncommitted.map((e, i) => rowFn(e, i, "uncommitted")).join("") +
+    publishedHeader +
+    published.map((e, i) => rowFn(e, i, "published")).join("")
+  );
+}
+
+function renderBucketHeader(label: string, count: number, hint?: string): string {
+  const hintHtml = hint ? `<div class="group-hint">${escapeHtml(hint)}</div>` : "";
+  return `<div class="bucket-header"><strong>${escapeHtml(label)}</strong> <span class="count">${count}</span>${hintHtml}</div>`;
+}
+
 function renderCodeDriftCard(
   status: StatusSummary,
   _idx: Map<string, IndexedEntry>,
@@ -1397,9 +1457,12 @@ function renderCodeDriftCard(
   const baselineHtml = baseline
     ? `<span class="badge" title="baseline">${escapeHtml(baseline.slice(0, 7))}</span>`
     : "";
-  const body = entries.length === 0
-    ? `<div class="placeholder">No code drift</div>`
-    : entries.map((e, i) => codeDriftRow(e, i, kbRoot)).join("");
+  const body = renderBucketedBody(
+    entries,
+    (e, i, bucket) => codeDriftRow(e, i, kbRoot, bucket === "uncommitted"),
+    "No code drift",
+    "code-drift"
+  );
   return sectionShell(
     "code-drift",
     SECTION_GUIDE["code-drift"].label + "s",
@@ -1412,19 +1475,20 @@ function renderCodeDriftCard(
   );
 }
 
-function codeDriftRow(e: CodeDriftEntry, i: number, kbRoot: string | null): string {
+function codeDriftRow(e: CodeDriftEntry, i: number, kbRoot: string | null, isUncommitted: boolean = false): string {
   const id = stableEntryId(e.kbTarget, i);
   const ref = { section: "code-drift" as SectionKind, id };
   const filesPreview = e.codeFiles.slice(0, 3).map((f) => path.basename(f.path)).join(", ");
   const more = e.codeFiles.length > 3 ? ` (+${e.codeFiles.length - 3})` : "";
   const sharedBadge = e.hasShared ? `<span class="badge shared">shared</span>` : "";
+  const previewBadge = isUncommitted ? `<span class="badge preview-mode" title="Uncommitted preview — not yet published">preview</span>` : "";
   const summary = `
-    <div class="title">${escapeHtml(e.kbTarget)} ${sharedBadge}</div>
+    <div class="title">${escapeHtml(e.kbTarget)} ${sharedBadge} ${previewBadge}</div>
     <div class="meta">${e.codeFiles.length} file(s) — ${escapeHtml(filesPreview + more)}</div>`;
   const sev = e.hasShared ? "warn" : "info";
   const text = e.kbTarget + " " + e.codeFiles.map((f) => f.path).join(" ");
   const diffs = collectDiffableFromCodeDrift(e, (p) => resolveAbsFor(kbRoot, p));
-  return entryShell(ref, sev, text, summary, buildCodeDriftDetail(e), false, false, diffs);
+  return entryShell(ref, sev, text, summary, buildCodeDriftDetail(e), false, false, diffs, undefined, undefined, isUncommitted);
 }
 
 function renderKbDriftCard(
@@ -1434,9 +1498,12 @@ function renderKbDriftCard(
   dismissedBanners: ReadonlySet<SectionKind>
 ): string {
   const entries = status.kbDrift.entries;
-  const body = entries.length === 0
-    ? `<div class="placeholder">No KB drift</div>`
-    : entries.map((e, i) => kbDriftRow(e, i, kbRoot)).join("");
+  const body = renderBucketedBody(
+    entries,
+    (e, i, bucket) => kbDriftRow(e, i, kbRoot, bucket === "uncommitted"),
+    "No KB drift",
+    "kb-drift"
+  );
   return sectionShell(
     "kb-drift",
     SECTION_GUIDE["kb-drift"].label + "s",
@@ -1449,16 +1516,17 @@ function renderKbDriftCard(
   );
 }
 
-function kbDriftRow(e: KbDriftEntry, i: number, kbRoot: string | null): string {
+function kbDriftRow(e: KbDriftEntry, i: number, kbRoot: string | null, isUncommitted: boolean = false): string {
   const id = stableEntryId(e.kbFile, i);
   const ref = { section: "kb-drift" as SectionKind, id };
+  const previewBadge = isUncommitted ? `<span class="badge preview-mode" title="Uncommitted preview — not yet published">preview</span>` : "";
   const summary = `
-    <div class="title">${escapeHtml(e.kbFile)} ${e.unmapped ? `<span class="badge sev-warn">unmapped</span>` : ""}</div>
+    <div class="title">${escapeHtml(e.kbFile)} ${e.unmapped ? `<span class="badge sev-warn">unmapped</span>` : ""} ${previewBadge}</div>
     <div class="meta">${e.codeAreas.length} code area(s)${e.refCount && e.refCount.count > 0 ? ` · ${e.refCount.count} reference(s)` : ""}</div>`;
   const sev = e.unmapped ? "warn" : "info";
   const text = e.kbFile + " " + e.codeAreas.join(" ");
   const diffs = collectDiffableFromKbDrift(e, (p) => resolveAbsFor(kbRoot, p));
-  return entryShell(ref, sev, text, summary, buildKbDriftDetail(e), false, false, diffs);
+  return entryShell(ref, sev, text, summary, buildKbDriftDetail(e), false, false, diffs, undefined, undefined, isUncommitted);
 }
 
 function renderStandardsDriftCard(
@@ -1468,9 +1536,12 @@ function renderStandardsDriftCard(
   dismissedBanners: ReadonlySet<SectionKind>
 ): string {
   const entries = status.standardsDrift.entries;
-  const body = entries.length === 0
-    ? `<div class="placeholder">No standards drift</div>`
-    : entries.map((e, i) => standardsDriftRow(e, i, kbRoot)).join("");
+  const body = renderBucketedBody(
+    entries,
+    (e, i, bucket) => standardsDriftRow(e, i, kbRoot, bucket === "uncommitted"),
+    "No standards drift",
+    "standards-drift"
+  );
   return sectionShell(
     "standards-drift",
     SECTION_GUIDE["standards-drift"].label,
@@ -1483,7 +1554,7 @@ function renderStandardsDriftCard(
   );
 }
 
-function standardsDriftRow(e: StandardsDriftEntry, i: number, kbRoot: string | null): string {
+function standardsDriftRow(e: StandardsDriftEntry, i: number, kbRoot: string | null, isUncommitted: boolean = false): string {
   // Disambiguate current vs aspirational entries that share a queueKey:
   // each mode lives in its own queue file, but a (file, rule) pair can
   // appear in both at once. Folding mode into the id keeps them unique.
@@ -1495,10 +1566,11 @@ function standardsDriftRow(e: StandardsDriftEntry, i: number, kbRoot: string | n
     e.mode === "aspirational"
       ? `<span class="badge advisory-mode" title="Advisory backlog — not PR-blocking">advisory</span>`
       : "";
+  const previewBadge = isUncommitted ? `<span class="badge preview-mode" title="Uncommitted preview — not yet published">preview</span>` : "";
   const fileCount = Object.values(e.filesByParty).reduce((sum, files) => sum + files.length, 0);
   const ruleHint = e.resolvedRule?.title ? ` · ${escapeHtml(e.resolvedRule.title)}` : "";
   const summary = `
-    <div class="title">${escapeHtml(e.queueKey)} ${sevBadge} ${advisoryBadge}</div>
+    <div class="title">${escapeHtml(e.queueKey)} ${sevBadge} ${advisoryBadge} ${previewBadge}</div>
     <div class="meta">${escapeHtml(e.standardId ?? "?")} ${e.standardKind ? `(${escapeHtml(e.standardKind)})` : ""} · ${fileCount} file(s)${ruleHint}</div>`;
   const text = e.queueKey + " " + (e.standardId ?? "") + " " + (e.reason ?? "") + " " + (e.resolvedRule?.title ?? "");
   const hasRule = !!(e.standardId && e.ruleId);
@@ -1520,7 +1592,8 @@ function standardsDriftRow(e: StandardsDriftEntry, i: number, kbRoot: string | n
     hasRule,
     diffs,
     e.mode,
-    verdictFiles
+    verdictFiles,
+    isUncommitted
   );
 }
 
@@ -1727,9 +1800,15 @@ function renderSubmodulesPinned(
   const chevron = collapsed ? "▸" : "▾";
   const ariaExpanded = collapsed ? "false" : "true";
 
-  const bodyHtml = collapsed
-    ? ""
-    : `<div class="submodule-pinned-body">
+  // Always render the body; visibility is controlled by
+  // `.submodules-pinned[data-collapsed="true"] .submodule-pinned-body { display: none }`.
+  // Eliding the body when collapsed broke the expand path: the optimistic
+  // click handler queries for `.submodule-pinned-body` and toggles its
+  // display, but if the element was never rendered, the chevron flipped
+  // while the body stayed missing — and the host doesn't re-render on
+  // toggleSubmodules. Cost of the always-rendered branch is a few hundred
+  // bytes of HTML per refresh.
+  const bodyHtml = `<div class="submodule-pinned-body">
         ${sharedWarnHtml}
         <div class="submodule-list">${rows}</div>
         <div class="submodule-actions">
@@ -2415,7 +2494,12 @@ body[data-mode="sidebar"] pre {
   align-items: flex-start;
   flex-direction: row;
 }
-.banner.education.hidden {
+/* Sidebar mode forces display:block on the open section's banner via a
+ * 4-class selector, which outweighs .banner.education.hidden. Match that
+ * specificity here so the Got it button actually hides the banner in the
+ * sidebar — not just the dashboard. */
+.banner.education.hidden,
+body[data-mode="sidebar"] .section-card[data-open="true"] > .banner.education.hidden {
   display: none;
 }
 .banner.education .banner-content {

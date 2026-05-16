@@ -200,7 +200,14 @@ var require_code_drift = __commonJS({
     var fs2 = __importStar(require("fs"));
     var baseline_js_1 = require_baseline();
     var kb_root_js_1 = require_kb_root();
-    var FILE_LINE_RE = /^\s+-\s+`([^`]+)`(?:\s+←\s+renamed from\s+`([^`]+)`)?\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?/;
+    var FILE_LINE_RE = /^\s+-\s+`([^`]+)`(?:\s+←\s+renamed from\s+`([^`]+)`)?\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?(?:\s+—\s+by\s+@(\S+))?/;
+    var ACK_RE = /\*\*Acknowledged\*\*:\s*@(\S+)\s+at\s+`([^`]+)`\s+\(([^)]+)\)\s+—\s+"([^"]+)"/;
+    function parseAck(block) {
+      const m = block.match(ACK_RE);
+      if (!m)
+        return void 0;
+      return { by: m[1], atCommit: m[2], atDate: m[3], reason: m[4] };
+    }
     function parseCodeDrift(content) {
       const baseline = (0, baseline_js_1.parseBaseline)(content);
       const { blocks } = (0, baseline_js_1.splitHeaderAndBlocks)(content);
@@ -219,7 +226,8 @@ var require_code_drift = __commonJS({
           const f = {
             path: m[1],
             sinceCommit: m[3],
-            sinceDate: m[4]
+            sinceDate: m[4],
+            source: "committed"
           };
           if (m[2])
             f.renamedFrom = m[2];
@@ -227,9 +235,15 @@ var require_code_drift = __commonJS({
             f.latestCommit = m[5];
             f.latestDate = m[6];
           }
+          if (m[7])
+            f.author = m[7];
           codeFiles.push(f);
         }
-        entries.push({ kind: "code-drift", kbTarget, codeFiles, hasShared });
+        const entry = { kind: "code-drift", kbTarget, codeFiles, hasShared, source: "committed" };
+        const ack = parseAck(block);
+        if (ack)
+          entry.acknowledgement = ack;
+        entries.push(entry);
       }
       return { entries, baseline };
     }
@@ -296,6 +310,13 @@ var require_kb_drift = __commonJS({
     var fs2 = __importStar(require("fs"));
     var baseline_js_1 = require_baseline();
     var kb_root_js_1 = require_kb_root();
+    var ACK_RE = /\*\*Acknowledged\*\*:\s*@(\S+)\s+at\s+`([^`]+)`\s+\(([^)]+)\)\s+—\s+"([^"]+)"/;
+    function parseAck(block) {
+      const m = block.match(ACK_RE);
+      if (!m)
+        return void 0;
+      return { by: m[1], atCommit: m[2], atDate: m[3], reason: m[4] };
+    }
     function parseKbDrift(content) {
       const baseline = (0, baseline_js_1.parseBaseline)(content);
       const { blocks } = (0, baseline_js_1.splitHeaderAndBlocks)(content);
@@ -307,7 +328,7 @@ var require_kb_drift = __commonJS({
           continue;
         const renamedMatch = block.match(/\*\*Renamed from:\*\*\s*`([^`]+)`/);
         const sinceMatch = block.match(/\*\*Since:\*\*\s*`([^`]+)`\s*\(([^)]+)\)/);
-        const latestMatch = block.match(/\*\*Latest:\*\*\s*`([^`]+)`\s*\(([^)]+)\)/);
+        const latestMatch = block.match(/\*\*Latest:\*\*\s*`([^`]+)`\s*\(([^)]+)\)(?:\s+—\s+by\s+@(\S+))?/);
         const unmapped = /KB spec changed without mapped code paths/.test(block);
         const codeAreas = [];
         const references = [];
@@ -352,7 +373,8 @@ var require_kb_drift = __commonJS({
           kbFile,
           codeAreas,
           references,
-          unmapped
+          unmapped,
+          source: "committed"
         };
         if (renamedMatch)
           entry.renamedFrom = renamedMatch[1];
@@ -365,7 +387,12 @@ var require_kb_drift = __commonJS({
         if (latestMatch) {
           entry.latestCommit = latestMatch[1];
           entry.latestDate = latestMatch[2];
+          if (latestMatch[3])
+            entry.author = latestMatch[3];
         }
+        const ack = parseAck(block);
+        if (ack)
+          entry.acknowledgement = ack;
         entries.push(entry);
       }
       return { entries, baseline };
@@ -434,7 +461,14 @@ var require_standards_drift = __commonJS({
     var fs2 = __importStar(require("fs"));
     var baseline_js_1 = require_baseline();
     var kb_root_js_1 = require_kb_root();
-    var FILE_LINE_RE = /^\s+-\s+`([^`]+)`\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?/;
+    var FILE_LINE_RE = /^\s+-\s+`([^`]+)`\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?(?:\s+—\s+by\s+@(\S+))?/;
+    var ACK_RE = /\*\*Acknowledged\*\*:\s*@(\S+)\s+at\s+`([^`]+)`\s+\(([^)]+)\)\s+—\s+"([^"]+)"/;
+    function parseAck(block) {
+      const m = block.match(ACK_RE);
+      if (!m)
+        return void 0;
+      return { by: m[1], atCommit: m[2], atDate: m[3], reason: m[4] };
+    }
     function parseStandardsDrift(content, mode = "current") {
       const baseline = (0, baseline_js_1.parseBaseline)(content);
       const { blocks } = (0, baseline_js_1.splitHeaderAndBlocks)(content);
@@ -473,15 +507,18 @@ var require_standards_drift = __commonJS({
           const f = {
             path: m[1],
             sinceCommit: m[2],
-            sinceDate: m[3]
+            sinceDate: m[3],
+            source: "committed"
           };
           if (m[4]) {
             f.latestCommit = m[4];
             f.latestDate = m[5];
           }
+          if (m[6])
+            f.author = m[6];
           filesByParty[partyKey].push(f);
         }
-        entries.push({
+        const entry = {
           kind: "standards-drift",
           mode,
           queueKey,
@@ -490,8 +527,13 @@ var require_standards_drift = __commonJS({
           ruleId: ruleMatch ? ruleMatch[1] : null,
           severity: ruleMatch ? ruleMatch[2] : null,
           reason: reasonMatch ? reasonMatch[1].trim() : null,
-          filesByParty
-        });
+          filesByParty,
+          source: "committed"
+        };
+        const ack = parseAck(block);
+        if (ack)
+          entry.acknowledgement = ack;
+        entries.push(entry);
       }
       return { entries, baseline };
     }
@@ -800,7 +842,7 @@ var require_lint = __commonJS({
       return runProcess(process.execPath, [script], kbRoot);
     }
     function runShell(command, cwd) {
-      return new Promise((resolve) => {
+      return new Promise((resolve2) => {
         const child = (0, node_child_process_1.spawn)(command, {
           cwd,
           shell: true,
@@ -811,15 +853,15 @@ var require_lint = __commonJS({
           stderr += chunk.toString("utf8");
         });
         child.on("error", (err) => {
-          resolve({ violations: [], ran: false, error: err.message });
+          resolve2({ violations: [], ran: false, error: err.message });
         });
         child.on("close", () => {
-          resolve({ violations: parseLintStderr(stderr), ran: true });
+          resolve2({ violations: parseLintStderr(stderr), ran: true });
         });
       });
     }
     function runProcess(bin, args, cwd) {
-      return new Promise((resolve) => {
+      return new Promise((resolve2) => {
         const child = (0, node_child_process_1.spawn)(bin, args, {
           cwd,
           stdio: ["ignore", "ignore", "pipe"]
@@ -829,10 +871,10 @@ var require_lint = __commonJS({
           stderr += chunk.toString("utf8");
         });
         child.on("error", (err) => {
-          resolve({ violations: [], ran: false, error: err.message });
+          resolve2({ violations: [], ran: false, error: err.message });
         });
         child.on("close", () => {
-          resolve({ violations: parseLintStderr(stderr), ran: true });
+          resolve2({ violations: parseLintStderr(stderr), ran: true });
         });
       });
     }
@@ -4382,9 +4424,55 @@ var require_hooks_status = __commonJS({
 var require_status = __commonJS({
   "../shared/dist/status.js"(exports2) {
     "use strict";
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
+      if (k2 === void 0)
+        k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    } : function(o, m, k, k2) {
+      if (k2 === void 0)
+        k2 = k;
+      o[k2] = m[k];
+    });
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+      Object.defineProperty(o, "default", { enumerable: true, value: v });
+    } : function(o, v) {
+      o["default"] = v;
+    });
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+      var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function(o2) {
+          var ar = [];
+          for (var k in o2)
+            if (Object.prototype.hasOwnProperty.call(o2, k))
+              ar[ar.length] = k;
+          return ar;
+        };
+        return ownKeys(o);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule)
+          return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
+            if (k[i] !== "default")
+              __createBinding(result, mod, k[i]);
+        }
+        __setModuleDefault(result, mod);
+        return result;
+      };
+    }();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.getStatus = getStatus2;
     var node_child_process_1 = require("child_process");
+    var fs2 = __importStar(require("fs"));
+    var path3 = __importStar(require("path"));
     var node_util_1 = require("util");
     var code_drift_js_1 = require_code_drift();
     var kb_drift_js_1 = require_kb_drift();
@@ -4439,6 +4527,7 @@ var require_status = __commonJS({
       }
     }
     async function getStatus2(kbRoot, opts = {}) {
+      const liveOverlay = opts.live ? await runLiveStatus(kbRoot) : null;
       const [codeDrift, kbDrift, standardsDriftCurrent, standardsBacklog, currentPending, asp, promotions, driftLogEvents, lint, head, submodules, hooks] = await Promise.all([
         Promise.resolve((0, code_drift_js_1.readCodeDrift)(kbRoot)),
         Promise.resolve((0, kb_drift_js_1.readKbDrift)(kbRoot)),
@@ -4453,9 +4542,13 @@ var require_status = __commonJS({
         (0, submodule_status_js_1.getSubmoduleStatus)(kbRoot).catch(() => null),
         (0, hooks_status_js_1.getHooksStatus)(kbRoot).catch(() => null)
       ]);
+      const codeDriftFinal = liveOverlay ? { entries: liveOverlay.codeEntries, baseline: codeDrift.baseline } : codeDrift;
+      const kbDriftFinal = liveOverlay ? { entries: liveOverlay.kbEntries, baseline: kbDrift.baseline } : kbDrift;
+      const standardsCurrentFinal = liveOverlay ? { entries: liveOverlay.standardsEntries, baseline: standardsDriftCurrent.baseline } : standardsDriftCurrent;
+      const standardsBacklogFinal = liveOverlay ? { entries: liveOverlay.backlogEntries, baseline: standardsBacklog.baseline } : standardsBacklog;
       const standardsDrift = {
-        entries: [...standardsDriftCurrent.entries, ...standardsBacklog.entries],
-        baseline: standardsDriftCurrent.baseline
+        entries: [...standardsCurrentFinal.entries, ...standardsBacklogFinal.entries],
+        baseline: standardsCurrentFinal.baseline
       };
       const stale = (recorded) => head !== null && recorded.length > 0 && !head.startsWith(recorded) && !recorded.startsWith(head);
       const conformCurrent = currentPending ? { ...currentPending, staleAgainstHead: stale(currentPending.head_sha_short) } : null;
@@ -4464,15 +4557,15 @@ var require_status = __commonJS({
         currentPending,
         asp
       ]);
-      const driftCount = codeDrift.entries.length + kbDrift.entries.length + standardsDrift.entries.length;
+      const driftCount = codeDriftFinal.entries.length + kbDriftFinal.entries.length + standardsDrift.entries.length;
       const conformPendingCount = (conformCurrent?.requested.length ?? 0) + (conformAspirational?.requested.length ?? 0);
       const lintErrors = lint.violations.filter((v) => v.severity === "error").length;
       const lintWarnings = lint.violations.filter((v) => v.severity === "warn").length;
       return {
         kbRoot,
         currentHeadShort: head,
-        codeDrift,
-        kbDrift,
+        codeDrift: codeDriftFinal,
+        kbDrift: kbDriftFinal,
         standardsDrift,
         conformPending: { current: conformCurrent, aspirational: conformAspirational },
         promotions,
@@ -4487,8 +4580,46 @@ var require_status = __commonJS({
           lintErrors,
           lintWarnings,
           grand: driftCount + conformPendingCount + promotions.length + lintErrors + lintWarnings
-        }
+        },
+        livePatterns: liveOverlay ? liveOverlay.codePatterns : null
       };
+    }
+    function runLiveStatus(kbRoot) {
+      const script = path3.join(kbRoot, "knowledge", "_mcp", "scripts", "live-status.js");
+      if (!fs2.existsSync(script))
+        return Promise.resolve(null);
+      return new Promise((resolve2) => {
+        const child = (0, node_child_process_1.spawn)(process.execPath, [script], {
+          cwd: kbRoot,
+          stdio: ["ignore", "pipe", "pipe"]
+        });
+        let stdout = "";
+        child.stdout.on("data", (chunk) => {
+          stdout += chunk.toString("utf8");
+        });
+        child.on("error", () => resolve2(null));
+        child.on("close", () => {
+          const trimmed = stdout.trim();
+          if (!trimmed)
+            return resolve2(null);
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (parsed.error)
+              return resolve2(null);
+            const tagMode = (entries, mode) => entries.map((e) => ({ ...e, mode }));
+            resolve2({
+              headSha: parsed.headSha ?? null,
+              codeEntries: parsed.codeEntries ?? [],
+              kbEntries: parsed.kbEntries ?? [],
+              standardsEntries: tagMode(parsed.standardsEntries ?? [], "current"),
+              backlogEntries: tagMode(parsed.backlogEntries ?? [], "aspirational"),
+              codePatterns: Array.isArray(parsed.codePatterns) ? parsed.codePatterns : null
+            });
+          } catch {
+            resolve2(null);
+          }
+        });
+      });
     }
   }
 });
@@ -4733,6 +4864,7 @@ var require_standards_drift3 = __commonJS({
     exports2.exemptedPrompt = exemptedPrompt2;
     exports2.promotedPrompt = promotedPrompt2;
     exports2.dismissedPrompt = dismissedPrompt2;
+    exports2.acknowledgedPrompt = acknowledgedPrompt2;
     function appliedPrompt2(v) {
       return `The code for \`${v.queueKey}\` was fixed. Please run:
 
@@ -4775,6 +4907,28 @@ The (file, rule) pair will be suppressed from re-detection until the rule defini
 kb_conform({
   dismissed: [{
     queue_key: "${v.queueKey}",
+    reason: "${reason}"
+  }]
+})`;
+    }
+    function acknowledgedPrompt2(v) {
+      const reason = v.reason.replace(/"/g, '\\"');
+      if (v.kind === "standards-drift") {
+        return `Acknowledge \`${v.entryKey}\` \u2014 author-vetted, leave in queue for review. Please run:
+
+kb_conform({
+  acknowledge: [{
+    queue_key: "${v.entryKey}",
+    reason: "${reason}"
+  }]
+})`;
+      }
+      const keyField = v.kind === "code-drift" ? "kb_target" : "kb_file";
+      return `Acknowledge \`${v.entryKey}\` \u2014 author-vetted, leave in queue for review. Please run:
+
+kb_drift({
+  acknowledge: [{
+    ${keyField}: "${v.entryKey}",
     reason: "${reason}"
   }]
 })`;
@@ -4924,23 +5078,26 @@ var require_section_guide = __commonJS({
       "code-drift": {
         label: "Code Drift",
         what: "Code changed since the last KB sync.",
-        todo: "Update the KB to reflect the change.",
+        todo: "Update the KB to reflect the change \u2014 or acknowledge if the change doesn't affect the KB.",
         primaryVerb: "Update",
-        lifecycleDiagram: CODE_DRIFT_DIAGRAM
+        lifecycleDiagram: CODE_DRIFT_DIAGRAM,
+        uncommittedHint: "Code edits in your working tree that would drift the KB. Publish to share with reviewers."
       },
       "kb-drift": {
         label: "KB Drift",
         what: "KB content changed but the mapped code wasn't touched.",
-        todo: "Verify the code still matches, or revise the KB.",
+        todo: "Verify the code still matches, revise the KB, or acknowledge if benign.",
         primaryVerb: "Update",
-        lifecycleDiagram: KB_DRIFT_DIAGRAM
+        lifecycleDiagram: KB_DRIFT_DIAGRAM,
+        uncommittedHint: "KB edits in your working tree without a matching code touch. Publish to share with reviewers."
       },
       "standards-drift": {
         label: "Standards Drift",
         what: "Code that broke a standard's rule.",
-        todo: "Resolve via kb_conform: apply, exempt, promote, or dismiss.",
+        todo: "Resolve via kb_conform: apply, exempt, promote, dismiss, or acknowledge.",
         primaryVerb: "Resolve",
-        lifecycleDiagram: STANDARDS_DRIFT_DIAGRAM
+        lifecycleDiagram: STANDARDS_DRIFT_DIAGRAM,
+        uncommittedHint: "Standards violations from edits in your working tree. Publish to share with reviewers."
       },
       "conform-pending": {
         label: "Conform Pending",
@@ -4969,6 +5126,31 @@ var require_section_guide = __commonJS({
     }
     function copyActionLabel2(section) {
       return `Copy ${exports2.SECTION_GUIDE[section].primaryVerb} Prompt`;
+    }
+  }
+});
+
+// ../shared/dist/split-by-source.js
+var require_split_by_source = __commonJS({
+  "../shared/dist/split-by-source.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.UNCOMMITTED_HINT = exports2.WORKING_TREE_LATEST = exports2.PUBLISHED_LABEL = exports2.UNCOMMITTED_LABEL = void 0;
+    exports2.splitBySource = splitBySource2;
+    exports2.UNCOMMITTED_LABEL = "Uncommitted preview";
+    exports2.PUBLISHED_LABEL = "Published";
+    exports2.WORKING_TREE_LATEST = "working tree";
+    exports2.UNCOMMITTED_HINT = "Your in-progress edits \u2014 not yet shared with reviewers.";
+    function splitBySource2(entries) {
+      const uncommitted = [];
+      const published = [];
+      for (const entry of entries) {
+        if (entry.source === "working-tree")
+          uncommitted.push(entry);
+        else
+          published.push(entry);
+      }
+      return { uncommitted, published };
     }
   }
 });
@@ -5291,7 +5473,7 @@ var require_dist = __commonJS({
           __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.getHooksStatus = exports2.detectPushRemote = exports2.listRemotes = exports2.hasUpstream = exports2.runPushPlan = exports2.syncSubmoduleBranch = exports2.buildPushPlan = exports2.getSubmoduleStatus = exports2.pipelineSegments = exports2.groupEntries = exports2.buildEntryHandles = exports2.copyActionLabel = exports2.primaryActionLabel = exports2.SECTION_GUIDE = exports2.rerunPhase1Prompt = exports2.closedPromotionPrompt = exports2.dismissedPrompt = exports2.promotedPrompt = exports2.exemptedPrompt = exports2.appliedPrompt = exports2.getActionPrompt = exports2.findRuleLineRange = exports2.findRule = exports2.readStandardDefinition = exports2.parseStandardDefinition = exports2.currentAndPreviousMonth = exports2.readDriftLog = exports2.parseDriftLog = exports2.runLint = exports2.parseLintStderr = exports2.readPromotions = exports2.parsePromotions = exports2.resolveStandardPath = exports2.readConformPending = exports2.parseConformPending = exports2.readStandardsBacklog = exports2.readStandardsDrift = exports2.parseStandardsDrift = exports2.readKbDrift = exports2.parseKbDrift = exports2.readCodeDrift = exports2.parseCodeDrift = exports2.stableEntryId = void 0;
+    exports2.getHooksStatus = exports2.detectPushRemote = exports2.listRemotes = exports2.hasUpstream = exports2.runPushPlan = exports2.syncSubmoduleBranch = exports2.buildPushPlan = exports2.getSubmoduleStatus = exports2.pipelineSegments = exports2.groupEntries = exports2.buildEntryHandles = exports2.UNCOMMITTED_HINT = exports2.WORKING_TREE_LATEST = exports2.PUBLISHED_LABEL = exports2.UNCOMMITTED_LABEL = exports2.splitBySource = exports2.copyActionLabel = exports2.primaryActionLabel = exports2.SECTION_GUIDE = exports2.rerunPhase1Prompt = exports2.closedPromotionPrompt = exports2.acknowledgedPrompt = exports2.dismissedPrompt = exports2.promotedPrompt = exports2.exemptedPrompt = exports2.appliedPrompt = exports2.getActionPrompt = exports2.findRuleLineRange = exports2.findRule = exports2.readStandardDefinition = exports2.parseStandardDefinition = exports2.currentAndPreviousMonth = exports2.readDriftLog = exports2.parseDriftLog = exports2.runLint = exports2.parseLintStderr = exports2.readPromotions = exports2.parsePromotions = exports2.resolveStandardPath = exports2.readConformPending = exports2.parseConformPending = exports2.readStandardsBacklog = exports2.readStandardsDrift = exports2.parseStandardsDrift = exports2.readKbDrift = exports2.parseKbDrift = exports2.readCodeDrift = exports2.parseCodeDrift = exports2.stableEntryId = void 0;
     __exportStar(require_types(), exports2);
     __exportStar(require_kb_root(), exports2);
     __exportStar(require_status(), exports2);
@@ -5387,6 +5569,9 @@ var require_dist = __commonJS({
     Object.defineProperty(exports2, "dismissedPrompt", { enumerable: true, get: function() {
       return standards_drift_js_2.dismissedPrompt;
     } });
+    Object.defineProperty(exports2, "acknowledgedPrompt", { enumerable: true, get: function() {
+      return standards_drift_js_2.acknowledgedPrompt;
+    } });
     var promotions_js_2 = require_promotions2();
     Object.defineProperty(exports2, "closedPromotionPrompt", { enumerable: true, get: function() {
       return promotions_js_2.closedPromotionPrompt;
@@ -5403,6 +5588,22 @@ var require_dist = __commonJS({
     } });
     Object.defineProperty(exports2, "copyActionLabel", { enumerable: true, get: function() {
       return section_guide_js_1.copyActionLabel;
+    } });
+    var split_by_source_js_1 = require_split_by_source();
+    Object.defineProperty(exports2, "splitBySource", { enumerable: true, get: function() {
+      return split_by_source_js_1.splitBySource;
+    } });
+    Object.defineProperty(exports2, "UNCOMMITTED_LABEL", { enumerable: true, get: function() {
+      return split_by_source_js_1.UNCOMMITTED_LABEL;
+    } });
+    Object.defineProperty(exports2, "PUBLISHED_LABEL", { enumerable: true, get: function() {
+      return split_by_source_js_1.PUBLISHED_LABEL;
+    } });
+    Object.defineProperty(exports2, "WORKING_TREE_LATEST", { enumerable: true, get: function() {
+      return split_by_source_js_1.WORKING_TREE_LATEST;
+    } });
+    Object.defineProperty(exports2, "UNCOMMITTED_HINT", { enumerable: true, get: function() {
+      return split_by_source_js_1.UNCOMMITTED_HINT;
     } });
     var grouping_js_1 = require_grouping();
     Object.defineProperty(exports2, "buildEntryHandles", { enumerable: true, get: function() {
@@ -5462,8 +5663,16 @@ var import_shared = __toESM(require_dist());
 // src/watcher.ts
 var fs = __toESM(require("fs"));
 var path = __toESM(require("path"));
-var DEBOUNCE_MS = 300;
+var DEBOUNCE_MS = 750;
 var POLL_FALLBACK_MS = 5e3;
+function patternBaseDir(pattern) {
+  const idx = pattern.search(/[*?[]/);
+  if (idx === -1)
+    return path.dirname(pattern) || ".";
+  const head = pattern.slice(0, idx);
+  const slash = head.lastIndexOf("/");
+  return slash === -1 ? "." : head.slice(0, slash);
+}
 var SyncWatcher = class {
   constructor(kbRoot, onChange) {
     this.kbRoot = kbRoot;
@@ -5471,6 +5680,7 @@ var SyncWatcher = class {
   }
   fsWatcher = null;
   extraWatchers = [];
+  codeRootWatchers = /* @__PURE__ */ new Map();
   pollHandle = null;
   debounceTimer = null;
   lastMtimeSum = 0;
@@ -5515,6 +5725,50 @@ var SyncWatcher = class {
   setExtraPaths(extraPaths) {
     this.reconcileExtraWatchers(extraPaths);
   }
+  /**
+   * Refresh the set of code-path roots being watched. Each glob from
+   * `_rules.md`'s `code_path_patterns[].paths` is collapsed to its base
+   * directory and that directory is watched recursively. Passing `null`
+   * or an empty array tears down all source-root watchers — the
+   * sync-folder watcher and poll fallback still cover queue file changes,
+   * just not the rapid-fire preview path.
+   */
+  setCodePatterns(patterns) {
+    const want = /* @__PURE__ */ new Set();
+    if (Array.isArray(patterns)) {
+      for (const p of patterns) {
+        if (typeof p !== "string" || !p)
+          continue;
+        const baseRel = patternBaseDir(p);
+        const abs = path.resolve(this.kbRoot, baseRel);
+        if (fs.existsSync(abs))
+          want.add(abs);
+      }
+    }
+    for (const [abs, w] of this.codeRootWatchers) {
+      if (!want.has(abs)) {
+        try {
+          w.close();
+        } catch {
+        }
+        this.codeRootWatchers.delete(abs);
+      }
+    }
+    for (const abs of want) {
+      if (this.codeRootWatchers.has(abs))
+        continue;
+      try {
+        const w = fs.watch(abs, { recursive: true }, () => this.scheduleFire());
+        this.codeRootWatchers.set(abs, w);
+      } catch {
+        try {
+          const w = fs.watch(abs, () => this.scheduleFire());
+          this.codeRootWatchers.set(abs, w);
+        } catch {
+        }
+      }
+    }
+  }
   reconcileExtraWatchers(extraPaths) {
     for (const w of this.extraWatchers) {
       try {
@@ -5544,6 +5798,13 @@ var SyncWatcher = class {
       }
     }
     this.extraWatchers = [];
+    for (const w of this.codeRootWatchers.values()) {
+      try {
+        w.close();
+      } catch {
+      }
+    }
+    this.codeRootWatchers.clear();
     if (this.pollHandle) {
       clearInterval(this.pollHandle);
       this.pollHandle = null;
@@ -5552,6 +5813,14 @@ var SyncWatcher = class {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+  }
+  /**
+   * Expose the debounced fire path so callers (e.g. main.ts wiring
+   * Vault.on('modify')) can hook into the same coalescing loop instead
+   * of racing it from a parallel timer.
+   */
+  fire() {
+    this.scheduleFire();
   }
   scheduleFire() {
     if (this.debounceTimer)
@@ -5632,7 +5901,15 @@ function activityBadgeClass(t, isSystem) {
     return "event-promoted";
   return "event-other";
 }
+var ACKNOWLEDGED_VERDICT = {
+  verdict: "acknowledged",
+  label: "Acknowledge\u2026",
+  needsForm: true,
+  fields: { reason: { required: true } }
+};
 var VERDICTS_BY_SECTION = {
+  "code-drift": [ACKNOWLEDGED_VERDICT],
+  "kb-drift": [ACKNOWLEDGED_VERDICT],
   "standards-drift": [
     { verdict: "applied", label: "Apply", needsForm: false, fields: {} },
     {
@@ -5660,7 +5937,8 @@ var VERDICTS_BY_SECTION = {
       fields: {
         reason: { required: true }
       }
-    }
+    },
+    ACKNOWLEDGED_VERDICT
   ],
   promotions: [
     {
@@ -5726,6 +6004,15 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       this.watcher = null;
     }
   }
+  /**
+   * Public entry point for plugin-level Vault events (`modify`/`create`/
+   * `delete` on markdown files). Routes through the watcher's debouncer
+   * so we coalesce with fs.watch events and don't double-refresh on a
+   * single edit that produces both vault and fs notifications.
+   */
+  notifySourceChanged() {
+    this.watcher?.fire();
+  }
   async refresh() {
     const root = this.getKbRoot();
     this.kbRoot = root;
@@ -5735,7 +6022,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       return;
     }
     try {
-      this.status = await (0, import_shared.getStatus)(root, { skipLint: true });
+      this.status = await (0, import_shared.getStatus)(root, { skipLint: true, live: true });
     } catch (err) {
       console.error("[instrumentality] getStatus failed:", err);
       this.status = null;
@@ -5751,6 +6038,9 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
           extras.push(e.gitdirHeadPath);
       }
       this.watcher.setExtraPaths(extras);
+    }
+    if (this.watcher) {
+      this.watcher.setCodePatterns(this.status?.livePatterns ?? null);
     }
     this.render();
   }
@@ -5861,6 +6151,9 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     meta.createEl("code", { text: this.status?.currentHeadShort ?? "?" });
     this.renderHooksBadge(meta);
     const tools = header.createDiv({ cls: "instrumentality-tools" });
+    const publish = tools.createEl("button", { text: "Publish", cls: "mod-cta" });
+    publish.title = "Run drift + conform detection and commit the queue files";
+    publish.addEventListener("click", () => void this.handlePublishDrift());
     const refresh = tools.createEl("button", { text: "Refresh", cls: "mod-cta" });
     refresh.addEventListener("click", () => void this.refresh());
   }
@@ -6070,22 +6363,28 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     switch (h.section) {
       case "code-drift": {
         const i = s.codeDrift.entries.findIndex((e, idx) => (0, import_shared.stableEntryId)(e.kbTarget, idx) === h.id);
-        if (i >= 0)
-          this.renderCodeDriftRow(parent, s.codeDrift.entries[i], i);
+        if (i >= 0) {
+          const e = s.codeDrift.entries[i];
+          this.renderCodeDriftRow(parent, e, i, e.source === "working-tree");
+        }
         return;
       }
       case "kb-drift": {
         const i = s.kbDrift.entries.findIndex((e, idx) => (0, import_shared.stableEntryId)(e.kbFile, idx) === h.id);
-        if (i >= 0)
-          this.renderKbDriftRow(parent, s.kbDrift.entries[i], i);
+        if (i >= 0) {
+          const e = s.kbDrift.entries[i];
+          this.renderKbDriftRow(parent, e, i, e.source === "working-tree");
+        }
         return;
       }
       case "standards-drift": {
         const i = s.standardsDrift.entries.findIndex(
           (e, idx) => (0, import_shared.stableEntryId)(`${e.mode}:${e.queueKey}`, idx) === h.id
         );
-        if (i >= 0)
-          this.renderStandardsDriftRow(parent, s.standardsDrift.entries[i], i);
+        if (i >= 0) {
+          const e = s.standardsDrift.entries[i];
+          this.renderStandardsDriftRow(parent, e, i, e.source === "working-tree");
+        }
         return;
       }
       case "conform-pending": {
@@ -6183,6 +6482,49 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
   placeholder(parent, text) {
     parent.createDiv({ cls: "instrumentality-placeholder", text });
   }
+  /**
+   * Render a section body split into "Uncommitted preview" and "Published"
+   * sub-groups. When only one bucket has entries the header is omitted so
+   * the section looks like it always did. Mirrors the VS Code renderer
+   * exactly — keeping both UIs in lockstep.
+   */
+  renderBucketedBody(parent, entries, rowFn, emptyMessage, sectionKind) {
+    if (entries.length === 0) {
+      this.placeholder(parent, emptyMessage);
+      return;
+    }
+    const { uncommitted, published } = (0, import_shared.splitBySource)(entries);
+    if (uncommitted.length === 0) {
+      published.forEach((e, i) => rowFn(parent, e, i, false));
+      return;
+    }
+    if (published.length === 0) {
+      this.renderBucketHeader(
+        parent,
+        import_shared.UNCOMMITTED_LABEL,
+        uncommitted.length,
+        import_shared.SECTION_GUIDE[sectionKind].uncommittedHint
+      );
+      uncommitted.forEach((e, i) => rowFn(parent, e, i, true));
+      return;
+    }
+    this.renderBucketHeader(
+      parent,
+      import_shared.UNCOMMITTED_LABEL,
+      uncommitted.length,
+      import_shared.SECTION_GUIDE[sectionKind].uncommittedHint
+    );
+    uncommitted.forEach((e, i) => rowFn(parent, e, i, true));
+    this.renderBucketHeader(parent, import_shared.PUBLISHED_LABEL, published.length);
+    published.forEach((e, i) => rowFn(parent, e, i, false));
+  }
+  renderBucketHeader(parent, label, count, hint) {
+    const wrap = parent.createDiv({ cls: "instrumentality-bucket-header" });
+    wrap.createEl("strong", { text: label });
+    wrap.createSpan({ cls: "count", text: ` ${count}` });
+    if (hint)
+      wrap.createDiv({ cls: "group-hint", text: hint });
+  }
   renderCodeDriftCard(parent) {
     const entries = this.status.codeDrift.entries;
     const baseline = this.status.codeDrift.baseline.sha;
@@ -6194,11 +6536,15 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       baseline ? baseline.slice(0, 7) : void 0,
       import_shared.SECTION_GUIDE["code-drift"].what
     );
-    if (entries.length === 0)
-      return this.placeholder(body, "No code drift");
-    entries.forEach((e, i) => this.renderCodeDriftRow(body, e, i));
+    this.renderBucketedBody(
+      body,
+      entries,
+      (p, e, i, isUncommitted) => this.renderCodeDriftRow(p, e, i, isUncommitted),
+      "No code drift",
+      "code-drift"
+    );
   }
-  renderCodeDriftRow(parent, e, i) {
+  renderCodeDriftRow(parent, e, i, isUncommitted = false) {
     const id = (0, import_shared.stableEntryId)(e.kbTarget, i);
     const sev = e.hasShared ? "warn" : "info";
     const text = e.kbTarget + " " + e.codeFiles.map((f) => f.path).join(" ");
@@ -6206,6 +6552,13 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       h2.createSpan({ cls: "title", text: e.kbTarget });
       if (e.hasShared)
         h2.createSpan({ cls: "badge shared", text: "shared" });
+      if (isUncommitted) {
+        h2.createSpan({
+          cls: "badge preview-mode",
+          text: "preview",
+          attr: { title: "Uncommitted preview \u2014 not yet published" }
+        });
+      }
     };
     const meta = `${e.codeFiles.length} file(s) \xB7 ${e.codeFiles.slice(0, 3).map((f) => path2.basename(f.path)).join(", ")}${e.codeFiles.length > 3 ? ` (+${e.codeFiles.length - 3})` : ""}`;
     const detail = (d) => {
@@ -6213,6 +6566,16 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       const row = div.createDiv();
       row.createSpan({ text: "KB target: " });
       row.createEl("code", { text: e.kbTarget });
+      this.renderAcknowledgement(div, e.acknowledgement);
+      const filesBlock = div.createDiv();
+      filesBlock.createEl("strong", { text: "Changed files:" });
+      const ul = filesBlock.createEl("ul");
+      for (const f of e.codeFiles) {
+        const li = ul.createEl("li");
+        li.createEl("code", { text: f.path });
+        if (f.author)
+          this.renderAuthorBadge(li, f.author);
+      }
     };
     this.entryShell({
       parent,
@@ -6224,7 +6587,10 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       meta,
       detail,
       sourceFile: path2.join("knowledge", e.kbTarget),
-      diffableFiles: e.codeFiles.filter((f) => !!f.sinceCommit).map((f) => ({ relPath: f.path, sinceCommit: f.sinceCommit, latestCommit: f.latestCommit }))
+      diffableFiles: e.codeFiles.filter((f) => !!f.sinceCommit).map((f) => ({ relPath: f.path, sinceCommit: f.sinceCommit, latestCommit: f.latestCommit })),
+      verdictQueueKey: e.kbTarget,
+      driftKind: "code-drift",
+      isUncommitted
     });
   }
   renderKbDriftCard(parent) {
@@ -6237,11 +6603,15 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       void 0,
       import_shared.SECTION_GUIDE["kb-drift"].what
     );
-    if (entries.length === 0)
-      return this.placeholder(body, "No KB drift");
-    entries.forEach((e, i) => this.renderKbDriftRow(body, e, i));
+    this.renderBucketedBody(
+      body,
+      entries,
+      (p, e, i, isUncommitted) => this.renderKbDriftRow(p, e, i, isUncommitted),
+      "No KB drift",
+      "kb-drift"
+    );
   }
-  renderKbDriftRow(parent, e, i) {
+  renderKbDriftRow(parent, e, i, isUncommitted = false) {
     const id = (0, import_shared.stableEntryId)(e.kbFile, i);
     const sev = e.unmapped ? "warn" : "info";
     const text = e.kbFile + " " + e.codeAreas.join(" ");
@@ -6249,6 +6619,13 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       h2.createSpan({ cls: "title", text: e.kbFile });
       if (e.unmapped)
         h2.createSpan({ cls: "badge sev-warn", text: "unmapped" });
+      if (isUncommitted) {
+        h2.createSpan({
+          cls: "badge preview-mode",
+          text: "preview",
+          attr: { title: "Uncommitted preview \u2014 not yet published" }
+        });
+      }
     };
     const meta = `${e.codeAreas.length} code area(s)${e.refCount && e.refCount.count > 0 ? ` \xB7 ${e.refCount.count} reference(s)` : ""}`;
     const detail = (d) => {
@@ -6263,7 +6640,10 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
         row.createSpan({ text: "Since: " });
         row.createEl("code", { text: e.sinceCommit });
         row.createSpan({ text: ` (${e.sinceDate ?? ""})` });
+        if (e.author)
+          this.renderAuthorBadge(row, e.author);
       }
+      this.renderAcknowledgement(div, e.acknowledgement);
       const areas = div.createDiv();
       areas.createSpan({ text: "Code areas: " });
       if (e.codeAreas.length === 0) {
@@ -6286,7 +6666,10 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       meta,
       detail,
       sourceFile: path2.join("knowledge", e.kbFile),
-      diffableFiles: e.sinceCommit ? [{ relPath: path2.join("knowledge", e.kbFile), sinceCommit: e.sinceCommit, latestCommit: e.latestCommit }] : []
+      diffableFiles: e.sinceCommit ? [{ relPath: path2.join("knowledge", e.kbFile), sinceCommit: e.sinceCommit, latestCommit: e.latestCommit }] : [],
+      verdictQueueKey: e.kbFile,
+      driftKind: "kb-drift",
+      isUncommitted
     });
   }
   renderStandardsDriftCard(parent) {
@@ -6299,11 +6682,15 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       void 0,
       import_shared.SECTION_GUIDE["standards-drift"].what
     );
-    if (entries.length === 0)
-      return this.placeholder(body, "No standards drift");
-    entries.forEach((e, i) => this.renderStandardsDriftRow(body, e, i));
+    this.renderBucketedBody(
+      body,
+      entries,
+      (p, e, i, isUncommitted) => this.renderStandardsDriftRow(p, e, i, isUncommitted),
+      "No standards drift",
+      "standards-drift"
+    );
   }
-  renderStandardsDriftRow(parent, e, i) {
+  renderStandardsDriftRow(parent, e, i, isUncommitted = false) {
     const id = (0, import_shared.stableEntryId)(`${e.mode}:${e.queueKey}`, i);
     const sev = e.severity ?? null;
     const fileCount = Object.values(e.filesByParty).reduce((s, fs2) => s + fs2.length, 0);
@@ -6319,6 +6706,13 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
           cls: "badge advisory-mode",
           text: "advisory",
           attr: { title: "Advisory backlog \u2014 not PR-blocking" }
+        });
+      }
+      if (isUncommitted) {
+        h2.createSpan({
+          cls: "badge preview-mode",
+          text: "preview",
+          attr: { title: "Uncommitted preview \u2014 not yet published" }
         });
       }
     };
@@ -6343,6 +6737,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
         row.createEl("strong", { text: "Drift reason: " });
         row.appendText(e.reason);
       }
+      this.renderAcknowledgement(div, e.acknowledgement);
       for (const [party, files] of Object.entries(e.filesByParty)) {
         const block = div.createDiv();
         block.createEl("strong", {
@@ -6352,6 +6747,8 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
         for (const f of files) {
           const li = ul.createEl("li");
           li.createEl("code", { text: f.path });
+          if (f.author)
+            this.renderAuthorBadge(li, f.author);
         }
       }
     };
@@ -6384,8 +6781,32 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       diffableFiles,
       modeAttr: e.mode,
       verdictQueueKey: e.queueKey,
-      verdictFiles
+      verdictFiles,
+      driftKind: "standards-drift",
+      isUncommitted
     });
+  }
+  renderAuthorBadge(parent, author) {
+    parent.createSpan({
+      cls: "instrumentality-author-badge",
+      text: ` @${author}`,
+      attr: { title: "Commit author" }
+    });
+  }
+  renderAcknowledgement(parent, ack) {
+    if (!ack)
+      return;
+    const box = parent.createDiv({
+      cls: "instrumentality-ack-badge",
+      attr: {
+        title: `Acknowledged by ${ack.by} at ${ack.atCommit} (${ack.atDate})`
+      }
+    });
+    box.appendText("\u2713 Acknowledged by ");
+    box.createEl("strong", { text: `@${ack.by}` });
+    box.appendText(" at ");
+    box.createEl("code", { text: ack.atCommit });
+    box.appendText(` \u2014 "${ack.reason}"`);
   }
   appendRuleBlock(parent, rule) {
     if (!rule)
@@ -6968,6 +7389,114 @@ These affect all projects consuming the module.` : "";
       `Instrumentality: push failed at ${failed?.step.path}: ${failed?.output?.slice(0, 200) ?? "unknown error"}`
     );
   }
+  // ── Publish drift ──────────────────────────────────────────────────────
+  //
+  // Runs drift.runTool() + conform.runTool() in write mode, then stages and
+  // commits any changes to knowledge/sync/*.md as a single
+  // `chore(kb): publish drift queue` commit. Mirrors the VSCode extension's
+  // handlePublishDrift exactly.
+  async handlePublishDrift() {
+    if (!this.kbRoot) {
+      new import_obsidian.Notice("Instrumentality: knowledge base not detected.");
+      return;
+    }
+    const scriptDrift = path2.join(this.kbRoot, "knowledge", "_mcp", "tools", "drift.js");
+    const scriptConform = path2.join(this.kbRoot, "knowledge", "_mcp", "tools", "conform.js");
+    const fs2 = await import("fs");
+    if (!fs2.existsSync(scriptDrift)) {
+      new import_obsidian.Notice(
+        "Instrumentality: publish requires knowledge/_mcp/tools/drift.js (missing in this workspace)."
+      );
+      return;
+    }
+    const ok = await confirmModal(this.app, {
+      title: "Publish drift queue?",
+      detail: "Runs drift + conform detection in write mode, then commits any changes to knowledge/sync/*.md as `chore(kb): publish drift queue`. Does not push.",
+      confirmLabel: "Publish"
+    });
+    if (!ok)
+      return;
+    try {
+      await this.runNodeTool(scriptDrift, this.kbRoot);
+      if (fs2.existsSync(scriptConform)) {
+        await this.runNodeTool(scriptConform, this.kbRoot);
+      }
+    } catch (err) {
+      new import_obsidian.Notice(
+        `Instrumentality: drift detection failed: ${err?.message ?? err}`
+      );
+      return;
+    }
+    const queueFiles = [
+      "knowledge/sync/code-drift.md",
+      "knowledge/sync/kb-drift.md",
+      "knowledge/sync/standards-drift.md",
+      "knowledge/sync/standards-backlog.md"
+    ].filter((f) => fs2.existsSync(path2.join(this.kbRoot, f)));
+    if (queueFiles.length === 0) {
+      new import_obsidian.Notice(
+        "Instrumentality: nothing to publish \u2014 no queue files present."
+      );
+      return;
+    }
+    try {
+      await this.runGit(["add", "--", ...queueFiles], this.kbRoot);
+    } catch (err) {
+      new import_obsidian.Notice(`Instrumentality: git add failed: ${err?.message ?? err}`);
+      return;
+    }
+    let stagedNames = "";
+    try {
+      stagedNames = (await this.runGit(
+        ["diff", "--cached", "--name-only", "--", ...queueFiles],
+        this.kbRoot
+      )).trim();
+    } catch {
+    }
+    if (!stagedNames) {
+      new import_obsidian.Notice(
+        "Instrumentality: nothing to publish \u2014 drift queue is already up to date."
+      );
+      void this.refresh();
+      return;
+    }
+    try {
+      await this.runGit(
+        ["commit", "-m", "chore(kb): publish drift queue"],
+        this.kbRoot
+      );
+    } catch (err) {
+      new import_obsidian.Notice(`Instrumentality: git commit failed: ${err?.message ?? err}`);
+      return;
+    }
+    new import_obsidian.Notice(
+      `Instrumentality: published drift queue (${stagedNames.split("\n").length} file(s)). Push when ready.`
+    );
+    void this.refresh();
+  }
+  runNodeTool(scriptPath, cwd) {
+    return new Promise((resolve2, reject) => {
+      (0, import_node_child_process.execFile)(
+        process.execPath,
+        [
+          "-e",
+          `require(${JSON.stringify(scriptPath)}).runTool({}).then(() => {}).catch((e) => { process.stderr.write(String(e && e.message || e)); process.exit(1); })`
+        ],
+        { cwd, maxBuffer: 16 * 1024 * 1024 },
+        (err) => err ? reject(err) : resolve2()
+      );
+    });
+  }
+  runGit(args, cwd) {
+    return new Promise((resolve2, reject) => {
+      (0, import_node_child_process.execFile)("git", args, { cwd, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+        if (err)
+          reject(err);
+        else
+          resolve2(stdout);
+      });
+    });
+  }
   // ── Entry shell + actions ──────────────────────────────────────────────
   entryShell(opts) {
     const attr = {
@@ -6978,6 +7507,8 @@ These affect all projects consuming the module.` : "";
     };
     if (opts.modeAttr)
       attr["data-entry-mode"] = opts.modeAttr;
+    if (opts.isUncommitted)
+      attr["data-entry-bucket"] = "uncommitted";
     const row = opts.parent.createDiv({
       cls: "instrumentality-entry",
       attr
@@ -7030,13 +7561,14 @@ These affect all projects consuming the module.` : "";
         });
       }
     }
-    const verdictDefs = VERDICTS_BY_SECTION[opts.section];
+    const verdictDefs = opts.isUncommitted ? void 0 : VERDICTS_BY_SECTION[opts.section];
     if (verdictDefs && opts.verdictQueueKey) {
       this.appendVerdictPicker(detail, {
         section: opts.section,
         verdictDefs,
         queueKey: opts.verdictQueueKey,
-        files: opts.verdictFiles ?? []
+        files: opts.verdictFiles ?? [],
+        driftKind: opts.driftKind
       });
     }
     if (opts.diffableFiles && opts.diffableFiles.length > 0) {
@@ -7059,7 +7591,7 @@ These affect all projects consuming the module.` : "";
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         if (!def.needsForm) {
-          await this.submitVerdict(opts.section, def, opts.queueKey, {});
+          await this.submitVerdict(opts.section, def, opts.queueKey, {}, opts.driftKind);
           return;
         }
         const entry = parent.closest(".instrumentality-entry");
@@ -7173,7 +7705,7 @@ These affect all projects consuming the module.` : "";
       const nEl = form.querySelector(".verdict-note");
       if (nEl && nEl.value.trim())
         draft.note = nEl.value.trim();
-      await this.submitVerdict(opts.section, def, opts.queueKey, draft);
+      await this.submitVerdict(opts.section, def, opts.queueKey, draft, opts.driftKind);
       this.resetVerdictForm(form);
     });
     cancel.addEventListener("click", (e) => {
@@ -7218,10 +7750,23 @@ These affect all projects consuming the module.` : "";
     if (submit)
       submit.setAttribute("disabled", "");
   }
-  async submitVerdict(section, def, queueKey, draft) {
+  async submitVerdict(section, def, queueKey, draft, driftKind) {
     let prompt;
     try {
       switch (def.verdict) {
+        case "acknowledged": {
+          if (!driftKind)
+            throw new Error("Acknowledge requires a drift kind.");
+          if (!draft.reason || !draft.reason.trim())
+            throw new Error("Acknowledge requires a reason.");
+          prompt = (0, import_shared.acknowledgedPrompt)({
+            verdict: "acknowledged",
+            kind: driftKind,
+            entryKey: queueKey,
+            reason: draft.reason.trim()
+          });
+          break;
+        }
         case "applied":
           prompt = (0, import_shared.appliedPrompt)({ verdict: "applied", queueKey });
           break;
@@ -7322,7 +7867,7 @@ These affect all projects consuming the module.` : "";
     const absPath = path2.isAbsolute(f.relPath) ? f.relPath : path2.join(this.kbRoot, f.relPath);
     const repoRoot = await this.resolveRepoRoot(absPath);
     const relInRepo = path2.relative(repoRoot, absPath);
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       (0, import_node_child_process.execFile)(
         "git",
         ["diff", "--no-color", range, "--", relInRepo],
@@ -7332,13 +7877,13 @@ These affect all projects consuming the module.` : "";
             reject(err);
             return;
           }
-          resolve(stdout || "(no changes)");
+          resolve2(stdout || "(no changes)");
         }
       );
     });
   }
   resolveRepoRoot(absPath) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       (0, import_node_child_process.execFile)(
         "git",
         ["rev-parse", "--show-toplevel"],
@@ -7348,7 +7893,7 @@ These affect all projects consuming the module.` : "";
             reject(err);
             return;
           }
-          resolve(stdout.trim());
+          resolve2(stdout.trim());
         }
       );
     });
@@ -7662,8 +8207,8 @@ function classifyBranch(e, parentBranch) {
   return e.type === "owned" ? "blocking" : "advisory";
 }
 function confirmModal(app, opts) {
-  return new Promise((resolve) => {
-    const modal = new ConfirmModal(app, opts, resolve);
+  return new Promise((resolve2) => {
+    const modal = new ConfirmModal(app, opts, resolve2);
     modal.open();
   });
 }
@@ -7709,8 +8254,8 @@ var ConfirmModal = class extends import_obsidian.Modal {
   }
 };
 function selectModal(app, opts) {
-  return new Promise((resolve) => {
-    const modal = new SelectModal(app, opts, resolve);
+  return new Promise((resolve2) => {
+    const modal = new SelectModal(app, opts, resolve2);
     modal.open();
   });
 }
@@ -7810,6 +8355,18 @@ var InstrumentalityPlugin = class extends import_obsidian2.Plugin {
         }
       }
     });
+    const handleVaultEvent = (file) => {
+      if (!(file instanceof import_obsidian2.TFile))
+        return;
+      if (file.extension !== "md")
+        return;
+      for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_INSTRUMENTALITY)) {
+        leaf.view.notifySourceChanged();
+      }
+    };
+    this.registerEvent(this.app.vault.on("modify", handleVaultEvent));
+    this.registerEvent(this.app.vault.on("create", handleVaultEvent));
+    this.registerEvent(this.app.vault.on("delete", handleVaultEvent));
   }
   async persistDismissedBanner(kind) {
     if (this.dismissedBanners.has(kind))

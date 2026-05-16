@@ -42,12 +42,32 @@ async function main() {
   const backlogEntries = (backlogResult && backlogResult._state && backlogResult._state.entries) || []
   const headSha = (driftResult && driftResult._state && driftResult._state.headSha) || null
 
+  // Surface the code-path globs from `knowledge/_rules.md` so the extension
+  // can scope its source-file watcher to the patterns the drift detector
+  // actually cares about — fewer false wakeups, no second subprocess.
+  let codePatterns = null
+  try {
+    const { loadRules } = require(path.join(__dirname, '..', 'lib', 'rules'))
+    const patterns = loadRules().getCodePathPatterns()
+    codePatterns = []
+    if (Array.isArray(patterns)) {
+      for (const entry of patterns) {
+        if (entry && Array.isArray(entry.paths)) {
+          for (const p of entry.paths) {
+            if (typeof p === 'string' && p && !codePatterns.includes(p)) codePatterns.push(p)
+          }
+        }
+      }
+    }
+  } catch { /* leave null — extension falls back to a workspace-wide watcher */ }
+
   emit({
     headSha,
     codeEntries,
     kbEntries,
     standardsEntries,
-    backlogEntries
+    backlogEntries,
+    codePatterns
   })
 }
 

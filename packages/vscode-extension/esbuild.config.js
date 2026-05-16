@@ -1,8 +1,11 @@
 const esbuild = require("esbuild");
 const fs = require("node:fs");
+const path = require("node:path");
+const { execFileSync } = require("node:child_process");
 
 const watch = process.argv.includes("--watch");
 const production = process.argv.includes("--production");
+const skipRunner = process.argv.includes("--skip-runner");
 
 const BUDGET_BYTES = 200 * 1024; // 200KB cap (raised from 150KB after pass 2 added grouping, section guidance, pipeline strip, diff support, and js-yaml).
 
@@ -37,12 +40,32 @@ function checkBudget() {
   }
 }
 
+function bundleRunner() {
+  // Ships the kb-mcp readonly runner inside the VSIX so consumer projects
+  // that don't vendor knowledge/_mcp/ still get the live overlay. The
+  // bundle script copies source + installs the three runtime npm deps
+  // — see scripts/bundle-runner.js for the rationale. Opt out with
+  // `--skip-runner` during fast iteration when only TS changes.
+  if (skipRunner) {
+    console.log("[bundle-runner] skipped (--skip-runner)");
+    return;
+  }
+  const script = path.join(__dirname, "scripts", "bundle-runner.js");
+  execFileSync(process.execPath, [script], { stdio: "inherit" });
+}
+
 async function main() {
   if (watch) {
+    // Run the runner bundle once up front so first activation has a path
+    // to spawn. We don't re-bundle on every TS change — runner sources
+    // live outside packages/vscode-extension and rarely move during a
+    // single watch session. Re-run `npm run build` if they do.
+    bundleRunner();
     const ctx = await esbuild.context(baseOptions);
     await ctx.watch();
     console.log("[kb-sync] esbuild watching...");
   } else {
+    bundleRunner();
     await esbuild.build(baseOptions);
     // Budget tracks the shipped (minified) artifact. Dev builds are larger by
     // design (no minification, sourcemaps inlined for some deps) and shouldn't

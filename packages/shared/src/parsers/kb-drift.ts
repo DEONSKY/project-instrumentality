@@ -78,6 +78,7 @@ export function parseKbDrift(content: string): {
       codeAreas,
       references,
       unmapped,
+      source: "committed",
     };
     if (renamedMatch) entry.renamedFrom = renamedMatch[1];
     if (refCount) entry.refCount = refCount;

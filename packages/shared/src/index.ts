@@ -43,6 +43,13 @@ export {
 } from "./section-guide.js";
 export type { SectionGuide, SectionKind } from "./section-guide.js";
 export {
+  splitBySource,
+  UNCOMMITTED_LABEL,
+  PUBLISHED_LABEL,
+  WORKING_TREE_LATEST,
+  UNCOMMITTED_HINT,
+} from "./split-by-source.js";
+export {
   buildEntryHandles,
   groupEntries,
   pipelineSegments,

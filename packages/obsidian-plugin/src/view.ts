@@ -13,6 +13,9 @@ import {
   buildEntryHandles,
   groupEntries,
   SECTION_GUIDE,
+  splitBySource,
+  UNCOMMITTED_LABEL,
+  PUBLISHED_LABEL,
   appliedPrompt,
   exemptedPrompt,
   promotedPrompt,
@@ -237,6 +240,16 @@ export class InstrumentalityView extends ItemView {
     }
   }
 
+  /**
+   * Public entry point for plugin-level Vault events (`modify`/`create`/
+   * `delete` on markdown files). Routes through the watcher's debouncer
+   * so we coalesce with fs.watch events and don't double-refresh on a
+   * single edit that produces both vault and fs notifications.
+   */
+  notifySourceChanged(): void {
+    this.watcher?.fire();
+  }
+
   async refresh(): Promise<void> {
     const root = this.getKbRoot();
     this.kbRoot = root;
@@ -267,6 +280,12 @@ export class InstrumentalityView extends ItemView {
         if (e.gitdirHeadPath) extras.push(e.gitdirHeadPath);
       }
       this.watcher.setExtraPaths(extras);
+    }
+    // Push the latest code-path globs into the watcher so source edits
+    // fire the same debounced refresh — keeps the Uncommitted preview
+    // sub-groups responsive to ongoing work.
+    if (this.watcher) {
+      this.watcher.setCodePatterns(this.status?.livePatterns ?? null);
     }
     this.render();
   }
@@ -635,19 +654,28 @@ export class InstrumentalityView extends ItemView {
     switch (h.section) {
       case "code-drift": {
         const i = s.codeDrift.entries.findIndex((e, idx) => stableEntryId(e.kbTarget, idx) === h.id);
-        if (i >= 0) this.renderCodeDriftRow(parent, s.codeDrift.entries[i], i);
+        if (i >= 0) {
+          const e = s.codeDrift.entries[i];
+          this.renderCodeDriftRow(parent, e, i, e.source === "working-tree");
+        }
         return;
       }
       case "kb-drift": {
         const i = s.kbDrift.entries.findIndex((e, idx) => stableEntryId(e.kbFile, idx) === h.id);
-        if (i >= 0) this.renderKbDriftRow(parent, s.kbDrift.entries[i], i);
+        if (i >= 0) {
+          const e = s.kbDrift.entries[i];
+          this.renderKbDriftRow(parent, e, i, e.source === "working-tree");
+        }
         return;
       }
       case "standards-drift": {
         const i = s.standardsDrift.entries.findIndex(
           (e, idx) => stableEntryId(`${e.mode}:${e.queueKey}`, idx) === h.id
         );
-        if (i >= 0) this.renderStandardsDriftRow(parent, s.standardsDrift.entries[i], i);
+        if (i >= 0) {
+          const e = s.standardsDrift.entries[i];
+          this.renderStandardsDriftRow(parent, e, i, e.source === "working-tree");
+        }
         return;
       }
       case "conform-pending": {
@@ -762,6 +790,61 @@ export class InstrumentalityView extends ItemView {
     parent.createDiv({ cls: "instrumentality-placeholder", text });
   }
 
+  /**
+   * Render a section body split into "Uncommitted preview" and "Published"
+   * sub-groups. When only one bucket has entries the header is omitted so
+   * the section looks like it always did. Mirrors the VS Code renderer
+   * exactly — keeping both UIs in lockstep.
+   */
+  private renderBucketedBody<T extends { source?: "committed" | "working-tree" }>(
+    parent: HTMLElement,
+    entries: readonly T[],
+    rowFn: (parent: HTMLElement, entry: T, index: number, isUncommitted: boolean) => void,
+    emptyMessage: string,
+    sectionKind: SectionKind
+  ): void {
+    if (entries.length === 0) {
+      this.placeholder(parent, emptyMessage);
+      return;
+    }
+    const { uncommitted, published } = splitBySource(entries);
+    if (uncommitted.length === 0) {
+      published.forEach((e, i) => rowFn(parent, e, i, false));
+      return;
+    }
+    if (published.length === 0) {
+      this.renderBucketHeader(
+        parent,
+        UNCOMMITTED_LABEL,
+        uncommitted.length,
+        SECTION_GUIDE[sectionKind].uncommittedHint
+      );
+      uncommitted.forEach((e, i) => rowFn(parent, e, i, true));
+      return;
+    }
+    this.renderBucketHeader(
+      parent,
+      UNCOMMITTED_LABEL,
+      uncommitted.length,
+      SECTION_GUIDE[sectionKind].uncommittedHint
+    );
+    uncommitted.forEach((e, i) => rowFn(parent, e, i, true));
+    this.renderBucketHeader(parent, PUBLISHED_LABEL, published.length);
+    published.forEach((e, i) => rowFn(parent, e, i, false));
+  }
+
+  private renderBucketHeader(
+    parent: HTMLElement,
+    label: string,
+    count: number,
+    hint?: string
+  ): void {
+    const wrap = parent.createDiv({ cls: "instrumentality-bucket-header" });
+    wrap.createEl("strong", { text: label });
+    wrap.createSpan({ cls: "count", text: ` ${count}` });
+    if (hint) wrap.createDiv({ cls: "group-hint", text: hint });
+  }
+
   private renderCodeDriftCard(parent: HTMLElement): void {
     const entries = this.status!.codeDrift.entries;
     const baseline = this.status!.codeDrift.baseline.sha;
@@ -773,17 +856,29 @@ export class InstrumentalityView extends ItemView {
       baseline ? baseline.slice(0, 7) : undefined,
       SECTION_GUIDE["code-drift"].what
     );
-    if (entries.length === 0) return this.placeholder(body, "No code drift");
-    entries.forEach((e, i) => this.renderCodeDriftRow(body, e, i));
+    this.renderBucketedBody(
+      body,
+      entries,
+      (p, e, i, isUncommitted) => this.renderCodeDriftRow(p, e, i, isUncommitted),
+      "No code drift",
+      "code-drift"
+    );
   }
 
-  private renderCodeDriftRow(parent: HTMLElement, e: CodeDriftEntry, i: number): void {
+  private renderCodeDriftRow(parent: HTMLElement, e: CodeDriftEntry, i: number, isUncommitted: boolean = false): void {
     const id = stableEntryId(e.kbTarget, i);
     const sev = e.hasShared ? "warn" : "info";
     const text = e.kbTarget + " " + e.codeFiles.map((f) => f.path).join(" ");
     const summary = (h2: HTMLElement) => {
       h2.createSpan({ cls: "title", text: e.kbTarget });
       if (e.hasShared) h2.createSpan({ cls: "badge shared", text: "shared" });
+      if (isUncommitted) {
+        h2.createSpan({
+          cls: "badge preview-mode",
+          text: "preview",
+          attr: { title: "Uncommitted preview — not yet published" },
+        });
+      }
     };
     const meta = `${e.codeFiles.length} file(s) · ${e.codeFiles
       .slice(0, 3)
@@ -819,6 +914,7 @@ export class InstrumentalityView extends ItemView {
         .map((f) => ({ relPath: f.path, sinceCommit: f.sinceCommit!, latestCommit: f.latestCommit })),
       verdictQueueKey: e.kbTarget,
       driftKind: "code-drift",
+      isUncommitted,
     });
   }
 
@@ -832,17 +928,29 @@ export class InstrumentalityView extends ItemView {
       undefined,
       SECTION_GUIDE["kb-drift"].what
     );
-    if (entries.length === 0) return this.placeholder(body, "No KB drift");
-    entries.forEach((e, i) => this.renderKbDriftRow(body, e, i));
+    this.renderBucketedBody(
+      body,
+      entries,
+      (p, e, i, isUncommitted) => this.renderKbDriftRow(p, e, i, isUncommitted),
+      "No KB drift",
+      "kb-drift"
+    );
   }
 
-  private renderKbDriftRow(parent: HTMLElement, e: KbDriftEntry, i: number): void {
+  private renderKbDriftRow(parent: HTMLElement, e: KbDriftEntry, i: number, isUncommitted: boolean = false): void {
     const id = stableEntryId(e.kbFile, i);
     const sev = e.unmapped ? "warn" : "info";
     const text = e.kbFile + " " + e.codeAreas.join(" ");
     const summary = (h2: HTMLElement) => {
       h2.createSpan({ cls: "title", text: e.kbFile });
       if (e.unmapped) h2.createSpan({ cls: "badge sev-warn", text: "unmapped" });
+      if (isUncommitted) {
+        h2.createSpan({
+          cls: "badge preview-mode",
+          text: "preview",
+          attr: { title: "Uncommitted preview — not yet published" },
+        });
+      }
     };
     const meta = `${e.codeAreas.length} code area(s)${
       e.refCount && e.refCount.count > 0 ? ` · ${e.refCount.count} reference(s)` : ""
@@ -888,6 +996,7 @@ export class InstrumentalityView extends ItemView {
         : [],
       verdictQueueKey: e.kbFile,
       driftKind: "kb-drift",
+      isUncommitted,
     });
   }
 
@@ -901,14 +1010,20 @@ export class InstrumentalityView extends ItemView {
       undefined,
       SECTION_GUIDE["standards-drift"].what
     );
-    if (entries.length === 0) return this.placeholder(body, "No standards drift");
-    entries.forEach((e, i) => this.renderStandardsDriftRow(body, e, i));
+    this.renderBucketedBody(
+      body,
+      entries,
+      (p, e, i, isUncommitted) => this.renderStandardsDriftRow(p, e, i, isUncommitted),
+      "No standards drift",
+      "standards-drift"
+    );
   }
 
   private renderStandardsDriftRow(
     parent: HTMLElement,
     e: StandardsDriftEntry,
-    i: number
+    i: number,
+    isUncommitted: boolean = false
   ): void {
     // Disambiguate mode collisions: a (file, rule) pair can appear in both
     // current and aspirational queues simultaneously. Folding mode into
@@ -928,6 +1043,13 @@ export class InstrumentalityView extends ItemView {
           cls: "badge advisory-mode",
           text: "advisory",
           attr: { title: "Advisory backlog — not PR-blocking" },
+        });
+      }
+      if (isUncommitted) {
+        h2.createSpan({
+          cls: "badge preview-mode",
+          text: "preview",
+          attr: { title: "Uncommitted preview — not yet published" },
         });
       }
     };
@@ -995,6 +1117,7 @@ export class InstrumentalityView extends ItemView {
       verdictQueueKey: e.queueKey,
       verdictFiles,
       driftKind: "standards-drift",
+      isUncommitted,
     });
   }
 
@@ -1837,6 +1960,12 @@ export class InstrumentalityView extends ItemView {
      * this is set so the picker can build the correct MCP-call prompt.
      */
     driftKind?: DriftKind;
+    /**
+     * When true, the entry came from the author's working tree and isn't in
+     * the published queue yet. Suppresses verdict pickers (those resolve
+     * published entries) and stamps the row with a "preview" marker.
+     */
+    isUncommitted?: boolean;
   }): void {
     const attr: Record<string, string> = {
       "data-entry-section": opts.section,
@@ -1845,6 +1974,7 @@ export class InstrumentalityView extends ItemView {
       "data-entry-text": opts.text.toLowerCase(),
     };
     if (opts.modeAttr) attr["data-entry-mode"] = opts.modeAttr;
+    if (opts.isUncommitted) attr["data-entry-bucket"] = "uncommitted";
     const row = opts.parent.createDiv({
       cls: "instrumentality-entry",
       attr,
@@ -1902,7 +2032,9 @@ export class InstrumentalityView extends ItemView {
     // the VSCode extension: user has already decided, form just records
     // the call. UI never invokes MCP directly — every verdict generates
     // a prompt and copies it to the clipboard for the user's agent.
-    const verdictDefs = VERDICTS_BY_SECTION[opts.section];
+    // Skip on uncommitted-preview entries — those aren't in the published
+    // queue yet, so a verdict would target nothing.
+    const verdictDefs = opts.isUncommitted ? undefined : VERDICTS_BY_SECTION[opts.section];
     if (verdictDefs && opts.verdictQueueKey) {
       this.appendVerdictPicker(detail, {
         section: opts.section,

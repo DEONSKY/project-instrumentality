@@ -1,18 +1,43 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-const DEBOUNCE_MS = 300;
+// Raised from 300ms once we started watching source-file roots — editor
+// saves fire in bursts (formatter on save, multi-file refactors), and the
+// live drift detection does extra git work in readonly mode. 750ms lets a
+// burst coalesce into a single refresh.
+const DEBOUNCE_MS = 750;
 const POLL_FALLBACK_MS = 5000;
+
+/**
+ * Extract the watchable directory root from a glob pattern. `src/**`/*.ts`
+ * → `src`; `packages/**` → `packages`; `*.md` → `.`. We don't try to be
+ * clever about character classes or extglobs — anything with a wildcard
+ * character collapses to its prefix. The Node fs.watch call is recursive,
+ * so watching the root is enough to catch every matched file.
+ */
+function patternBaseDir(pattern: string): string {
+  const idx = pattern.search(/[*?[]/);
+  if (idx === -1) return path.dirname(pattern) || ".";
+  const head = pattern.slice(0, idx);
+  // Trim trailing slash and any partial path segment after the last `/`.
+  const slash = head.lastIndexOf("/");
+  return slash === -1 ? "." : head.slice(0, slash);
+}
 
 /**
  * Watches `<kbRoot>/knowledge/sync/` for changes. Obsidian's Vault.on('modify')
  * doesn't fire reliably for files written by external processes (kb-mcp's Node
  * process), so we use Node's fs.watch directly. A 5s poll fallback covers
  * platforms where fs.watch is unreliable (network FS, sandboxed installs).
+ *
+ * Also accepts a list of code-path globs from `knowledge/_rules.md` so
+ * source-file edits (anywhere matched by those globs) fire a debounced
+ * refresh — that's what keeps the "Uncommitted preview" sub-groups current.
  */
 export class SyncWatcher {
   private fsWatcher: fs.FSWatcher | null = null;
   private extraWatchers: fs.FSWatcher[] = [];
+  private codeRootWatchers: Map<string, fs.FSWatcher> = new Map();
   private pollHandle: ReturnType<typeof setInterval> | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastMtimeSum = 0;
@@ -63,6 +88,49 @@ export class SyncWatcher {
     this.reconcileExtraWatchers(extraPaths);
   }
 
+  /**
+   * Refresh the set of code-path roots being watched. Each glob from
+   * `_rules.md`'s `code_path_patterns[].paths` is collapsed to its base
+   * directory and that directory is watched recursively. Passing `null`
+   * or an empty array tears down all source-root watchers — the
+   * sync-folder watcher and poll fallback still cover queue file changes,
+   * just not the rapid-fire preview path.
+   */
+  setCodePatterns(patterns: string[] | null): void {
+    const want = new Set<string>();
+    if (Array.isArray(patterns)) {
+      for (const p of patterns) {
+        if (typeof p !== "string" || !p) continue;
+        const baseRel = patternBaseDir(p);
+        const abs = path.resolve(this.kbRoot, baseRel);
+        if (fs.existsSync(abs)) want.add(abs);
+      }
+    }
+
+    // Drop watchers we no longer want.
+    for (const [abs, w] of this.codeRootWatchers) {
+      if (!want.has(abs)) {
+        try { w.close(); } catch { /* already closed */ }
+        this.codeRootWatchers.delete(abs);
+      }
+    }
+    // Install fresh watchers for new roots. Recursive mode is required for
+    // patterns like `src/**/*.ts`; if it isn't supported, fall back to a
+    // single-level watch — the 5s poll fallback still catches missed events.
+    for (const abs of want) {
+      if (this.codeRootWatchers.has(abs)) continue;
+      try {
+        const w = fs.watch(abs, { recursive: true }, () => this.scheduleFire());
+        this.codeRootWatchers.set(abs, w);
+      } catch {
+        try {
+          const w = fs.watch(abs, () => this.scheduleFire());
+          this.codeRootWatchers.set(abs, w);
+        } catch { /* skip — poll fallback will catch it */ }
+      }
+    }
+  }
+
   private reconcileExtraWatchers(extraPaths: string[]): void {
     // Tear down the previous set and rebuild. The path count is tiny
     // (one HEAD per submodule + the parent) so churn is negligible.
@@ -97,6 +165,10 @@ export class SyncWatcher {
       }
     }
     this.extraWatchers = [];
+    for (const w of this.codeRootWatchers.values()) {
+      try { w.close(); } catch { /* ignore */ }
+    }
+    this.codeRootWatchers.clear();
     if (this.pollHandle) {
       clearInterval(this.pollHandle);
       this.pollHandle = null;
@@ -105,6 +177,15 @@ export class SyncWatcher {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+  }
+
+  /**
+   * Expose the debounced fire path so callers (e.g. main.ts wiring
+   * Vault.on('modify')) can hook into the same coalescing loop instead
+   * of racing it from a parallel timer.
+   */
+  fire(): void {
+    this.scheduleFire();
   }
 
   private scheduleFire(): void {

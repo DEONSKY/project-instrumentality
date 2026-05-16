@@ -7,6 +7,7 @@ const { resolvePrompt } = require('../lib/prompts')
 const { loadGraph } = require('../lib/graph')
 const { loadRules } = require('../lib/rules')
 const { globMatch } = require('../lib/patterns')
+const { detectSubmodules } = require('../lib/submodule-sweep')
 const {
   loadStandardsIndex,
   inferAppScope,
@@ -297,19 +298,142 @@ function appendToDriftLog(entries) {
 
 // ── Git helpers ──────────────────────────────────────────────────────────────
 
-async function getChangedFiles(git, ref) {
+/**
+ * Resolve changed files relative to `ref`. When `includeWorkingTree` is true,
+ * also union the parent's working-tree changes (staged + unstaged + untracked)
+ * AND each submodule's working-tree state — even submodules whose parent
+ * gitlink hasn't moved. Files carry a private `_source` tag the caller can
+ * propagate onto queue entries.
+ */
+async function getChangedFiles(git, ref, { includeWorkingTree = false } = {}) {
+  // Parent committed: ref..HEAD, with committed submodule pointer changes
+  // expanded into the actual files-inside.
+  let committed = []
   try {
     const result = await git.diff(['--name-status', '-M', ref, 'HEAD'])
-    return expandSubmoduleEntries(git, parseNameStatus(result), ref)
+    committed = await expandSubmoduleEntries(git, parseNameStatus(result), ref)
   } catch {
     try {
       const fallback = '4b825dc642cb6eb9a060e54bf899d15f7dcb6820'
       const result = await git.diff(['--name-status', '-M', fallback, 'HEAD'])
-      return expandSubmoduleEntries(git, parseNameStatus(result), fallback)
+      committed = await expandSubmoduleEntries(git, parseNameStatus(result), fallback)
     } catch {
-      return []
+      committed = []
     }
   }
+  for (const f of committed) f._source = 'committed'
+
+  if (!includeWorkingTree) return committed
+
+  // Parent working tree (no second ref → git diffs against working dir,
+  // capturing staged + unstaged in one shot).
+  let parentWorkingTree = []
+  try {
+    const result = await git.diff(['--name-status', '-M', ref])
+    parentWorkingTree = parseNameStatus(result)
+  } catch { /* leave empty */ }
+
+  let parentUntracked = []
+  try {
+    const out = await git.raw(['ls-files', '--others', '--exclude-standard'])
+    parentUntracked = out
+      .split('\n')
+      .map(l => l.trim())
+      .filter(Boolean)
+      .map(p => ({ status: 'A', path: p }))
+  } catch { /* leave empty */ }
+
+  // Submodule pointer files may surface in the parent working-tree diff
+  // (status 'M' when there are inside-edits). Strip them so we don't
+  // double-count after expanding inside-changes below.
+  const submodules = detectSubmodules(process.cwd())
+  const subPathSet = new Set(submodules.map(s => s.path))
+  parentWorkingTree = parentWorkingTree.filter(f => !subPathSet.has(f.path))
+  parentUntracked = parentUntracked.filter(f => !subPathSet.has(f.path))
+
+  // Iterate every submodule, regardless of pointer movement — uncommitted
+  // edits inside a submodule must surface even when the parent gitlink
+  // hasn't been bumped.
+  const subFiles = []
+  for (const sub of submodules) {
+    try {
+      const subRefLine = (await git.raw(['ls-tree', ref, '--', sub.path])).trim()
+      const m = subRefLine.match(/^160000 commit ([a-f0-9]+)/)
+      const subRef = m ? m[1] : null
+      if (!subRef) continue
+      const subGit = simpleGit(sub.fullPath)
+      // Working-tree diff inside the submodule, anchored at the parent's
+      // recorded gitlink (so the diff reads "everything the author has
+      // touched relative to the queue baseline").
+      try {
+        const result = await subGit.diff(['--name-status', '-M', subRef])
+        for (const sf of parseNameStatus(result)) {
+          subFiles.push({
+            ...sf,
+            path: `${sub.path}/${sf.path}`,
+            ...(sf.oldPath ? { oldPath: `${sub.path}/${sf.oldPath}` } : {})
+          })
+        }
+      } catch { /* fall through to untracked */ }
+      // Untracked inside the submodule
+      try {
+        const out = await subGit.raw(['ls-files', '--others', '--exclude-standard'])
+        for (const p of out.split('\n').map(l => l.trim()).filter(Boolean)) {
+          subFiles.push({ status: 'A', path: `${sub.path}/${p}` })
+        }
+      } catch { /* leave empty */ }
+    } catch { /* submodule missing or inaccessible — skip */ }
+  }
+
+  // Dedup against committed. Working-tree presence wins on Latest so the UI
+  // renders "working tree" even when an earlier commit also touched the file.
+  const committedByPath = new Map()
+  for (const f of committed) {
+    committedByPath.set(f.path, f)
+    if (f.oldPath) committedByPath.set(f.oldPath, f)
+  }
+
+  for (const f of [...parentWorkingTree, ...parentUntracked, ...subFiles]) {
+    const existing = committedByPath.get(f.path)
+      || (f.oldPath ? committedByPath.get(f.oldPath) : undefined)
+    if (existing) {
+      existing._source = 'working-tree'
+    } else {
+      f._source = 'working-tree'
+      committed.push(f)
+      committedByPath.set(f.path, f)
+      if (f.oldPath) committedByPath.set(f.oldPath, f)
+    }
+  }
+
+  return committed
+}
+
+/**
+ * Resolve the local git user's handle (mailmap-aware via authorHandleFromEmail-
+ * style stripping) so purely-uncommitted entries can be credited to the
+ * author rather than showing as anonymous. Returns null when both
+ * user.email and user.name are unset.
+ */
+async function getLocalGitUserHandle(git) {
+  const authorHandleFromEmail = (email) => {
+    if (!email || typeof email !== 'string') return null
+    const local = email.trim().split('@')[0]
+    if (!local) return null
+    const plus = local.indexOf('+')
+    return plus !== -1 ? local.slice(plus + 1) : local
+  }
+  try {
+    const email = (await git.raw(['config', '--get', 'user.email'])).trim()
+    if (email) {
+      const handle = authorHandleFromEmail(email)
+      if (handle) return handle
+    }
+  } catch { /* not configured */ }
+  try {
+    const name = (await git.raw(['config', '--get', 'user.name'])).trim()
+    return name || null
+  } catch { return null }
 }
 
 // Walk files and replace submodule pointer entries with the actual files changed
@@ -500,12 +624,19 @@ async function detect(opts) {
     }
     candidateFiles = [...collected].map(p => ({ status: 'A', path: p }))
   } else {
-    // Current-diff mode: changed files between baseline and HEAD
-    candidateFiles = await getChangedFiles(git, baseline)
+    // Current-diff mode: changed files between baseline and HEAD. In readonly
+    // mode (live overlay for the extensions) also union the working tree so
+    // the sidebar can preview standards drift before commit. The write path
+    // keeps `baseline..HEAD` semantics, matching today's published-queue
+    // behavior.
+    candidateFiles = await getChangedFiles(git, baseline, { includeWorkingTree: readonly })
     if (scope) {
       candidateFiles = candidateFiles.filter(f => globMatch(f.path, scope) || (f.oldPath && globMatch(f.oldPath, scope)))
     }
   }
+  // Resolved once per detect call — used to credit purely-uncommitted entries
+  // to the local user when no committed history covers the file.
+  const localUser = readonly ? await getLocalGitUserHandle(git) : null
 
   // Handle deletions and renames against open queue entries up front
   const renamed = []
@@ -596,6 +727,8 @@ async function detect(opts) {
   for (const f of candidateFiles) {
     if (f.status === 'D') continue // deleted files don't need conformance check
     const filePath = f.path
+    const fileSource = f._source || 'committed'
+    const fileAuthor = fileSource === 'working-tree' ? localUser : null
     const appScope = inferAppScope(filePath, rules)
 
     let content
@@ -658,7 +791,9 @@ async function detect(opts) {
               partyName: matchingParties[0].partyName,
               filePath,
               sinceCommit: headShort,
-              sinceDate: headDate
+              sinceDate: headDate,
+              source: fileSource,
+              ...(fileAuthor && { author: fileAuthor })
             }], 'static detector matched (regex/ast-grep)')
             continue
           }
@@ -666,7 +801,7 @@ async function detect(opts) {
           surviving.push(rule.id)
         }
         if (surviving.length > 0) {
-          requestedEvaluations.push({ file: filePath, standard_id: std.id, rule_ids: surviving, parties: matchingParties.map(p => p.partyName) })
+          requestedEvaluations.push({ file: filePath, standard_id: std.id, rule_ids: surviving, parties: matchingParties.map(p => p.partyName), source: fileSource })
         }
       } else {
         // stack-local / process / knowledge
@@ -687,7 +822,9 @@ async function detect(opts) {
               partyName: null,
               filePath,
               sinceCommit: headShort,
-              sinceDate: headDate
+              sinceDate: headDate,
+              source: fileSource,
+              ...(fileAuthor && { author: fileAuthor })
             }], 'static detector matched (regex/ast-grep)')
             continue
           }
@@ -695,7 +832,7 @@ async function detect(opts) {
           surviving.push(rule.id)
         }
         if (surviving.length > 0) {
-          requestedEvaluations.push({ file: filePath, standard_id: std.id, rule_ids: surviving })
+          requestedEvaluations.push({ file: filePath, standard_id: std.id, rule_ids: surviving, source: fileSource })
         }
       }
     }
@@ -1063,17 +1200,31 @@ function upsertQueueEntry(state, standard, rule, files, reason) {
     const existingFile = list.find(x => x.path === f.filePath)
     if (existingFile) {
       const newer = f.sinceCommit
+      let changed = false
       if (newer && newer !== existingFile.sinceCommit && newer !== existingFile.latestCommit) {
         existingFile.latestCommit = newer
         existingFile.latestDate = f.sinceDate
-        if (outcome === null) outcome = 're_detected'
+        changed = true
       }
+      if (f.source && existingFile.source !== f.source) {
+        existingFile.source = f.source
+        if (f.source === 'working-tree') entry.source = 'working-tree'
+        changed = true
+      }
+      if (f.author && !existingFile.author) {
+        existingFile.author = f.author
+        changed = true
+      }
+      if (changed && outcome === null) outcome = 're_detected'
     } else {
       list.push({
         path: f.filePath,
         sinceCommit: f.sinceCommit,
-        sinceDate: f.sinceDate
+        sinceDate: f.sinceDate,
+        ...(f.source && { source: f.source }),
+        ...(f.author && { author: f.author })
       })
+      if (f.source === 'working-tree') entry.source = 'working-tree'
       if (outcome === null) outcome = 'new'
     }
   }

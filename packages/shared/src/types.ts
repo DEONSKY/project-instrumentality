@@ -1,5 +1,15 @@
 export type DriftKind = "code-drift" | "kb-drift" | "standards-drift";
 
+/**
+ * Origin of a drift entry. `committed` entries come from the published .md
+ * queue or from a `baseline..HEAD` git diff. `working-tree` entries are
+ * synthesised by the live readonly runner from the author's uncommitted
+ * changes (staged + unstaged + untracked) — they only exist in the live
+ * overlay and are never written to disk. Absent → treat as `committed`
+ * for back-compat with consumers that don't know about the discriminator.
+ */
+export type DriftSource = "committed" | "working-tree";
+
 export interface FileRef {
   path: string;
   sinceCommit?: string;
@@ -13,6 +23,7 @@ export interface FileRef {
    * a drift came from themselves vs. someone else.
    */
   author?: string;
+  source?: DriftSource;
 }
 
 /**
@@ -37,6 +48,12 @@ export interface CodeDriftEntry {
   codeFiles: FileRef[];
   hasShared: boolean;
   acknowledgement?: Acknowledgement;
+  /**
+   * Entry-level source. An entry is `working-tree` when at least one of its
+   * codeFiles is `working-tree`; otherwise `committed`. Live overlay sets
+   * this; queue-file parsers always set `committed`.
+   */
+  source?: DriftSource;
 }
 
 export interface KbDriftEntry {
@@ -53,6 +70,7 @@ export interface KbDriftEntry {
   unmapped: boolean;
   author?: string;
   acknowledgement?: Acknowledgement;
+  source?: DriftSource;
 }
 
 export interface StandardRule {
@@ -98,6 +116,7 @@ export interface StandardsDriftEntry {
   resolvedRule?: StandardRule | null;
   resolvedStandard?: ResolvedStandardRef | null;
   acknowledgement?: Acknowledgement;
+  source?: DriftSource;
 }
 
 export interface PromotionEntry {
@@ -263,6 +282,13 @@ export interface StatusSummary {
     lintWarnings: number;
     grand: number;
   };
+  /**
+   * Code-path globs from `knowledge/_rules.md` → `code_path_patterns[].paths`,
+   * piggybacked through the live-status runner so the extensions can scope
+   * their source-file watchers without spawning a second subprocess. Null
+   * when not in live mode or when rules loading failed.
+   */
+  livePatterns?: string[] | null;
 }
 
 // ── Submodule status ────────────────────────────────────────────────────────

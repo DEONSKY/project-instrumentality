@@ -42,6 +42,7 @@ export function parseCodeDrift(content: string): {
         path: m[1],
         sinceCommit: m[3],
         sinceDate: m[4],
+        source: "committed",
       };
       if (m[2]) f.renamedFrom = m[2];
       if (m[5]) {
@@ -52,7 +53,7 @@ export function parseCodeDrift(content: string): {
       codeFiles.push(f);
     }
 
-    const entry: CodeDriftEntry = { kind: "code-drift", kbTarget, codeFiles, hasShared };
+    const entry: CodeDriftEntry = { kind: "code-drift", kbTarget, codeFiles, hasShared, source: "committed" };
     const ack = parseAck(block);
     if (ack) entry.acknowledgement = ack;
     entries.push(entry);
