@@ -2,7 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const matter = require('gray-matter')
 const yaml = require('js-yaml')
-const { loadGraph } = require('../lib/graph')
+const { loadGraph, resolveDep, findCycles, validateEdges, EDGE_RULES } = require('../lib/graph')
 const { loadRules } = require('../lib/rules')
 const { estimateTokens } = require('../lib/budget')
 const { extractMentions } = require('../lib/mentions')
@@ -117,23 +117,22 @@ async function runTool({ silent = false } = {}) {
   })
 
 
-  // P3: surface orphan depends_on — references that point at a file not
-  // present in the index. Helps the agent catch broken backlinks after KB
-  // renames/deletes. Bounded by file count + dep count; emitted only when
-  // non-empty so clean projects don't see noise.
+  // Structural graph checks. Surface orphan refs (broken backlinks after
+  // renames/deletes), cycles (graph integrity), and edge-type violations
+  // (currently no-op — EDGE_RULES ships empty). All emitted conditionally
+  // so clean projects don't see noise.
+  const intermediate = { version: '1.0', files, groups }
   const orphan_dependencies = []
   Object.entries(files).forEach(([fp, entry]) => {
-    for (const dep of (entry.depends_on || [])) {
-      // depends_on entries can be either bare ids ("auth") or paths
-      // ("features/auth"). Match against entry id as well as the
-      // path-without-extension key in files[].
-      const matchesById = Object.values(files).some(f => f.id === dep)
-      const matchesByPath = Object.keys(files).some(k => k.replace(/\.md$/, '') === dep)
-      if (!matchesById && !matchesByPath) {
+    for (const dep of [...(entry.depends_on || []), ...(entry.affects_flows || [])]) {
+      if (!resolveDep(intermediate, dep)) {
         orphan_dependencies.push({ source: fp, missing_dep: dep })
       }
     }
   })
+
+  const { cycles, truncated: cycles_truncated } = findCycles(intermediate)
+  const { violations: edge_violations, truncated: edge_violations_truncated } = validateEdges(intermediate, EDGE_RULES)
 
   const newGraph = {
     version: '1.0',
@@ -141,6 +140,10 @@ async function runTool({ silent = false } = {}) {
     groups,
     files,
     ...(orphan_dependencies.length > 0 && { orphan_dependencies }),
+    ...(cycles.length > 0 && { cycles }),
+    ...(cycles_truncated && { cycles_truncated: true }),
+    ...(edge_violations.length > 0 && { edge_violations }),
+    ...(edge_violations_truncated && { edge_violations_truncated: true }),
   }
 
   // Only write if changed
@@ -169,6 +172,11 @@ async function runTool({ silent = false } = {}) {
 
   return {
     files_indexed: Object.keys(files).length,
+    orphan_dependencies: orphan_dependencies.length,
+    cycles: cycles.length,
+    edge_violations: edge_violations.length,
+    ...(cycles_truncated && { cycles_truncated: true }),
+    ...(edge_violations_truncated && { edge_violations_truncated: true }),
     lint_errors: lintResult.error_count,
     lint_warnings: lintResult.warn_count,
     lint_violations: lintResult.violations.slice(0, 20),
