@@ -36,7 +36,7 @@ const TYPE_TO_TEMPLATE = {
 // Legacy types removed in favor of the structured-standards model. Surface a
 // hint to anyone still calling kb_scaffold with these so they migrate cleanly.
 const REMOVED_TYPES = {
-  'tech-stack': 'use foundation/<id>.md for stack inventory or standards/code/<id>.md for stack rules',
+  'tech-stack': 'use standards/code/<id>.md for stack rules',
   'conventions': 'use one or more standards/code/<id>.md documents with structured rules'
 }
 

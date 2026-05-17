@@ -4,9 +4,11 @@ const crypto = require('crypto')
 const { globMatch, matchAllPatterns, resolveKbTarget } = require('./patterns')
 const { canonicalize } = require('./promotion-ledger')
 
-// Intent → expected folder convention. Hardcoded from the bundled presets. Patterns
-// without `intent` skip this check. Folders are prefix-matched, so kb_target
-// "features/auth.md" satisfies expected_folder "features/".
+// Intent → expected folder convention. Hardcoded from the bundled presets;
+// convention_violation findings carry `source: 'preset'` so callers can tell
+// preset opinion apart from project-declared rules. Patterns without `intent`
+// skip this check. Folders are prefix-matched, so kb_target "features/auth.md"
+// satisfies expected_folder "features/".
 const INTENT_FOLDER_CONVENTIONS = {
   form: 'features/',
   'api-contract': 'features/',
@@ -20,8 +22,8 @@ const INTENT_FOLDER_CONVENTIONS = {
   validator: 'validation/',
   component: 'components/',
   integration: 'integrations/',
-  dependency: 'foundation/',
-  config: 'foundation/',
+  dependency: 'standards/code/',
+  config: 'standards/code/',
 }
 
 // Directories pruned during source walks. Mirrors analyze.js / inventory.js
@@ -219,6 +221,7 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
         intent: p.intent,
         kb_target: p.kb_target,
         expected_folder: expected,
+        source: 'preset',
       })
     }
   }

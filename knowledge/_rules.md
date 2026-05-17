@@ -16,13 +16,12 @@ depth_policy:
     data: 2
     validation: 1
     decisions: 1
-    foundation: 1
+    standards: 2
     sync: 1
   never_group:
     - data
     - validation
     - decisions
-    - foundation
     - sync
 
 secret_patterns:
@@ -39,13 +38,13 @@ cross_app_refs:
     - validation
     - integrations
     - decisions
-    - foundation
+    - standards
 
 code_path_patterns:
   # No stack auto-detected. Copy source patterns from knowledge/_mcp/presets/<stack>.yaml
   # and paste them here. The dependency and config intents below work for all stacks.
   - intent: dependency
-    kb_target: "foundation/tech-stack.md"
+    kb_target: "standards/code/tech-stack.md"
     paths:
       - "package.json"
       - "package-lock.json"
@@ -61,7 +60,7 @@ code_path_patterns:
       - "Gemfile"
       - "Cargo.toml"
   - intent: config
-    kb_target: "foundation/conventions.md"
+    kb_target: "standards/code/conventions.md"
     paths:
       - "tsconfig.json"
       - "tsconfig.*.json"

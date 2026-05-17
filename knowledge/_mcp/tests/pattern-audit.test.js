@@ -135,6 +135,7 @@ test('auditPatterns flags convention_violation when intent does not match folder
   const v = findings.find(f => f.type === 'convention_violation')
   assert.ok(v)
   assert.equal(v.expected_folder, 'features/')
+  assert.equal(v.source, 'preset', 'convention_violation must declare preset provenance')
 })
 
 test('auditPatterns does not flag convention_violation when intent and folder agree', () => {

@@ -570,7 +570,7 @@ function generateCodePathPatterns(hints = {}) {
   # No stack auto-detected. Copy source patterns from knowledge/_mcp/presets/<stack>.yaml
   # and paste them here. The dependency and config intents below work for all stacks.
   - intent: dependency
-    kb_target: "foundation/tech-stack.md"
+    kb_target: "standards/code/tech-stack.md"
     paths:
       - "package.json"
       - "package-lock.json"
@@ -586,7 +586,7 @@ function generateCodePathPatterns(hints = {}) {
       - "Gemfile"
       - "Cargo.toml"
   - intent: config
-    kb_target: "foundation/conventions.md"
+    kb_target: "standards/code/conventions.md"
     paths:
       - "tsconfig.json"
       - "tsconfig.*.json"
