@@ -569,6 +569,11 @@ export class InstrumentalityView extends ItemView {
         count: s.lint.violations.length,
         build: (p) => this.renderLintCard(p),
       },
+      {
+        key: "mapping-diagnostics",
+        count: s.patternAudit?.findings.length ?? 0,
+        build: (p) => this.renderMappingDiagnosticsCard(p),
+      },
     ];
 
     const canonical = new Map(sections.map((sec, i) => [sec.key, i]));
@@ -1472,6 +1477,152 @@ export class InstrumentalityView extends ItemView {
       meta,
       detail,
       sourceFile: v.file,
+    });
+  }
+
+  // ── Mapping diagnostics card ───────────────────────────────────────────
+  //
+  // Panel-level audit findings from knowledge/_mcp/lib/pattern-audit.js —
+  // surfaces structural problems with code_path_patterns in _rules.md. The
+  // data arrives via the live-status runner; the card is empty when no
+  // findings are present.
+
+  private renderMappingDiagnosticsCard(parent: HTMLElement): void {
+    const audit = this.status!.patternAudit;
+    const findings = audit?.findings ?? [];
+    const body = this.sectionShell(
+      parent,
+      "mapping-diagnostics",
+      SECTION_GUIDE["mapping-diagnostics"].label,
+      findings.length,
+      undefined,
+      SECTION_GUIDE["mapping-diagnostics"].what
+    );
+    if (findings.length === 0) {
+      return this.placeholder(body, "No mapping diagnostics — patterns are consistent with the current filesystem.");
+    }
+    findings.forEach((f, i) => this.renderMappingDiagnosticsRow(body, f, i));
+  }
+
+  private renderMappingDiagnosticsRow(
+    parent: HTMLElement,
+    f: NonNullable<typeof this.status>["patternAudit"] extends infer A
+      ? A extends { findings: (infer F)[] }
+        ? F
+        : never
+      : never,
+    i: number
+  ): void {
+    const id = stableEntryId(`audit:${f.type}`, i);
+    const text = JSON.stringify(f);
+    const summary = (h2: HTMLElement) => {
+      switch (f.type) {
+        case "orphan_pattern":
+          h2.createSpan({ cls: "title", text: "Orphan pattern: " });
+          h2.createEl("code", { text: f.kb_target });
+          if (f.is_submodule_pattern) h2.createSpan({ cls: "badge sev-info", text: "submodule" });
+          break;
+        case "ghost_target":
+          h2.createSpan({ cls: "title", text: "Ghost target: " });
+          h2.createEl("code", { text: f.resolved_target });
+          break;
+        case "multi_target_files":
+          h2.createSpan({ cls: "title", text: "Multi-target file: " });
+          h2.createEl("code", { text: f.file });
+          h2.createSpan({ cls: "badge sev-info", text: `${f.matched_targets.length} targets` });
+          break;
+        case "convention_violation":
+          h2.createSpan({ cls: "title", text: "Convention violation: " });
+          h2.createEl("code", { text: f.kb_target });
+          break;
+        case "unmapped_kb_group":
+          h2.createSpan({ cls: "title", text: "Unmapped KB folder: " });
+          h2.createEl("code", { text: f.folder });
+          h2.createSpan({ cls: "badge sev-info", text: `${f.count} file(s)` });
+          break;
+        case "fanout_with_hardcoded":
+          h2.createSpan({ cls: "title", text: "Overbroad hardcoded pattern: " });
+          h2.createEl("code", { text: f.kb_target });
+          break;
+      }
+    };
+    const detail = (d: HTMLElement) => {
+      const div = d.createDiv({ cls: "detail-meta" });
+      switch (f.type) {
+        case "orphan_pattern": {
+          if (f.intent) div.createDiv({ text: `Intent: ${f.intent}` });
+          div.createDiv({ text: "Paths match no source files:" });
+          const ul = div.createEl("ul");
+          for (const p of f.paths) ul.createEl("li").createEl("code", { text: p });
+          break;
+        }
+        case "ghost_target":
+          div.createDiv({
+            text: "kb_target points at a KB file that does not exist. Either create the KB file or fix the pattern in _rules.md.",
+          });
+          break;
+        case "multi_target_files": {
+          div.createDiv({ text: `Matches ${f.matched_targets.length} patterns — fan-out drift entries:` });
+          const ul = div.createEl("ul");
+          for (const t of f.matched_targets) ul.createEl("li").createEl("code", { text: t.kb_target });
+          div.createDiv({
+            text: "If unintentional, narrow one of the patterns. Post-P0 all matching targets get entries.",
+          });
+          break;
+        }
+        case "convention_violation":
+          div.createDiv({
+            text: `intent "${f.intent}" conventionally targets ${f.expected_folder} but this pattern points elsewhere.`,
+          });
+          break;
+        case "unmapped_kb_group": {
+          div.createDiv({
+            text: "No code_path_patterns entry targets these KB files. Code→KB drift detection is silent for them.",
+          });
+          const ul = div.createEl("ul");
+          for (const s of f.sample_files) ul.createEl("li").createEl("code", { text: s });
+          break;
+        }
+        case "fanout_with_hardcoded":
+          div.createDiv({
+            text: `${f.distinct_concepts} distinct file basenames map to this single KB file. Consider a {name} template or narrower paths.`,
+          });
+          break;
+      }
+    };
+    this.entryShell({
+      parent,
+      section: "mapping-diagnostics",
+      id,
+      sev: "info",
+      text,
+      summary,
+      meta: f.type,
+      detail: (d: HTMLElement) => {
+        detail(d);
+        const actions = d.createDiv({ cls: "instrumentality-entry-actions" });
+        const btn = actions.createEl("button", {
+          cls: "instrumentality-btn instrumentality-btn-tiny",
+          text: "Copy fix prompt",
+        });
+        btn.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          const prompt = buildAuditFixPrompt(f);
+          try {
+            await navigator.clipboard.writeText(prompt);
+            new Notice("Audit fix prompt copied to clipboard.");
+          } catch {
+            // Fallback for sandboxed contexts where navigator.clipboard is unavailable
+            const ta = document.createElement("textarea");
+            ta.value = prompt;
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand("copy"); new Notice("Audit fix prompt copied to clipboard."); }
+            catch { new Notice("Could not copy — clipboard API unavailable."); }
+            finally { document.body.removeChild(ta); }
+          }
+        });
+      },
     });
   }
 
@@ -2774,6 +2925,75 @@ export class InstrumentalityView extends ItemView {
 // Minimal CSS.escape — Obsidian's Electron has window.CSS.escape, but
 // using it directly inside the class requires DOM-only contexts. This
 // inline form is enough for our known-safe section keys.
+// ── Mapping diagnostics fix-prompt builder ───────────────────────────────────
+//
+// Mirrors the buildAuditFixPrompt helper in the VSCode extension so both
+// surfaces produce identical clipboard content. Hardcoded (not loaded from
+// _templates/prompts/) per the plan's deliberate scope cut.
+
+type AuditFinding = NonNullable<StatusSummary["patternAudit"]>["findings"][number];
+
+function buildAuditFixPrompt(f: AuditFinding): string {
+  const header = `The knowledge/_rules.md → code_path_patterns audit surfaced this finding:\n\n`;
+  let body = "";
+  switch (f.type) {
+    case "orphan_pattern":
+      body = `Type: orphan_pattern\n`
+        + `Pattern: intent=${f.intent ?? "(none)"}, kb_target=${f.kb_target}\n`
+        + `Paths: ${JSON.stringify(f.paths)}\n`
+        + `${f.is_submodule_pattern ? "Submodule pattern.\n" : ""}`
+        + `\nThe paths globs above match zero files in the current repo. Decide:\n`
+        + `1. If the code was moved/renamed, update the paths globs in knowledge/_rules.md to match the new location.\n`
+        + `2. If the pattern is obsolete, remove it from knowledge/_rules.md.\n`
+        + `3. If the paths are correct but the matching files were deleted, leave the pattern and acknowledge it's currently inactive.\n`;
+      break;
+    case "ghost_target":
+      body = `Type: ghost_target\n`
+        + `Hardcoded kb_target: ${f.resolved_target}\n`
+        + `\nThe pattern targets a KB file that does not exist. Either:\n`
+        + `1. Create knowledge/${f.resolved_target} via kb_scaffold (if the concept is real but undocumented).\n`
+        + `2. Fix the kb_target in knowledge/_rules.md (if this was a typo).\n`
+        + `3. Remove the pattern entirely (if the concept is gone).\n`;
+      break;
+    case "multi_target_files":
+      body = `Type: multi_target_files\n`
+        + `File: ${f.file}\n`
+        + `Matched targets: ${JSON.stringify(f.matched_targets, null, 2)}\n`
+        + `\nThis code file matches multiple patterns producing distinct kb_targets.\n`
+        + `Post-P0 fan-out: all targets receive drift entries on changes.\n`
+        + `Decide whether this is intentional (cross-cutting concern → keep) or accidental (overbroad pattern → narrow one of them in knowledge/_rules.md).\n`;
+      break;
+    case "convention_violation":
+      body = `Type: convention_violation\n`
+        + `Pattern: intent=${f.intent}, kb_target=${f.kb_target}\n`
+        + `Expected folder for intent "${f.intent}": ${f.expected_folder}\n`
+        + `\nThe convention table expects intent "${f.intent}" to target ${f.expected_folder}* but this pattern targets a different folder.\n`
+        + `Either fix the kb_target in knowledge/_rules.md, or change the intent label if the mapping is intentional.\n`;
+      break;
+    case "unmapped_kb_group":
+      body = `Type: unmapped_kb_group\n`
+        + `Folder: ${f.folder}\n`
+        + `Count: ${f.count}\n`
+        + `Sample files: ${JSON.stringify(f.sample_files)}\n`
+        + `\nThese KB files are not targeted by any code_path_patterns entry — code→KB drift detection is silent for them.\n`
+        + `Add a pattern to knowledge/_rules.md → code_path_patterns. Typical shape:\n`
+        + `\n  - intent: <see knowledge/_mcp/presets/ for examples>\n`
+        + `    kb_target: "${f.folder}{name}.md"\n`
+        + `    paths:\n`
+        + `      - "<glob covering the related source files>"\n`
+        + `\nGrep the repo for files related to these KB documents and choose paths globs that catch them.\n`;
+      break;
+    case "fanout_with_hardcoded":
+      body = `Type: fanout_with_hardcoded\n`
+        + `Pattern kb_target (hardcoded): ${f.kb_target}\n`
+        + `Distinct file basenames: ${f.distinct_concepts}\n`
+        + `\nThis hardcoded kb_target catches ${f.distinct_concepts} distinct file basenames — one KB file is documenting many concepts.\n`
+        + `Either switch the kb_target to a {name} template (so each concept gets its own KB file), or narrow the paths glob.\n`;
+      break;
+  }
+  return header + body;
+}
+
 function cssEscape(s: string): string {
   return s.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
 }

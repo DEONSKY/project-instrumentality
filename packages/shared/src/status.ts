@@ -10,6 +10,7 @@ import type {
   StandardsDriftEntry,
   PromotionEntry,
   StatusSummary,
+  PatternAudit,
 } from "./types.js";
 import { readCodeDrift } from "./parsers/code-drift.js";
 import { readKbDrift } from "./parsers/kb-drift.js";
@@ -215,6 +216,7 @@ export async function getStatus(
       grand: driftCount + conformPendingCount + promotions.length + lintErrors + lintWarnings,
     },
     livePatterns: liveOverlay ? liveOverlay.codePatterns : null,
+    patternAudit: liveOverlay ? liveOverlay.patternAudit : null,
   };
 }
 
@@ -242,6 +244,8 @@ interface LiveOverlay {
    * to a workspace-wide watcher.
    */
   codePatterns: string[] | null;
+  /** Mechanical pattern audit findings from the live drift call. */
+  patternAudit: PatternAudit | null;
 }
 
 function runLiveStatus(
@@ -284,6 +288,9 @@ function runLiveStatus(
           standardsEntries: tagMode(parsed.standardsEntries ?? [], "current"),
           backlogEntries: tagMode(parsed.backlogEntries ?? [], "aspirational"),
           codePatterns: Array.isArray(parsed.codePatterns) ? parsed.codePatterns : null,
+          patternAudit: parsed.patternAudit && Array.isArray(parsed.patternAudit.findings)
+            ? parsed.patternAudit
+            : null,
         });
       } catch {
         resolve(null);

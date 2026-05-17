@@ -119,11 +119,30 @@ async function runTool({ silent = false } = {}) {
   })
 
 
+  // P3: surface orphan depends_on — references that point at a file not
+  // present in the index. Helps the agent catch broken backlinks after KB
+  // renames/deletes. Bounded by file count + dep count; emitted only when
+  // non-empty so clean projects don't see noise.
+  const orphan_dependencies = []
+  Object.entries(files).forEach(([fp, entry]) => {
+    for (const dep of (entry.depends_on || [])) {
+      // depends_on entries can be either bare ids ("auth") or paths
+      // ("features/auth"). Match against entry id as well as the
+      // path-without-extension key in files[].
+      const matchesById = Object.values(files).some(f => f.id === dep)
+      const matchesByPath = Object.keys(files).some(k => k.replace(/\.md$/, '') === dep)
+      if (!matchesById && !matchesByPath) {
+        orphan_dependencies.push({ source: fp, missing_dep: dep })
+      }
+    }
+  })
+
   const newGraph = {
     version: '1.0',
     last_sync: new Date().toISOString().split('T')[0],
     groups,
-    files
+    files,
+    ...(orphan_dependencies.length > 0 && { orphan_dependencies }),
   }
 
   // Only write if changed

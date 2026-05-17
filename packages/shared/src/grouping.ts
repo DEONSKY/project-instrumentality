@@ -14,7 +14,7 @@ import { SECTION_GUIDE, type SectionKind } from "./section-guide.js";
 import type { StatusSummary } from "./types.js";
 
 export type GroupBy = "section" | "file" | "standard" | "lifecycle";
-export type LifecycleStage = "drift" | "conform" | "promotion" | "lint";
+export type LifecycleStage = "drift" | "conform" | "promotion" | "lint" | "diagnostics";
 
 export interface EntryHandle {
   section: SectionKind;
@@ -38,6 +38,7 @@ const SECTION_TO_LIFECYCLE: Record<SectionKind, LifecycleStage> = {
   "conform-pending": "conform",
   promotions: "promotion",
   lint: "lint",
+  "mapping-diagnostics": "diagnostics",
 };
 
 const LIFECYCLE_LABEL: Record<LifecycleStage, string> = {
@@ -45,6 +46,7 @@ const LIFECYCLE_LABEL: Record<LifecycleStage, string> = {
   conform: "Conform pending",
   promotion: "Promotions to review",
   lint: "Lint to fix",
+  diagnostics: "Mapping diagnostics",
 };
 
 const LIFECYCLE_HINT: Record<LifecycleStage, string> = {
@@ -53,6 +55,8 @@ const LIFECYCLE_HINT: Record<LifecycleStage, string> = {
   promotion:
     "Past judgments accepted a violation — revisit the rule before the next run.",
   lint: "Schema-level issues that will block kb_lint.",
+  diagnostics:
+    "Structural issues in code_path_patterns — fix in _rules.md to keep drift detection accurate.",
 };
 
 export function buildEntryHandles(status: StatusSummary): EntryHandle[] {
@@ -261,5 +265,7 @@ function countForStage(status: StatusSummary, stage: LifecycleStage): number {
       return status.promotions.length;
     case "lint":
       return status.lint.violations.length;
+    case "diagnostics":
+      return status.patternAudit?.findings.length ?? 0;
   }
 }

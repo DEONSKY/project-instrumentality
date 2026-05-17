@@ -21,7 +21,8 @@ export type SectionKind =
   | "standards-drift"
   | "conform-pending"
   | "promotions"
-  | "lint";
+  | "lint"
+  | "mapping-diagnostics";
 
 export interface SectionGuide {
   label: string;
@@ -138,6 +139,20 @@ const LINT_DIAGRAM = `KB file change
   Fix in source file
   (or pass force_lint to bypass once)`;
 
+const MAPPING_DIAGNOSTICS_DIAGRAM = `_rules.md code_path_patterns
+        │
+        ▼
+  audit (kb_drift readonly)
+        │
+        ▼
+  finding (orphan / ghost /
+   multi-target / convention /
+   unmapped folder / fanout)
+        │
+        ▼
+  Agent edits _rules.md
+   (Tier 2 — humans/agent)`;
+
 export const SECTION_GUIDE: Record<SectionKind, SectionGuide> = {
   "code-drift": {
     label: "Code Drift",
@@ -186,6 +201,13 @@ export const SECTION_GUIDE: Record<SectionKind, SectionGuide> = {
     todo: "Fix the lint issue in the source file.",
     primaryVerb: "Fix",
     lifecycleDiagram: LINT_DIAGRAM,
+  },
+  "mapping-diagnostics": {
+    label: "Mapping Diagnostics",
+    what: "code_path_patterns vs current filesystem — orphan paths, ghost targets, multi-target files, convention violations, unmapped KB folders.",
+    todo: "Edit knowledge/_rules.md to fix the flagged patterns; rerun kb_drift to verify.",
+    primaryVerb: "Fix",
+    lifecycleDiagram: MAPPING_DIAGNOSTICS_DIAGRAM,
   },
 };
 

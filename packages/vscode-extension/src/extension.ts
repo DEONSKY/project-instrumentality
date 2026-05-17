@@ -610,6 +610,11 @@ async function handleAction(
   if (action.type === "toggleSubmodules") {
     return; // Same pattern as setOpenSection — state already persisted.
   }
+  if (action.type === "copyAuditPrompt") {
+    await vscode.env.clipboard.writeText(action.prompt);
+    void vscode.window.showInformationMessage("Instrumentality: audit fix prompt copied to clipboard.");
+    return;
+  }
   if (action.type === "openLedger") {
     if (!kbRoot) {
       void vscode.window.showWarningMessage("Instrumentality: knowledge base not detected.");

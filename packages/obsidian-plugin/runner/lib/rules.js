@@ -97,6 +97,21 @@ function getDefaultRules() {
 function loadRules(kbRoot = 'knowledge') {
   const raw = loadRulesRaw(kbRoot)
 
+  // Validate code_path_patterns at load time. Errors propagate as warnings,
+  // not throws — loading must succeed even with malformed entries (matches
+  // how validateRule is consumed by lint).
+  if (Array.isArray(raw.code_path_patterns)) {
+    const { validateCodePathPattern } = require('./pattern-audit')
+    for (let i = 0; i < raw.code_path_patterns.length; i++) {
+      const r = validateCodePathPattern(raw.code_path_patterns[i])
+      if (!r.valid) {
+        for (const e of r.errors) {
+          process.stderr.write(`[kb-rules] code_path_patterns[${i}]: ${e}\n`)
+        }
+      }
+    }
+  }
+
   return {
     getDepthPolicy: () => raw.depth_policy || getDefaultRules().depth_policy,
     getSecretPatterns: () => raw.secret_patterns || getDefaultRules().secret_patterns,

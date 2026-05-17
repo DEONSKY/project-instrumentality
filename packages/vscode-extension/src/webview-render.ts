@@ -100,6 +100,7 @@ export type DashboardAction =
   | { type: "publishDrift" }
   | { type: "setOpenSection"; section: string }
   | { type: "toggleSubmodules"; collapsed: boolean }
+  | { type: "copyAuditPrompt"; prompt: string }
   | { type: "refresh" };
 
 // ── Verdict definitions ─────────────────────────────────────────────────────
@@ -422,6 +423,7 @@ export function renderHtml(
 
   <div class="section-grid">
     ${groupedBody}
+    ${status ? renderPatternAuditCard(status) : ""}
   </div>
   `
   }
@@ -723,6 +725,17 @@ export function renderHtml(
         }
         if (action === "submodulePush") {
           vscode.postMessage({ command: "submodulePush" });
+          return;
+        }
+        if (action === "copyAuditPrompt") {
+          // Audit findings ship the prompt as a base64-encoded data attribute
+          // rather than going through the entry registry — the registry only
+          // tracks queue entries, but findings are about patterns, not entries.
+          const b64 = target.getAttribute("data-prompt-b64") || "";
+          if (!b64) return;
+          let prompt = "";
+          try { prompt = atob(b64); } catch { return; }
+          vscode.postMessage({ command: "copyAuditPrompt", prompt });
           return;
         }
         if (action === "verdictSubmit") {
@@ -1208,6 +1221,11 @@ function renderEntryByHandle(
       if (i < 0) return "";
       return lintRow(status.lint.violations[i], i);
     }
+    case "mapping-diagnostics":
+      // Audit findings render as a panel-level card via renderPatternAuditCard,
+      // not as individual entries in the unified handle stream. Return empty so
+      // grouping queries don't break.
+      return "";
   }
 }
 
@@ -1747,6 +1765,156 @@ function lintRow(v: LintViolation, i: number): string {
     <div class="meta"><code>${escapeHtml(v.file)}</code> — ${escapeHtml(v.message)}</div>`;
   const text = v.file + " " + v.message;
   return entryShell(ref, v.severity, text, summary, buildLintDetail(v), false, false, []);
+}
+
+// ── Pattern audit card ──────────────────────────────────────────────────────
+//
+// Panel-level "Mapping diagnostics" card. Surfaces findings from
+// knowledge/_mcp/lib/pattern-audit.js about code_path_patterns vs current
+// filesystem state. Only renders when there are findings AND beyond the
+// "everything is unmapped" case (which is already obvious from empty queues).
+
+function renderPatternAuditCard(status: StatusSummary): string {
+  const audit = status.patternAudit;
+  if (!audit || !audit.findings || audit.findings.length === 0) return "";
+
+  // Suppress the card when the ONLY finding is "unmapped_kb_group" for a fresh
+  // project — already obvious from the empty queues. Render whenever there's
+  // any non-unmapped finding, or any unmapped finding alongside other signal.
+  const hasActionable = audit.findings.some((f) => f.type !== "unmapped_kb_group");
+  if (!hasActionable && audit.findings.length === 0) return "";
+
+  const byType = new Map<string, number>();
+  for (const f of audit.findings) byType.set(f.type, (byType.get(f.type) || 0) + 1);
+  const summaryChips = [...byType.entries()]
+    .map(([t, n]) => `<span class="badge sev-info">${escapeHtml(t)}: ${n}</span>`)
+    .join(" ");
+
+  const rows = audit.findings
+    .map((f, i) => patternAuditFindingRow(f, i))
+    .join("");
+
+  return `<section class="section-card" data-section="mapping-diagnostics">
+    <header><h2>Mapping diagnostics <span class="count">${audit.findings.length}</span></h2>
+      <div class="hint">code_path_patterns vs current filesystem — surfaces orphan paths, ghost targets, multi-target files, convention violations, and unmapped KB folders.</div>
+    </header>
+    <div class="body">
+      <div class="audit-summary">${summaryChips}</div>
+      ${rows}
+    </div>
+  </section>`;
+}
+
+function patternAuditFindingRow(f: NonNullable<StatusSummary["patternAudit"]>["findings"][number], i: number): string {
+  let title = "";
+  let body = "";
+  switch (f.type) {
+    case "orphan_pattern":
+      title = `Orphan pattern: <code>${escapeHtml(f.kb_target)}</code>${f.intent ? ` <span class="badge sev-info">intent: ${escapeHtml(f.intent)}</span>` : ""}${f.is_submodule_pattern ? ` <span class="badge sev-info">submodule</span>` : ""}`;
+      body = `<div class="meta">paths match no source files:</div><ul>${f.paths.map(p => `<li><code>${escapeHtml(p)}</code></li>`).join("")}</ul>`;
+      break;
+    case "ghost_target":
+      title = `Ghost target: <code>${escapeHtml(f.resolved_target)}</code>`;
+      body = `<div class="meta">kb_target points at a KB file that does not exist. Either create the KB file or fix the pattern in <code>_rules.md</code>.</div>`;
+      break;
+    case "multi_target_files":
+      title = `Multi-target file: <code>${escapeHtml(f.file)}</code>`;
+      body = `<div class="meta">Matches ${f.matched_targets.length} patterns, producing drift entries for:</div><ul>${f.matched_targets.map(t => `<li><code>${escapeHtml(t.kb_target)}</code></li>`).join("")}</ul><div class="meta">If unintentional, narrow one of the patterns. Post-P0 fan-out: all targets get entries.</div>`;
+      break;
+    case "convention_violation":
+      title = `Convention violation: <code>${escapeHtml(f.kb_target)}</code>`;
+      body = `<div class="meta">intent <code>${escapeHtml(f.intent)}</code> conventionally targets <code>${escapeHtml(f.expected_folder)}</code> but this pattern points elsewhere.</div>`;
+      break;
+    case "unmapped_kb_group":
+      title = `Unmapped KB folder: <code>${escapeHtml(f.folder)}</code> <span class="badge sev-info">${f.count} file(s)</span>`;
+      body = `<div class="meta">No code_path_patterns entry targets these KB files. Code→KB drift detection is silent for them.</div><ul>${f.sample_files.map(s => `<li><code>${escapeHtml(s)}</code></li>`).join("")}</ul>`;
+      break;
+    case "fanout_with_hardcoded":
+      title = `Overbroad hardcoded pattern: <code>${escapeHtml(f.kb_target)}</code>`;
+      body = `<div class="meta">${f.distinct_concepts} distinct file basenames map to this single KB file. Consider using a <code>{name}</code> template to fan out, or narrow the paths glob.</div>`;
+      break;
+  }
+  const id = `audit-${i}`;
+  const prompt = buildAuditFixPrompt(f);
+  // Encode the prompt as base64 on a data attribute so it survives HTML
+  // attribute escaping and any embedded backticks/quotes. The webview JS
+  // decodes and dispatches a copyAuditPrompt action.
+  const promptB64 = Buffer.from(prompt, "utf8").toString("base64");
+  return `<div class="entry" data-audit-finding="${escapeAttr(f.type)}" data-entry-id="${escapeAttr(id)}">
+    <div class="summary">${title}</div>
+    <div class="detail">
+      ${body}
+      <div class="entry-actions">
+        <button class="btn btn-tiny" data-action="copyAuditPrompt" data-prompt-b64="${promptB64}">Copy fix prompt</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
+ * Build a focused fix-prompt for an audit finding. Hardcoded (not loaded from
+ * _templates/prompts/) to keep the extension independent of the MCP prompt
+ * resolver — same trade-off the plan documented as a deliberate cut.
+ */
+function buildAuditFixPrompt(f: NonNullable<StatusSummary["patternAudit"]>["findings"][number]): string {
+  const header = `The knowledge/_rules.md → code_path_patterns audit surfaced this finding:\n\n`;
+  let body = "";
+  switch (f.type) {
+    case "orphan_pattern":
+      body = `Type: orphan_pattern\n`
+        + `Pattern: intent=${f.intent ?? "(none)"}, kb_target=${f.kb_target}\n`
+        + `Paths: ${JSON.stringify(f.paths)}\n`
+        + `${f.is_submodule_pattern ? "Submodule pattern.\n" : ""}`
+        + `\nThe paths globs above match zero files in the current repo. Decide:\n`
+        + `1. If the code was moved/renamed, update the paths globs in knowledge/_rules.md to match the new location.\n`
+        + `2. If the pattern is obsolete, remove it from knowledge/_rules.md.\n`
+        + `3. If the paths are correct but the matching files were deleted, leave the pattern and acknowledge it's currently inactive.\n`
+      break;
+    case "ghost_target":
+      body = `Type: ghost_target\n`
+        + `Hardcoded kb_target: ${f.resolved_target}\n`
+        + `\nThe pattern targets a KB file that does not exist. Either:\n`
+        + `1. Create knowledge/${f.resolved_target} via kb_scaffold (if the concept is real but undocumented).\n`
+        + `2. Fix the kb_target in knowledge/_rules.md (if this was a typo).\n`
+        + `3. Remove the pattern entirely (if the concept is gone).\n`
+      break;
+    case "multi_target_files":
+      body = `Type: multi_target_files\n`
+        + `File: ${f.file}\n`
+        + `Matched targets: ${JSON.stringify(f.matched_targets, null, 2)}\n`
+        + `\nThis code file matches multiple patterns producing distinct kb_targets.\n`
+        + `Post-P0 fan-out: all targets receive drift entries on changes.\n`
+        + `Decide whether this is intentional (cross-cutting concern → keep) or accidental (overbroad pattern → narrow one of them in knowledge/_rules.md).\n`
+      break;
+    case "convention_violation":
+      body = `Type: convention_violation\n`
+        + `Pattern: intent=${f.intent}, kb_target=${f.kb_target}\n`
+        + `Expected folder for intent "${f.intent}": ${f.expected_folder}\n`
+        + `\nThe convention table expects intent "${f.intent}" to target ${f.expected_folder}* but this pattern targets a different folder.\n`
+        + `Either fix the kb_target in knowledge/_rules.md, or change the intent label if the mapping is intentional.\n`
+      break;
+    case "unmapped_kb_group":
+      body = `Type: unmapped_kb_group\n`
+        + `Folder: ${f.folder}\n`
+        + `Count: ${f.count}\n`
+        + `Sample files: ${JSON.stringify(f.sample_files)}\n`
+        + `\nThese KB files are not targeted by any code_path_patterns entry — code→KB drift detection is silent for them.\n`
+        + `Add a pattern to knowledge/_rules.md → code_path_patterns. Typical shape:\n`
+        + `\n  - intent: <see knowledge/_mcp/presets/ for examples>\n`
+        + `    kb_target: "${f.folder}{name}.md"\n`
+        + `    paths:\n`
+        + `      - "<glob covering the related source files>"\n`
+        + `\nGrep the repo for files related to these KB documents and choose paths globs that catch them.\n`
+      break;
+    case "fanout_with_hardcoded":
+      body = `Type: fanout_with_hardcoded\n`
+        + `Pattern kb_target (hardcoded): ${f.kb_target}\n`
+        + `Distinct file basenames: ${f.distinct_concepts}\n`
+        + `\nThis hardcoded kb_target catches ${f.distinct_concepts} distinct file basenames — one KB file is documenting many concepts.\n`
+        + `Either switch the kb_target to a {name} template (so each concept gets its own KB file), or narrow the paths glob.\n`
+      break;
+  }
+  return header + body;
 }
 
 // ── Submodules pinned card ─────────────────────────────────────────────────

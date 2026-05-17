@@ -41,6 +41,7 @@ async function main() {
   const standardsEntries = (conformResult && conformResult._state && conformResult._state.entries) || []
   const backlogEntries = (backlogResult && backlogResult._state && backlogResult._state.entries) || []
   const headSha = (driftResult && driftResult._state && driftResult._state.headSha) || null
+  const patternAudit = (driftResult && driftResult.pattern_audit) || null
 
   // Surface the code-path globs from `knowledge/_rules.md` so the extension
   // can scope its source-file watcher to the patterns the drift detector
@@ -67,7 +68,8 @@ async function main() {
     kbEntries,
     standardsEntries,
     backlogEntries,
-    codePatterns
+    codePatterns,
+    patternAudit
   })
 }
 

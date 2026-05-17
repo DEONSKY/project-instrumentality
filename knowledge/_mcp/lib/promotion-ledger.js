@@ -261,6 +261,7 @@ function applyFileChangesToLedger(state, renamed, deleted) {
 module.exports = {
   STANDARDS_PROMOTIONS_PATH,
   STANDARDS_PROMOTIONS_HEADER,
+  canonicalize,
   computeRuleFingerprint,
   readLedger,
   writeLedger,

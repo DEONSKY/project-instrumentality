@@ -2,7 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const simpleGit = require('simple-git')
 const { loadRules } = require('../lib/rules')
-const { pickBestMatch, resolveKbTarget, expandGlob } = require('../lib/patterns')
+const { matchAllPatterns, resolveKbTarget, expandGlob } = require('../lib/patterns')
 const { loadGraph, getDependents } = require('../lib/graph')
 const { detectSubmodules: detectSubmodulesHelper, resolveSubmoduleRefs } = require('../lib/submodule-sweep')
 
@@ -318,15 +318,20 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
 
     if (status === 'R' && oldFile) {
       const result = handleCodeRename(codeState, file, oldFile, sinceCommit, sinceDate, latestCommit, latestDate, isShared, patterns, author, { source })
-      if (result.outcome === 'new') codeEntriesNew++
-      else if (result.outcome === 're_detected') codeEntriesReDetected++
+      codeEntriesNew += result.outcomes.new
+      codeEntriesReDetected += result.outcomes.re_detected
       if (result.stalePattern) stalePatterns.push(result.stalePattern)
       continue
     }
 
-    const best = pickBestMatch(file, patterns)
-    if (best) {
-      const kbTarget = resolveKbTarget(best, file)
+    // Fan out: a code file may match multiple patterns, each producing its own
+    // kb_target. Symmetric with the kb→code direction (reverseMapKbTarget already
+    // returns all matches). Dedup via Set when two patterns resolve to the same
+    // kb_target (e.g. both use the "features/{name}.md" template with different
+    // glob scopes).
+    const matches = matchAllPatterns(file, patterns)
+    const kbTargets = new Set(matches.map(p => resolveKbTarget(p, file)))
+    for (const kbTarget of kbTargets) {
       const outcome = upsertCodeDriftEntry(codeState, kbTarget, file, sinceCommit, sinceDate, latestCommit, latestDate, isShared, undefined, author, { source })
       if (outcome === 'new') codeEntriesNew++
       else if (outcome === 're_detected') codeEntriesReDetected++
@@ -395,6 +400,18 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
     codeState.header = setBaseline(codeState.header, headSha)
     kbState.header = setBaseline(kbState.header, headSha)
   }
+
+  // P3: stamp fingerprints on entries without one (lazy migration), and
+  // recompute fingerprints for entries with one. Mismatches → auto-close +
+  // emit AUTO-CLOSED-PATTERN-CHANGED. Mirrors the standards-side fingerprint
+  // auto-close on rule changes.
+  const autoCloseRecords = []
+  stampAndRecomputeFingerprints(codeState, patterns, 'code-drift', autoCloseRecords, e => e.kbTarget)
+  stampAndRecomputeFingerprints(kbState, patterns, 'kb-drift', autoCloseRecords, e => e.kbFile)
+  if (autoCloseRecords.length > 0 && !readonly) {
+    appendToDriftLog(autoCloseRecords)
+  }
+
   if (!readonly) {
     writeCodeDriftEntries(codeState.header, codeState.entries)
     writeKbDriftEntries(kbState.header, kbState.entries)
@@ -441,6 +458,22 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
     message: noDrift
       ? `No drift detected.${subInfo}`
       : `${totalCodeOpen} code→KB entry(s) in sync/code-drift.md, ${totalKbOpen} KB→code entry(s) in sync/kb-drift.md${pendingNote}.${subInfo}`
+  }
+
+  // Pattern audit: mechanical findings about code_path_patterns vs current
+  // filesystem state. Runs inline on every drift call (~30ms budget). Skipped
+  // on quiet noDrift runs except readonly mode (live watcher needs the data).
+  if (!noDrift || readonly) {
+    try {
+      const { auditPatterns, collectSourceFiles, collectKbContentFiles, collectSubmodulePaths } = require('../lib/pattern-audit')
+      const sourceFiles = collectSourceFiles(process.cwd())
+      const kbFiles = collectKbContentFiles(KB_ROOT)
+      const submodulePaths = collectSubmodulePaths(process.cwd())
+      const audit = auditPatterns({ patterns, sourceFiles, kbFiles, submodulePaths })
+      if (audit.findings.length > 0) result.pattern_audit = audit
+    } catch (e) {
+      process.stderr.write(`[kb-drift] pattern audit failed: ${e.message}\n`)
+    }
   }
 
   const hasUnmappedKbEntries = (kbEntriesWritten > 0 || kbEntriesPending > 0) && (() => {
@@ -1045,6 +1078,7 @@ function readCodeDriftEntries() {
     const kbTarget = headingMatch ? headingMatch[1].trim() : null
     const hasShared = /\*\*Shared module:\*\*\s*true/.test(block)
     const acknowledgement = parseAcknowledgement(block)
+    const fingerprintMatch = block.match(/<!--\s*fingerprint:\s*(sha256:[a-f0-9]+)\s*-->/)
     const codeFiles = []
     for (const line of block.split('\n')) {
       const m = line.match(/^\s+-\s+`([^`]+)`(?:\s+←\s+renamed from\s+`([^`]+)`)?\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?(?:\s+—\s+by\s+@(\S+))?/)
@@ -1059,7 +1093,11 @@ function readCodeDriftEntries() {
         })
       }
     }
-    return { kbTarget, codeFiles, hasShared, ...(acknowledgement && { acknowledgement }) }
+    return {
+      kbTarget, codeFiles, hasShared,
+      ...(acknowledgement && { acknowledgement }),
+      ...(fingerprintMatch && { fingerprint: fingerprintMatch[1] }),
+    }
   }).filter(e => e.kbTarget)
 
   return { header, entries }
@@ -1092,7 +1130,8 @@ function writeCodeDriftEntries(header, entries) {
         }
       }
     }
-    return `## ${entry.kbTarget}\n\n- **KB target:** \`${entry.kbTarget}\`\n- **Code files:**\n${fileLines.join('\n')}${sharedLine}${ackLine}${consolidatedHint}`
+    const fpLine = entry.fingerprint ? `\n<!-- fingerprint: ${entry.fingerprint} -->` : ''
+    return `## ${entry.kbTarget}${fpLine}\n\n- **KB target:** \`${entry.kbTarget}\`\n- **Code files:**\n${fileLines.join('\n')}${sharedLine}${ackLine}${consolidatedHint}`
   }).join('\n\n')
   fs.writeFileSync(CODE_DRIFT_PATH, header + (body ? '\n' + body + '\n' : ''), 'utf8')
 }
@@ -1172,6 +1211,10 @@ function readKbDriftEntries() {
     const latestMatch = block.match(/\*\*Latest:\*\*\s*`([^`]+)`\s*\(([^)]+)\)(?:\s+—\s+by\s+@(\S+))?/)
     const unmapped = /KB spec changed without mapped code paths/.test(block)
     const acknowledgement = parseAcknowledgement(block)
+    // Fingerprint storage: HTML comment per entry, parallel to the top-of-file
+    // `<!-- baseline: ... -->` convention. Missing on entries written before P3
+    // shipped — handled via lazy migration in the recompute pass.
+    const fingerprintMatch = block.match(/<!--\s*fingerprint:\s*(sha256:[a-f0-9]+)\s*-->/)
 
     const codeAreas = []
     let inCodeAreas = false
@@ -1209,6 +1252,7 @@ function readKbDriftEntries() {
       ...(latestMatch && { latestCommit: latestMatch[1], latestDate: latestMatch[2] }),
       ...(latestMatch && latestMatch[3] && { author: latestMatch[3] }),
       ...(acknowledgement && { acknowledgement }),
+      ...(fingerprintMatch && { fingerprint: fingerprintMatch[1] }),
       unmapped
     }
   }).filter(e => e.kbFile)
@@ -1242,7 +1286,8 @@ function writeKbDriftEntries(header, entries) {
       ? `\n- **⚠ KB spec changed without mapped code paths.** Verify that the implementation still matches this spec. To enable automatic code-area tracking, add a \`code_path_patterns\` entry in \`_rules.md\` for this file.`
       : ''
     const ackLine = entry.acknowledgement ? `\n${formatAcknowledgement(entry.acknowledgement)}` : ''
-    return `## ${entry.kbFile}\n\n- **KB file:** \`${entry.kbFile}\`${renamedLine}${refsLine}\n- **Code areas to review:**\n${areaLines}${sinceLine}${latestLine}${ackLine}${unmappedHint}`
+    const fpLine = entry.fingerprint ? `\n<!-- fingerprint: ${entry.fingerprint} -->` : ''
+    return `## ${entry.kbFile}${fpLine}\n\n- **KB file:** \`${entry.kbFile}\`${renamedLine}${refsLine}\n- **Code areas to review:**\n${areaLines}${sinceLine}${latestLine}${ackLine}${unmappedHint}`
   }).join('\n\n')
   fs.writeFileSync(KB_DRIFT_PATH, header + (body ? '\n' + body + '\n' : ''), 'utf8')
 }
@@ -1290,41 +1335,60 @@ function upsertKbDriftEntry(state, kbFile, codeAreas, sinceCommit, sinceDate, la
 // ── Rename/move handling ─────────────────────────────────────────────────────
 
 /**
- * Handle a code file rename. Resolves KB targets for both old and new paths.
- * - Same target: replace old path with new in existing entry
- * - Different targets: remove from old, add to new with rename annotation
- * - No match for new: flag stale pattern warning
- * Returns { outcome: 'new'|'re_detected'|null, stalePattern }.
+ * Handle a code file rename. With fan-out, a single file may map to multiple
+ * KB targets in both old and new positions. Compute the target sets, then:
+ * - Targets in (old ∩ new): rename path inside the entry (replaceCodeFileInEntry)
+ * - Targets in (old \ new): drop the old path from those entries
+ * - Targets in (new \ old): add the new path to those entries with renamedFrom annotation
+ *
+ * `stalePattern` still fires when newTargets is empty AND oldTargets is non-empty —
+ * same semantic as before, just over sets.
+ *
+ * Returns { outcomes: { new, re_detected }, stalePattern }. Caller increments
+ * counters by the totals.
  */
 function handleCodeRename(state, newPath, oldPath, sinceCommit, sinceDate, latestCommit, latestDate, isShared, patterns, author, opts = {}) {
   const { source } = opts
-  const oldBest = pickBestMatch(oldPath, patterns)
-  const newBest = pickBestMatch(newPath, patterns)
-  const oldTarget = oldBest ? resolveKbTarget(oldBest, oldPath) : null
-  const newTarget = newBest ? resolveKbTarget(newBest, newPath) : null
+  const oldMatches = matchAllPatterns(oldPath, patterns)
+  const newMatches = matchAllPatterns(newPath, patterns)
+  const oldTargets = new Set(oldMatches.map(p => resolveKbTarget(p, oldPath)))
+  const newTargets = new Set(newMatches.map(p => resolveKbTarget(p, newPath)))
 
-  let outcome = null
-  let stalePattern = null
+  const outcomes = { new: 0, re_detected: 0 }
 
-  if (oldTarget && newTarget && oldTarget === newTarget) {
-    replaceCodeFileInEntry(state, oldTarget, oldPath, newPath, sinceCommit, sinceDate, latestCommit, latestDate, author, { source })
-    outcome = 'new'
-  } else {
-    if (oldTarget) removeCodeFileFromEntry(state, oldTarget, oldPath)
-    if (newTarget) {
-      outcome = upsertCodeDriftEntry(state, newTarget, newPath, sinceCommit, sinceDate, latestCommit, latestDate, isShared, oldPath, author, { source })
+  // Intersection: rename inside same kb_target's entry.
+  for (const target of oldTargets) {
+    if (newTargets.has(target)) {
+      replaceCodeFileInEntry(state, target, oldPath, newPath, sinceCommit, sinceDate, latestCommit, latestDate, author, { source })
+      outcomes.new += 1
+    }
+  }
+  // Old-only: drop the file from those entries.
+  for (const target of oldTargets) {
+    if (!newTargets.has(target)) removeCodeFileFromEntry(state, target, oldPath)
+  }
+  // New-only: add the file to those entries (with renamedFrom annotation).
+  for (const target of newTargets) {
+    if (!oldTargets.has(target)) {
+      const outcome = upsertCodeDriftEntry(state, target, newPath, sinceCommit, sinceDate, latestCommit, latestDate, isShared, oldPath, author, { source })
+      if (outcome === 'new') outcomes.new += 1
+      else if (outcome === 're_detected') outcomes.re_detected += 1
     }
   }
 
-  if (!newTarget && oldTarget) {
+  // Stale: had patterns before, none now. Surface the orphaned targets so the
+  // caller can warn the user that _rules.md is out of date.
+  let stalePattern = null
+  if (newTargets.size === 0 && oldTargets.size > 0) {
+    const firstOld = oldMatches[0]
     stalePattern = {
-      intent: oldBest.intent,
-      kb_target: oldTarget,
+      intent: firstOld?.intent,
+      kb_target: [...oldTargets][0],
       moved: { from: oldPath, to: newPath }
     }
   }
 
-  return { outcome, stalePattern }
+  return { outcomes, stalePattern }
 }
 
 /**
@@ -1420,6 +1484,58 @@ function ensureHeader(filePath, header) {
   fs.writeFileSync(filePath, newHeader + content, 'utf8')
 }
 
+/**
+ * P3: walk every open entry in the given state. Two passes:
+ *
+ * - Lazy migration: entries with no `fingerprint` field (written before P3)
+ *   get the current pattern's fingerprint stamped on them. No close.
+ * - Recompute: entries with a `fingerprint` get the current pattern's
+ *   fingerprint recomputed. Mismatches → drop from state, push an
+ *   AUTO-CLOSED-PATTERN-CHANGED record into `autoCloseRecords`.
+ *
+ * `keyFn` extracts the queue key (kb_target for code-drift, kb_file for
+ * kb-drift) used both to look up the matching pattern and to populate the
+ * audit-log record. `queueKind` is "code-drift" or "kb-drift".
+ */
+function stampAndRecomputeFingerprints(state, patterns, queueKind, autoCloseRecords, keyFn) {
+  const { computePatternFingerprint, findPatternForKbTarget } = require('../lib/pattern-audit')
+  const surviving = []
+  for (const entry of state.entries) {
+    const queueKey = keyFn(entry)
+    const matchedPattern = findPatternForKbTarget(queueKey, patterns)
+    const currentFp = matchedPattern ? computePatternFingerprint(matchedPattern) : null
+
+    if (!entry.fingerprint) {
+      // Lazy migration: stamp now, never auto-close on this run. If the pattern
+      // no longer matches the queue key, leave the entry without a fingerprint —
+      // the next run with a matching pattern will stamp it then.
+      if (currentFp) entry.fingerprint = currentFp
+      surviving.push(entry)
+      continue
+    }
+
+    if (currentFp && currentFp === entry.fingerprint) {
+      // Still matches. Keep entry as-is.
+      surviving.push(entry)
+      continue
+    }
+
+    // Either no matching pattern (pattern removed) or fingerprint mismatch
+    // (pattern semantically changed). Drop the entry, audit-log the close.
+    autoCloseRecords.push({
+      event_type: 'auto-closed-pattern-changed',
+      queue: queueKind,
+      queue_key: queueKey,
+      old_fingerprint: entry.fingerprint,
+      new_fingerprint: currentFp || null,
+      reason: currentFp
+        ? 'pattern fingerprint changed in _rules.md'
+        : 'pattern removed from _rules.md',
+    })
+  }
+  state.entries = surviving
+}
+
 function appendToDriftLog(entries) {
   if (!fs.existsSync(DRIFT_LOG_DIR)) fs.mkdirSync(DRIFT_LOG_DIR, { recursive: true })
   const logPath = getDriftLogPath()
@@ -1458,6 +1574,17 @@ function appendToDriftLog(entries) {
       block += `\n- **Queue key:** \`${entry.queue_key}\``
       if (entry.by) block += `\n- **By:** @${entry.by}`
       if (entry.at_commit) block += `\n- **At:** \`${entry.at_commit}\``
+      block += `\n- **Reason:** ${entry.reason}\n`
+      continue
+    }
+    if (entry.event_type === 'auto-closed-pattern-changed') {
+      // P3 — fires when an open queue entry's pattern fingerprint no longer
+      // matches the current _rules.md. Mirrors AUTO-CLOSED-PROMOTION on the
+      // standards side.
+      block += `\n## ${date} · AUTO-CLOSED-PATTERN-CHANGED · ${entry.queue}\n`
+      block += `\n- **Queue key:** \`${entry.queue_key}\``
+      block += `\n- **Old fingerprint:** \`${entry.old_fingerprint}\``
+      block += `\n- **New fingerprint:** \`${entry.new_fingerprint || '(pattern removed)'}\``
       block += `\n- **Reason:** ${entry.reason}\n`
       continue
     }

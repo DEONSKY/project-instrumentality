@@ -1475,3 +1475,97 @@ test('re-bootstrap: stale parent baseline produces re_bootstrapped[] in result',
   assert.equal(result.re_bootstrapped[0].queue, 'code-drift')
   assert.equal(result.re_bootstrapped[0].old_sha, ghost)
 }))
+
+// ── P0: fan-out (code→KB many-to-many) ──────────────────────────────────────
+
+const FANOUT_RULES = `---
+version: "1.0"
+code_path_patterns:
+  - intent: feature
+    kb_target: "features/{name}.md"
+    paths:
+      - "src/auth/**"
+  - intent: component
+    kb_target: "components/{name}.md"
+    paths:
+      - "src/**Form*"
+  - intent: form
+    kb_target: "features/{name}.md"
+    paths:
+      - "src/**Form*"
+---
+`
+
+test('P0 fan-out: one code file matching two patterns with distinct kb_targets produces two entries', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', FANOUT_RULES)
+  writeFile(dir, 'README.md', 'seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  // AuthForm.tsx matches the "feature" pattern (src/auth/**, kb_target features/{name})
+  // AND the "component" pattern (src/**Form*, kb_target components/{name}). Pre-P0:
+  // pickBestMatch chose one; post-P0: fan out, both kb_targets get entries.
+  // (FANOUT_RULES has no name_extraction.case, so {name} = basename AuthForm.)
+  writeFile(dir, 'src/auth/AuthForm.tsx', 'export default 1\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m "add AuthForm"')
+
+  const result = await DRIFT.runTool({})
+  assert.ok(!result.error, `unexpected error: ${result.error}`)
+  assert.equal(result.code_entries_new, 2, 'two code→KB entries created (one per kb_target)')
+
+  const code = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
+  assert.match(code, /## features\/AuthForm\.md/, 'feature kb_target gets entry')
+  assert.match(code, /## components\/AuthForm\.md/, 'component kb_target gets entry')
+}))
+
+test('P0 fan-out: two patterns resolving to same kb_target dedup to one entry', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', FANOUT_RULES)
+  writeFile(dir, 'README.md', 'seed\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m seed')
+  await DRIFT.runTool({})
+
+  // src/auth/LoginForm.tsx matches three patterns: "feature" (src/auth/**,
+  // → features/LoginForm.md), "component" (src/**Form*, → components/LoginForm.md),
+  // and "form" (src/**Form*, → features/LoginForm.md). The "feature" and "form"
+  // patterns produce the IDENTICAL kb_target features/LoginForm.md, so the Set
+  // collapses them — total = 2 distinct entries, not 3.
+  writeFile(dir, 'src/auth/LoginForm.tsx', 'export default 1\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m "add LoginForm"')
+
+  const result = await DRIFT.runTool({})
+  assert.ok(!result.error, `unexpected error: ${result.error}`)
+  assert.equal(result.code_entries_new, 2, 'three patterns dedup to two distinct kb_targets')
+
+  const code = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
+  const featuresCount = (code.match(/## features\/LoginForm\.md/g) || []).length
+  assert.equal(featuresCount, 1, 'features/LoginForm.md appears exactly once (dedup works)')
+}))
+
+test('P0 fan-out: rename moves file out of one pattern, keeps the others', withRepo(async (dir) => {
+  writeFile(dir, 'knowledge/_rules.md', FANOUT_RULES)
+  writeFile(dir, 'src/auth/AuthForm.tsx', 'export default 1\n')
+  sh(dir, 'git add .')
+  sh(dir, 'git commit -q -m "seed AuthForm"')
+  await DRIFT.runTool({})
+  // Two entries exist: features/AuthForm.md (via "feature") + components/AuthForm.md (via "component").
+
+  // Move to src/widgets/AuthForm.tsx. Now ONLY matches "component" + "form"
+  // (both still produce components/AuthForm.md and features/AuthForm.md
+  // respectively — same targets). But the file is no longer under src/auth/**,
+  // so the "feature" pattern doesn't apply anymore. Net: same target set, the
+  // file just moves inside both entries.
+  fs.mkdirSync(path.join(dir, 'src/widgets'), { recursive: true })
+  sh(dir, 'git mv src/auth/AuthForm.tsx src/widgets/AuthForm.tsx')
+  sh(dir, 'git commit -q -m "move AuthForm out of auth/"')
+
+  const result = await DRIFT.runTool({})
+  assert.ok(!result.error, `unexpected error: ${result.error}`)
+
+  const code = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
+  assert.match(code, /src\/widgets\/AuthForm\.tsx/, 'new path appears in entries')
+  assert.doesNotMatch(code, /- `src\/auth\/AuthForm\.tsx`/, 'old path removed from entries')
+}))

@@ -90,6 +90,7 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
     const writeResult = await write({ file_path: filePath, content })
     const r = { file_path: filePath, written: writeResult.written, lint_errors: writeResult.lint_errors }
     if (groupWarning) r.group_warning = groupWarning
+    attachMappingStatus(r, filePath, rules)
     return r
   }
 
@@ -132,7 +133,31 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
     filled_by_ai: false
   }
   if (groupWarning) result.group_warning = groupWarning
+  attachMappingStatus(result, filePath, rules)
   return result
+}
+
+/**
+ * After a successful KB-file write, check whether any code_path_patterns entry
+ * targets it. If not, attach mapping_status + suggested_pattern so the agent
+ * can offer to add a pattern to _rules.md. Code→KB drift detection is silent
+ * for files no pattern targets — surfacing the gap at birth keeps the system
+ * in sync going forward.
+ */
+function attachMappingStatus(result, filePath, rules) {
+  try {
+    const { checkSingleKbFile } = require('../lib/pattern-audit')
+    const kbRel = filePath.replace(/^knowledge\//, '')
+    const status = checkSingleKbFile(kbRel, rules.getCodePathPatterns())
+    if (status.unmapped) {
+      result.mapping_status = 'unmapped'
+      result.suggested_pattern = status.suggested_pattern
+      result._mapping_instruction = 'No code_path_patterns entry targets this KB file. To enable automatic code→KB drift detection for it, add suggested_pattern to knowledge/_rules.md → code_path_patterns. Fill suggested_pattern.paths via repo grep for related source files.'
+    }
+  } catch (e) {
+    // Don't let an audit failure block the write — the file is already saved.
+    process.stderr.write(`[kb-scaffold] mapping check failed: ${e.message}\n`)
+  }
 }
 
 function createGroupFile(groupFilePath, groupName, today) {

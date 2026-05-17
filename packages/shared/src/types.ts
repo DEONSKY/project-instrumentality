@@ -289,6 +289,58 @@ export interface StatusSummary {
    * when not in live mode or when rules loading failed.
    */
   livePatterns?: string[] | null;
+  /**
+   * Mechanical findings from auditing `code_path_patterns` against the current
+   * filesystem state. Surfaced by the live-status runner (kb_drift readonly).
+   * Rendered in the panel-level "Mapping diagnostics" accordion. Null/empty
+   * when no findings or when not in live mode.
+   */
+  patternAudit?: PatternAudit | null;
+}
+
+/** Pattern-audit finding union — produced by knowledge/_mcp/lib/pattern-audit.js. */
+export type PatternAuditFinding =
+  | {
+      type: "orphan_pattern";
+      pattern_index: number;
+      intent?: string;
+      kb_target: string;
+      paths: string[];
+      is_submodule_pattern: boolean;
+    }
+  | {
+      type: "ghost_target";
+      pattern_index: number;
+      resolved_target: string;
+      reason: "kb_file_missing";
+    }
+  | {
+      type: "multi_target_files";
+      file: string;
+      matched_targets: { pattern_index: number; kb_target: string }[];
+    }
+  | {
+      type: "convention_violation";
+      pattern_index: number;
+      intent: string;
+      kb_target: string;
+      expected_folder: string;
+    }
+  | {
+      type: "unmapped_kb_group";
+      folder: string;
+      count: number;
+      sample_files: string[];
+    }
+  | {
+      type: "fanout_with_hardcoded";
+      pattern_index: number;
+      kb_target: string;
+      distinct_concepts: number;
+    };
+
+export interface PatternAudit {
+  findings: PatternAuditFinding[];
 }
 
 // ── Submodule status ────────────────────────────────────────────────────────

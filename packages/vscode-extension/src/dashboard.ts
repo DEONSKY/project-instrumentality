@@ -138,6 +138,12 @@ async function handleMessage(msg: any): Promise<void> {
     case "publishDrift":
       await cb.onAction({ type: "publishDrift" });
       return;
+    case "copyAuditPrompt": {
+      const prompt = typeof msg.prompt === "string" ? msg.prompt : "";
+      if (!prompt) return;
+      await cb.onAction({ type: "copyAuditPrompt", prompt });
+      return;
+    }
     case "reveal":
       await cb.onReveal(msg.ref);
       return;
