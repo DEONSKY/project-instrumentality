@@ -35,9 +35,13 @@ const TYPE_TO_TEMPLATE = {
 
 // Legacy types removed in favor of the structured-standards model. Surface a
 // hint to anyone still calling kb_scaffold with these so they migrate cleanly.
+// Includes the legacy folder-convention names (foundation/, capabilities/) in
+// case a caller passes the obsolete folder as a scaffold type.
 const REMOVED_TYPES = {
   'tech-stack': 'use standards/code/<id>.md for stack rules',
-  'conventions': 'use one or more standards/code/<id>.md documents with structured rules'
+  'conventions': 'use one or more standards/code/<id>.md documents with structured rules',
+  'foundation': 'no longer a folder convention; use standards/<group>/<id>.md',
+  'capabilities': 'no longer a folder convention; use standards/<group>/<id>.md'
 }
 
 // Maps import-classify types to scaffold types

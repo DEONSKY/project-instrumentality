@@ -94,7 +94,7 @@ This mixed style is correct by design. Attempting to convert flow arrays to bloc
 | `kb_autorelate` | Discover relations between KB files |
 | `kb_impact` | Analyze impact of a change across the KB |
 | `kb_export` | Export KB content to various formats |
-| `kb_lint` | Validate KB file structure (runs automatically) |
+| `kb_lint` | Internal helper, not an MCP tool. Runs automatically inside `kb_reindex` and via the pre-commit hook (`scripts/lint-standalone.js`). Do not call as a tool. |
 
 ## Tool output policy
 

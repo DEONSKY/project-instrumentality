@@ -46,7 +46,7 @@ If no purpose is given, produce a neutral technical reference document.
 - Strip ## Changelog sections unless export_format is markdown
 - Strip sync notes and draft status indicators
 - Convert | tables to proper formatted tables for the target format
-- Group content logically: foundation → data → features → flows
+- Group content logically: standards → data → features → flows
 
 ## Format-specific rules
 

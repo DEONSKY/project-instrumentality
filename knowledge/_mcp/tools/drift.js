@@ -618,7 +618,13 @@ async function resolveKbConfirmed(kb_confirmed, { readonly = false } = {}) {
     const codePaths = reverseMapKbTarget(kb_file, patterns)
     const unmapped = codePaths.length === 0
     if (unmapped) {
-      warnings.push(`drift confirmed for "${kb_file}" but no code_path_patterns mapping exists in _rules.md. Future KB changes to this file will not trigger automatic drift detection. Recommended: add a code_path_patterns entry for this file.`)
+      warnings.push({
+        type: 'missing_pattern_for_drift_kb_file',
+        source: 'kb_drift',
+        kb_file,
+        message: `drift confirmed for "${kb_file}" but no code_path_patterns mapping exists in _rules.md. Future KB changes to this file will not trigger automatic drift detection.`,
+        recommendation: 'add a code_path_patterns entry for this file',
+      })
     }
     closed.push({ kb_file, ...(unmapped && { unmapped: true }) })
     logRecords.push({ direction: 'kb→code', resolution: 'confirmed', kb_file, ...(unmapped && { unmapped: true }) })

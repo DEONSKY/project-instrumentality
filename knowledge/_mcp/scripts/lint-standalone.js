@@ -35,7 +35,7 @@ function getDefaultRules() {
     secret_patterns: ['sk_live_', 'Bearer ', 'private_key', 'password:', 'api_key:', 'secret:'],
     depth_policy: {
       default_max: 3,
-      overrides: { features: 3, flows: 2, ui: 2, integrations: 2, data: 1, validation: 1, decisions: 1, standards: 2, sync: 1 },
+      overrides: { features: 3, flows: 2, integrations: 2, data: 2, validation: 1, decisions: 1, standards: 2, sync: 1 },
       never_group: ['data', 'validation', 'decisions', 'sync']
     }
   }

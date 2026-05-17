@@ -81,7 +81,7 @@ test('auditPatterns marks orphan_pattern with is_submodule_pattern when paths ta
 test('auditPatterns flags ghost_target only for hardcoded targets pointing at missing files', () => {
   const { findings } = auditPatterns({
     patterns: [
-      { intent: 'config', kb_target: 'foundation/missing.md', paths: ['package.json'] },
+      { intent: 'config', kb_target: 'standards/code/missing.md', paths: ['package.json'] },
       { intent: 'feature', kb_target: 'features/{name}.md', paths: ['src/**'] }, // template — never ghost
     ],
     sourceFiles: ['package.json', 'src/auth.ts'],
@@ -89,7 +89,7 @@ test('auditPatterns flags ghost_target only for hardcoded targets pointing at mi
   })
   const ghosts = findings.filter(f => f.type === 'ghost_target')
   assert.equal(ghosts.length, 1)
-  assert.equal(ghosts[0].resolved_target, 'foundation/missing.md')
+  assert.equal(ghosts[0].resolved_target, 'standards/code/missing.md')
 })
 
 // ── auditPatterns: multi_target_files ───────────────────────────────────────
@@ -209,7 +209,7 @@ test('auditPatterns does not flag fanout_with_hardcoded for template targets', (
 
 test('checkSingleKbFile reports unmapped when no pattern targets the file', () => {
   const r = checkSingleKbFile('features/new-feature.md', [
-    { intent: 'config', kb_target: 'foundation/conventions.md', paths: ['tsconfig.json'] },
+    { intent: 'config', kb_target: 'standards/code/conventions.md', paths: ['tsconfig.json'] },
   ])
   assert.equal(r.unmapped, true)
   assert.ok(r.suggested_pattern)
@@ -225,8 +225,8 @@ test('checkSingleKbFile reports not-unmapped when a template pattern covers the 
 })
 
 test('checkSingleKbFile reports not-unmapped when a hardcoded pattern matches exactly', () => {
-  const r = checkSingleKbFile('foundation/tech-stack.md', [
-    { intent: 'dependency', kb_target: 'foundation/tech-stack.md', paths: ['package.json'] },
+  const r = checkSingleKbFile('standards/code/tech-stack.md', [
+    { intent: 'dependency', kb_target: 'standards/code/tech-stack.md', paths: ['package.json'] },
   ])
   assert.equal(r.unmapped, false)
 })
@@ -305,7 +305,7 @@ test('computePatternFingerprint format matches sha256: prefix', () => {
 test('findPatternForKbTarget matches template patterns by regex shape', () => {
   const patterns = [
     { intent: 'feature', kb_target: 'features/{name}.md', paths: ['src/**'] },
-    { intent: 'config', kb_target: 'foundation/conventions.md', paths: ['tsconfig.json'] },
+    { intent: 'config', kb_target: 'standards/code/conventions.md', paths: ['tsconfig.json'] },
   ]
   const r = findPatternForKbTarget('features/auth.md', patterns)
   assert.ok(r)
@@ -314,9 +314,9 @@ test('findPatternForKbTarget matches template patterns by regex shape', () => {
 
 test('findPatternForKbTarget matches hardcoded patterns by exact equality', () => {
   const patterns = [
-    { intent: 'config', kb_target: 'foundation/conventions.md', paths: ['tsconfig.json'] },
+    { intent: 'config', kb_target: 'standards/code/conventions.md', paths: ['tsconfig.json'] },
   ]
-  const r = findPatternForKbTarget('foundation/conventions.md', patterns)
+  const r = findPatternForKbTarget('standards/code/conventions.md', patterns)
   assert.ok(r)
   assert.equal(r.intent, 'config')
 })

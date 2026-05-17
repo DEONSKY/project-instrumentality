@@ -11,7 +11,7 @@
 #   {{kb_type}}         — classified type from import-classify
 #   {{template}}        — raw template content for that type
 #   {{suggested_id}}    — suggested KB file id
-#   {{kb_context}}      — foundation files for naming/convention reference
+#   {{kb_context}}      — standards files for naming/convention reference
 
 ---
 

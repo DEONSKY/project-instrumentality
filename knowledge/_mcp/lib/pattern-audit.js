@@ -4,11 +4,14 @@ const crypto = require('crypto')
 const { globMatch, matchAllPatterns, resolveKbTarget } = require('./patterns')
 const { canonicalize } = require('./promotion-ledger')
 
-// Intent → expected folder convention. Hardcoded from the bundled presets;
-// convention_violation findings carry `source: 'preset'` so callers can tell
-// preset opinion apart from project-declared rules. Patterns without `intent`
-// skip this check. Folders are prefix-matched, so kb_target "features/auth.md"
-// satisfies expected_folder "features/".
+// Intent → expected folder convention. Hardcoded from the bundled presets.
+// Every finding emitted by auditPatterns carries a `source:` field so callers
+// can tell preset opinion (`source: 'preset'`, used by convention_violation)
+// apart from project-declared rules (`source: '_rules.md'`, used by everything
+// derived from this project's _rules.md patterns + knowledge/ tree).
+// Patterns without `intent` skip the convention check. Folders are
+// prefix-matched, so kb_target "features/auth.md" satisfies expected_folder
+// "features/".
 const INTENT_FOLDER_CONVENTIONS = {
   form: 'features/',
   'api-contract': 'features/',
@@ -169,6 +172,7 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
         kb_target: p.kb_target,
         paths: p.paths || [],
         is_submodule_pattern: isSubmodulePattern(p, submodulePaths),
+        source: '_rules.md',
       })
     }
   }
@@ -184,6 +188,7 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
         pattern_index: i,
         resolved_target: p.kb_target,
         reason: 'kb_file_missing',
+        source: '_rules.md',
       })
     }
   }
@@ -204,7 +209,7 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
       targets.push({ pattern_index: patterns.indexOf(m), kb_target: t })
     }
     if (targets.length >= 2) {
-      findings.push({ type: 'multi_target_files', file: f, matched_targets: targets })
+      findings.push({ type: 'multi_target_files', file: f, matched_targets: targets, source: '_rules.md' })
     }
   }
 
@@ -252,6 +257,7 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
       folder,
       count: files.length,
       sample_files: files.slice(0, 5),
+      source: '_rules.md',
     })
   }
 
@@ -271,6 +277,7 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
         pattern_index: i,
         kb_target: p.kb_target,
         distinct_concepts: concepts.size,
+        source: '_rules.md',
       })
     }
   }

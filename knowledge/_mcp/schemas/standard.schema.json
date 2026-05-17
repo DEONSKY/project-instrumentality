@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://kb-mcp/schemas/standard.schema.json",
   "title": "KB Standard frontmatter",
-  "description": "JSON Schema for the YAML frontmatter of pure-frontmatter standards under knowledge/standards/**.md. Editor-side validation only — MCP enforces structure via kb_lint.",
+  "description": "JSON Schema for the YAML frontmatter of pure-frontmatter standards under knowledge/standards/**.md. Editor-side validation only — runtime structural checks happen via the internal kb_lint module (runs inside kb_reindex and via the pre-commit hook).",
   "type": "object",
   "required": ["id", "type", "kind", "app_scope", "created", "rules"],
   "additionalProperties": true,

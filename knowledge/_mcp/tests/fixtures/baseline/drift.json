@@ -33,7 +33,8 @@
           "ms-linestop-admin-be/web-app/src/main/java/**/validator/**",
           "ms-linestop-admin-be/web-app/src/main/java/**/validation/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -46,7 +47,8 @@
           "ms-linestop-admin-be/web-app/src/main/java/**/controller/**",
           "ms-linestop-admin-be/web-app/src/main/java/**/web/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -62,7 +64,8 @@
           "ms-linestop-admin-be/src/main/resources/**/migration/**",
           "ms-linestop-admin-be/src/main/resources/db/migration/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -74,7 +77,8 @@
           "ms-linestop-admin-be/web-app/src/main/java/**/*ServiceImpl.java",
           "ms-linestop-admin-be/web-app/src/main/java/**/service/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -88,7 +92,8 @@
           "ms-linestop-admin-be/web-app/src/main/java/**/security/**",
           "ms-linestop-admin-be/web-app/src/main/java/**/config/Security*.java"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -102,7 +107,8 @@
           "ms-linestop-admin-be/web-app/src/main/java/**/external/**",
           "ms-linestop-admin-be/web-app/src/main/java/**/feign/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -118,7 +124,8 @@
           "ms-linestop-admin-be/web-app/src/main/java/**/messaging/**",
           "ms-linestop-admin-be/web-app/src/main/java/**/event/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -130,7 +137,8 @@
           "ms-linestop-admin-be/web-app/src/main/java/**/*Dao.java",
           "ms-linestop-admin-be/web-app/src/main/java/**/repository/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -144,7 +152,8 @@
           "ms-linestop-admin-be/checkstyle.xml",
           "ms-linestop-admin-be/.editorconfig"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -158,7 +167,8 @@
           "ms-linestop-admin-fe/src/main/java/**/validator/**",
           "ms-linestop-admin-fe/src/main/java/**/validation/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -171,7 +181,8 @@
           "ms-linestop-admin-fe/src/main/java/**/controller/**",
           "ms-linestop-admin-fe/src/main/java/**/web/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -187,7 +198,8 @@
           "ms-linestop-admin-fe/src/main/resources/**/migration/**",
           "ms-linestop-admin-fe/src/main/resources/db/migration/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -199,7 +211,8 @@
           "ms-linestop-admin-fe/src/main/java/**/*ServiceImpl.java",
           "ms-linestop-admin-fe/src/main/java/**/service/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -213,7 +226,8 @@
           "ms-linestop-admin-fe/src/main/java/**/security/**",
           "ms-linestop-admin-fe/src/main/java/**/config/Security*.java"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -227,7 +241,8 @@
           "ms-linestop-admin-fe/src/main/java/**/external/**",
           "ms-linestop-admin-fe/src/main/java/**/feign/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -243,7 +258,8 @@
           "ms-linestop-admin-fe/src/main/java/**/messaging/**",
           "ms-linestop-admin-fe/src/main/java/**/event/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -255,7 +271,8 @@
           "ms-linestop-admin-fe/src/main/java/**/*Dao.java",
           "ms-linestop-admin-fe/src/main/java/**/repository/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -269,7 +286,8 @@
           "ms-linestop-admin-fe/checkstyle.xml",
           "ms-linestop-admin-fe/.editorconfig"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -283,7 +301,8 @@
           "ms-linestop-api-be/src/main/java/**/validator/**",
           "ms-linestop-api-be/src/main/java/**/validation/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -296,7 +315,8 @@
           "ms-linestop-api-be/src/main/java/**/controller/**",
           "ms-linestop-api-be/src/main/java/**/web/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -312,7 +332,8 @@
           "ms-linestop-api-be/src/main/resources/**/migration/**",
           "ms-linestop-api-be/src/main/resources/db/migration/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -324,7 +345,8 @@
           "ms-linestop-api-be/src/main/java/**/*ServiceImpl.java",
           "ms-linestop-api-be/src/main/java/**/service/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -338,7 +360,8 @@
           "ms-linestop-api-be/src/main/java/**/security/**",
           "ms-linestop-api-be/src/main/java/**/config/Security*.java"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -352,7 +375,8 @@
           "ms-linestop-api-be/src/main/java/**/external/**",
           "ms-linestop-api-be/src/main/java/**/feign/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -368,7 +392,8 @@
           "ms-linestop-api-be/src/main/java/**/messaging/**",
           "ms-linestop-api-be/src/main/java/**/event/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -380,7 +405,8 @@
           "ms-linestop-api-be/src/main/java/**/*Dao.java",
           "ms-linestop-api-be/src/main/java/**/repository/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -394,7 +420,8 @@
           "ms-linestop-api-be/checkstyle.xml",
           "ms-linestop-api-be/.editorconfig"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -408,7 +435,8 @@
           "ms-linestop-serviceclient/src/main/java/**/validator/**",
           "ms-linestop-serviceclient/src/main/java/**/validation/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -421,7 +449,8 @@
           "ms-linestop-serviceclient/src/main/java/**/controller/**",
           "ms-linestop-serviceclient/src/main/java/**/web/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -437,7 +466,8 @@
           "ms-linestop-serviceclient/src/main/resources/**/migration/**",
           "ms-linestop-serviceclient/src/main/resources/db/migration/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -449,7 +479,8 @@
           "ms-linestop-serviceclient/src/main/java/**/*ServiceImpl.java",
           "ms-linestop-serviceclient/src/main/java/**/service/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -463,7 +494,8 @@
           "ms-linestop-serviceclient/src/main/java/**/security/**",
           "ms-linestop-serviceclient/src/main/java/**/config/Security*.java"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -477,7 +509,8 @@
           "ms-linestop-serviceclient/src/main/java/**/external/**",
           "ms-linestop-serviceclient/src/main/java/**/feign/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -493,7 +526,8 @@
           "ms-linestop-serviceclient/src/main/java/**/messaging/**",
           "ms-linestop-serviceclient/src/main/java/**/event/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -505,7 +539,8 @@
           "ms-linestop-serviceclient/src/main/java/**/*Dao.java",
           "ms-linestop-serviceclient/src/main/java/**/repository/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -519,7 +554,8 @@
           "ms-linestop-serviceclient/checkstyle.xml",
           "ms-linestop-serviceclient/.editorconfig"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -533,7 +569,8 @@
           "ms-linestop-domain-be/src/main/java/**/validator/**",
           "ms-linestop-domain-be/src/main/java/**/validation/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -546,7 +583,8 @@
           "ms-linestop-domain-be/src/main/java/**/controller/**",
           "ms-linestop-domain-be/src/main/java/**/web/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -562,7 +600,8 @@
           "ms-linestop-domain-be/src/main/resources/**/migration/**",
           "ms-linestop-domain-be/src/main/resources/db/migration/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -574,7 +613,8 @@
           "ms-linestop-domain-be/src/main/java/**/*ServiceImpl.java",
           "ms-linestop-domain-be/src/main/java/**/service/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -588,7 +628,8 @@
           "ms-linestop-domain-be/src/main/java/**/security/**",
           "ms-linestop-domain-be/src/main/java/**/config/Security*.java"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -602,7 +643,8 @@
           "ms-linestop-domain-be/src/main/java/**/external/**",
           "ms-linestop-domain-be/src/main/java/**/feign/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -618,7 +660,8 @@
           "ms-linestop-domain-be/src/main/java/**/messaging/**",
           "ms-linestop-domain-be/src/main/java/**/event/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -630,7 +673,8 @@
           "ms-linestop-domain-be/src/main/java/**/*Dao.java",
           "ms-linestop-domain-be/src/main/java/**/repository/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -644,7 +688,8 @@
           "ms-linestop-domain-be/checkstyle.xml",
           "ms-linestop-domain-be/.editorconfig"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -658,7 +703,8 @@
           "ms-measure-common-be/src/main/java/**/validator/**",
           "ms-measure-common-be/src/main/java/**/validation/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -671,7 +717,8 @@
           "ms-measure-common-be/src/main/java/**/controller/**",
           "ms-measure-common-be/src/main/java/**/web/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -687,7 +734,8 @@
           "ms-measure-common-be/src/main/resources/**/migration/**",
           "ms-measure-common-be/src/main/resources/db/migration/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -699,7 +747,8 @@
           "ms-measure-common-be/src/main/java/**/*ServiceImpl.java",
           "ms-measure-common-be/src/main/java/**/service/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -713,7 +762,8 @@
           "ms-measure-common-be/src/main/java/**/security/**",
           "ms-measure-common-be/src/main/java/**/config/Security*.java"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -727,7 +777,8 @@
           "ms-measure-common-be/src/main/java/**/external/**",
           "ms-measure-common-be/src/main/java/**/feign/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -743,7 +794,8 @@
           "ms-measure-common-be/src/main/java/**/messaging/**",
           "ms-measure-common-be/src/main/java/**/event/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -755,7 +807,8 @@
           "ms-measure-common-be/src/main/java/**/*Dao.java",
           "ms-measure-common-be/src/main/java/**/repository/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -769,7 +822,8 @@
           "ms-measure-common-be/checkstyle.xml",
           "ms-measure-common-be/.editorconfig"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -783,7 +837,8 @@
           "ms-cvqs-service-client/src/main/java/**/validator/**",
           "ms-cvqs-service-client/src/main/java/**/validation/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -796,7 +851,8 @@
           "ms-cvqs-service-client/src/main/java/**/controller/**",
           "ms-cvqs-service-client/src/main/java/**/web/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -812,7 +868,8 @@
           "ms-cvqs-service-client/src/main/resources/**/migration/**",
           "ms-cvqs-service-client/src/main/resources/db/migration/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -824,7 +881,8 @@
           "ms-cvqs-service-client/src/main/java/**/*ServiceImpl.java",
           "ms-cvqs-service-client/src/main/java/**/service/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -838,7 +896,8 @@
           "ms-cvqs-service-client/src/main/java/**/security/**",
           "ms-cvqs-service-client/src/main/java/**/config/Security*.java"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -852,7 +911,8 @@
           "ms-cvqs-service-client/src/main/java/**/external/**",
           "ms-cvqs-service-client/src/main/java/**/feign/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -868,7 +928,8 @@
           "ms-cvqs-service-client/src/main/java/**/messaging/**",
           "ms-cvqs-service-client/src/main/java/**/event/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -880,7 +941,8 @@
           "ms-cvqs-service-client/src/main/java/**/*Dao.java",
           "ms-cvqs-service-client/src/main/java/**/repository/**"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
         "type": "orphan_pattern",
@@ -894,105 +956,57 @@
           "ms-cvqs-service-client/checkstyle.xml",
           "ms-cvqs-service-client/.editorconfig"
         ],
-        "is_submodule_pattern": true
+        "is_submodule_pattern": true,
+        "source": "_rules.md"
       },
       {
-        "type": "convention_violation",
+        "type": "ghost_target",
         "pattern_index": 10,
-        "intent": "dependency",
-        "kb_target": "standards/code/tech-stack.md",
-        "expected_folder": "foundation/"
+        "resolved_target": "standards/code/tech-stack.md",
+        "reason": "kb_file_missing",
+        "source": "_rules.md"
       },
       {
-        "type": "convention_violation",
-        "pattern_index": 11,
-        "intent": "config",
-        "kb_target": "standards/code/conventions.md",
-        "expected_folder": "foundation/"
-      },
-      {
-        "type": "convention_violation",
+        "type": "ghost_target",
         "pattern_index": 20,
-        "intent": "dependency",
-        "kb_target": "standards/code/tech-stack.md",
-        "expected_folder": "foundation/"
+        "resolved_target": "standards/code/tech-stack.md",
+        "reason": "kb_file_missing",
+        "source": "_rules.md"
       },
       {
-        "type": "convention_violation",
-        "pattern_index": 21,
-        "intent": "config",
-        "kb_target": "standards/code/conventions.md",
-        "expected_folder": "foundation/"
-      },
-      {
-        "type": "convention_violation",
+        "type": "ghost_target",
         "pattern_index": 30,
-        "intent": "dependency",
-        "kb_target": "standards/code/tech-stack.md",
-        "expected_folder": "foundation/"
+        "resolved_target": "standards/code/tech-stack.md",
+        "reason": "kb_file_missing",
+        "source": "_rules.md"
       },
       {
-        "type": "convention_violation",
-        "pattern_index": 31,
-        "intent": "config",
-        "kb_target": "standards/code/conventions.md",
-        "expected_folder": "foundation/"
-      },
-      {
-        "type": "convention_violation",
+        "type": "ghost_target",
         "pattern_index": 40,
-        "intent": "dependency",
-        "kb_target": "standards/code/tech-stack.md",
-        "expected_folder": "foundation/"
+        "resolved_target": "standards/code/tech-stack.md",
+        "reason": "kb_file_missing",
+        "source": "_rules.md"
       },
       {
-        "type": "convention_violation",
-        "pattern_index": 41,
-        "intent": "config",
-        "kb_target": "standards/code/conventions.md",
-        "expected_folder": "foundation/"
-      },
-      {
-        "type": "convention_violation",
+        "type": "ghost_target",
         "pattern_index": 50,
-        "intent": "dependency",
-        "kb_target": "standards/code/tech-stack.md",
-        "expected_folder": "foundation/"
+        "resolved_target": "standards/code/tech-stack.md",
+        "reason": "kb_file_missing",
+        "source": "_rules.md"
       },
       {
-        "type": "convention_violation",
-        "pattern_index": 51,
-        "intent": "config",
-        "kb_target": "standards/code/conventions.md",
-        "expected_folder": "foundation/"
-      },
-      {
-        "type": "convention_violation",
+        "type": "ghost_target",
         "pattern_index": 60,
-        "intent": "dependency",
-        "kb_target": "standards/code/tech-stack.md",
-        "expected_folder": "foundation/"
+        "resolved_target": "standards/code/tech-stack.md",
+        "reason": "kb_file_missing",
+        "source": "_rules.md"
       },
       {
-        "type": "convention_violation",
-        "pattern_index": 61,
-        "intent": "config",
-        "kb_target": "standards/code/conventions.md",
-        "expected_folder": "foundation/"
-      },
-      {
-        "type": "convention_violation",
+        "type": "ghost_target",
         "pattern_index": 70,
-        "intent": "dependency",
-        "kb_target": "standards/code/tech-stack.md",
-        "expected_folder": "foundation/"
-      },
-      {
-        "type": "convention_violation",
-        "pattern_index": 71,
-        "intent": "config",
-        "kb_target": "standards/code/conventions.md",
-        "expected_folder": "foundation/"
+        "resolved_target": "standards/code/tech-stack.md",
+        "reason": "kb_file_missing",
+        "source": "_rules.md"
       },
       {
         "type": "unmapped_kb_group",
@@ -1001,7 +1015,8 @@
         "sample_files": [
           ".obsidian/plugins/github-copilot/copilot-1.434.0/policy-templates/darwin/README.md",
           ".obsidian/plugins/github-copilot/copilot-1.434.0/policy-templates/win32/README.md"
-        ]
+        ],
+        "source": "_rules.md"
       },
       {
         "type": "unmapped_kb_group",
@@ -1013,7 +1028,8 @@
           "features/line-definitions.md",
           "features/mail-settings.md",
           "features/manual-records.md"
-        ]
+        ],
+        "source": "_rules.md"
       },
       {
         "type": "unmapped_kb_group",
@@ -1025,7 +1041,8 @@
           "standards/code/code.md",
           "standards/code/domain-be.md",
           "standards/code/screen-patterns.md"
-        ]
+        ],
+        "source": "_rules.md"
       },
       {
         "type": "unmapped_kb_group",
@@ -1034,7 +1051,8 @@
         "sample_files": [
           "ui/admin-fe.md",
           "ui/components.md"
-        ]
+        ],
+        "source": "_rules.md"
       }
     ]
   },

@@ -502,7 +502,7 @@ rules:
 }
 ```
 
-The schema is editor-only — MCP enforces structure at runtime via `kb_lint`'s enumerated checks (missing `id`/`title`/`severity`/`description`, duplicate rule ids, bad `severity`/`detect.kind`, contracts requiring `parties[].applies_to.paths`, overlapping party `app_scope`, etc.).
+The schema is editor-only. Structural enforcement happens via the internal `kb_lint` module — it runs automatically inside `kb_reindex` (after every `kb_write`) and via the pre-commit hook ([`scripts/lint-standalone.js`](knowledge/_mcp/scripts/lint-standalone.js)). It is not exposed as an MCP tool. Enumerated checks: missing `id`/`title`/`severity`/`description`, duplicate rule ids, bad `severity`/`detect.kind`, contracts requiring `parties[].applies_to.paths`, overlapping party `app_scope`, etc.
 
 #### Authoring — three on-ramps
 
@@ -1180,7 +1180,7 @@ Files in `knowledge/` have three ownership tiers. Violating them causes silent d
 | `sync/standards-backlog.md` | `kb_conform` aspirational sweeps (auto-fires on standards `kb_write`) — advisory entries surfaced via `kb_get` |
 | `sync/.conform-pending/<mode>.json` | `kb_conform` Phase 1 → 1.5 handoff cache (transient; cleared on successful `submit_judgments`) |
 
-The pre-commit hook warns if any of these are staged. `_index.yaml` has a `# AUTO-GENERATED` header that `kb_lint` checks for.
+The pre-commit hook warns if any of these are staged. `_index.yaml` has a `# AUTO-GENERATED` header that the pre-commit linter ([`scripts/lint-standalone.js`](knowledge/_mcp/scripts/lint-standalone.js)) checks for.
 
 ### Tier 2 — Humans directly, no agent needed
 
