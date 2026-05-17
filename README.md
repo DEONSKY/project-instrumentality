@@ -887,6 +887,248 @@ KB documents (knowledge/features/, flows/, standards/)
 
 ---
 
+## Drift diagnostics — surfacing silent failures
+
+Six features that turn previously-invisible drift problems into machine-readable signals. The shape is consistent: kb-mcp never tries to auto-fix anything — it just exposes the problem in a field an agent or human can act on (`pattern_audit.findings`, `mapping_status`, `orphan_dependencies`, `AUTO-CLOSED-PATTERN-CHANGED`).
+
+### 1. Fan-out (P0)
+
+**What it does.** When one code file matches multiple `code_path_patterns` entries with different `kb_targets`, `kb_drift` creates a separate drift entry per `kb_target`.
+
+**Why it matters.** Before this, a file like `AuthForm.tsx` matching both a "form" pattern (→ `validation.md`) and an "auth" pattern (→ `authentication.md`) would produce a single drift entry — half the KB context got lost. Fan-out ensures both KB docs get flagged when that file changes.
+
+**Key signal:** `_state.codeEntries` has one entry per `kbTarget`, each with its own fingerprint.
+
+```
+                     _rules.md
+      ┌──────────────────────────────────────┐
+      │ - intent: form                       │
+      │   kb_target: validation/common.md    │  ← pattern A
+      │   paths: [src/**Form.tsx]            │
+      │                                      │
+      │ - intent: auth                       │
+      │   kb_target: features/auth.md        │  ← pattern B
+      │   paths: [src/auth/**]               │
+      └──────────────────────────────────────┘
+                        │
+      edit ───►  src/auth/LoginForm.tsx  (matches BOTH)
+                        │
+                        ▼
+      ┌──────────────────────────────────────┐
+      │            code-drift.md             │
+      │                                      │
+      │  ## validation/common.md             │  entry 1
+      │     - src/auth/LoginForm.tsx         │  fingerprint X
+      │                                      │
+      │  ## features/auth.md                 │  entry 2
+      │     - src/auth/LoginForm.tsx         │  fingerprint Y
+      └──────────────────────────────────────┘
+
+BEFORE: only one entry → second KB doc silently missed
+AFTER:  one entry per kb_target → both KB docs flagged
+```
+
+### 2. Scaffold mapping check (P1)
+
+**What it does.** When you scaffold a new KB file in a folder that no `code_path_patterns` entry maps to, the response includes `mapping_status: "unmapped"` plus a `suggested_pattern` stub and an instruction telling you to add the pattern to `_rules.md`.
+
+**Why it matters.** New KB docs that aren't reachable via patterns are invisible to drift detection — they silently rot. This flow makes the gap loud at creation time instead of months later.
+
+```
+  kb_scaffold({type:"decision", id:"x"})
+              │
+              ▼
+  ┌────────────────────────────────────┐
+  │  decisions/x.md  ← created         │
+  └────────────────────────────────────┘
+              │
+              ▼  is there a pattern targeting decisions/?
+              │
+        ┌─────┴─────┐
+        │           │
+       YES          NO
+        │           │
+        ▼           ▼
+   mapping_     mapping_status: "unmapped"
+   status:      suggested_pattern: {
+   "mapped"       intent: null,
+                  kb_target: "decisions/{name}.md",
+                  paths: []
+                }
+                _mapping_instruction:
+                 "Add this to _rules.md →
+                  code_path_patterns…"
+```
+
+### 3. Pattern audit (P1)
+
+**What it does.** `kb_drift` ships a `pattern_audit.findings[]` array that flags broken `_rules.md` patterns up front:
+
+- **`orphan_pattern`** — pattern's `paths` glob matches zero real files (typo, deleted directory, dead module).
+- **`ghost_target`** — pattern's `kb_target` points at a KB file that doesn't exist.
+- **`multi_target_files`** — the fan-out twin: tells you which files are being fanned out to multiple targets (useful when one is intentional, the other is a mistake).
+- **`convention_violation`** — pattern's `kb_target` is in the "wrong" folder per project convention (e.g. `standards/code/tech-stack.md` should live in `foundation/`).
+- **`unmapped_kb_group`** — KB folders that have files but no patterns pointing to them (drift can't track their code).
+
+**Why it matters.** This is the diagnostic layer for `_rules.md` itself. Without it, broken patterns fail silently.
+
+```
+                _rules.md  ──►  kb_drift({readonly:true})
+                                        │
+                                        ▼
+                            pattern_audit.findings[]
+                            ┌─────────────────────────┐
+                            │                         │
+            ┌───────────────┼─────────┬───────────┬───┴──────────┐
+            ▼               ▼         ▼           ▼              ▼
+     orphan_pattern   ghost_target  multi_   convention_   unmapped_
+     (paths match     (kb_target    target_  violation     kb_group
+      no files)        missing)     files    (wrong        (folder has
+                                    (fan-out  folder)       files but
+                                     map)                   no patterns)
+
+     paths:           kb_target:    file:    kb_target:    folder:
+      src/dead/**      foo.md       Auth     standards/    decisions/
+                       ⚠            Form     code/tech-    count: 4
+                       doesn't       ↓        stack.md     no patterns
+                       exist        2 kb     should be
+                                    targets  foundation/
+```
+
+### 4. UI mapping diagnostics (P1/P2)
+
+The same `pattern_audit.findings` get rendered as a "Mapping Diagnostics" card in the extension panel with a per-finding **Copy fix prompt** button — paste it into a chat and the agent has everything it needs to fix the rule.
+
+```
+  ┌─ kb-mcp panel ────────────────────────────────┐
+  │                                                │
+  │  📋 Mapping Diagnostics              [  7  ]   │  ← count badge
+  │  ─────────────────────────────────────────     │
+  │  ▼ orphan_pattern · validation/common.md       │  ← expand
+  │      paths: src/dead/**                        │
+  │      [ Copy fix prompt ]   ←─ clipboard        │
+  │                                                │
+  │  ▶ ghost_target · features/missing.md          │  ← collapsed
+  │  ▶ multi_target · AuthForm.tsx                 │
+  │  ▶ convention · standards/code/...             │
+  │                                                │
+  └────────────────────────────────────────────────┘
+
+  Copy-fix-prompt clipboard payload:
+  ┌────────────────────────────────────────────────┐
+  │ The knowledge/_rules.md → code_path_patterns   │
+  │ audit surfaced this finding:                   │
+  │ {finding JSON…}                                │
+  │ Please propose a fix…                          │
+  └────────────────────────────────────────────────┘
+```
+
+### 5. Fingerprint stability vs invalidation (P3)
+
+**What it does.** Each drift queue entry carries a fingerprint computed from the pattern's semantic shape (intent, `kb_target`, and the sorted set of `paths`).
+
+- **Cosmetic edits** (reordering paths, whitespace) → fingerprint unchanged → queue entries survive untouched.
+- **Semantic edits** (renaming `kb_target`, adding/removing a path) → fingerprint changes → kb-mcp auto-closes the stale entry and logs `AUTO-CLOSED-PATTERN-CHANGED` in the monthly drift log with old + new fingerprints.
+
+**Why it matters.** Without fingerprinting, any edit to `_rules.md` either churned the queue (every entry re-created) or left stale entries pointing at patterns that no longer exist. Now the queue tracks intent, not source-text shape.
+
+```
+  Pattern in _rules.md:
+  ┌──────────────────────────────┐
+  │ intent: validation           │
+  │ kb_target: validation/x.md   │ ──► fingerprint = sha256(intent + target + SORTED paths)
+  │ paths: [a.java, b.java]      │     = de538367...
+  └──────────────────────────────┘
+
+  ──── COSMETIC EDIT (reorder paths) ─────────────────────────
+        paths: [b.java, a.java]   ← same set, different order
+                       │
+                       ▼ sort → [a.java, b.java]  same hash
+                fingerprint = de538367...  UNCHANGED
+                       │
+                       ▼
+        ╔═══════════════════════════╗
+        ║  queue entry: UNTOUCHED   ║   no churn
+        ║  drift-log: NO event      ║
+        ╚═══════════════════════════╝
+
+  ──── SEMANTIC EDIT (rename kb_target) ──────────────────────
+        kb_target: validation/x-v2.md   ← actually different
+                       │
+                       ▼ fingerprint = a91f2c...  CHANGED
+                       │
+                       ▼
+        ╔═══════════════════════════════════════════════╗
+        ║  queue entry: AUTO-CLOSED                     ║
+        ║  drift-log/2026-05.md:                        ║
+        ║   ## AUTO-CLOSED-PATTERN-CHANGED              ║
+        ║   Queue key: validation/x.md                  ║
+        ║   Old fingerprint: de538367...                ║
+        ║   New fingerprint: (pattern removed)          ║
+        ║   Reason: pattern removed from _rules.md      ║
+        ╚═══════════════════════════════════════════════╝
+```
+
+### 6. Orphan depends_on detection (P3)
+
+**What it does.** When `kb_write` reindexes, it walks every file's `depends_on:` frontmatter and writes a top-level `orphan_dependencies:` array in `_index.yaml` for any reference that points at a non-existent KB file.
+
+**Why it matters.** `[[wikilinks]]` and `depends_on:` are how KB files cross-reference each other. Broken refs used to fail silently — now `_index.yaml` has an explicit punch list.
+
+```
+   features/buffer-definitions.md
+   ┌──────────────────────────────────────┐
+   │ ---                                  │
+   │ depends_on:                          │
+   │   - line-definitions       ◄─ exists │
+   │   - features/missing-file  ◄─ ghost! │
+   │ ---                                  │
+   └──────────────────────────────────────┘
+                    │
+                    ▼  kb_write → reindex
+                    │  (walks every file's depends_on)
+                    ▼
+   knowledge/_index.yaml
+   ┌──────────────────────────────────────┐
+   │ orphan_dependencies:                 │
+   │   - source: features/buffer-def...   │
+   │     missing_dep: features/missing... │
+   │   - source: …                        │
+   │     missing_dep: …                   │
+   │                                      │
+   │ files: …                             │
+   └──────────────────────────────────────┘
+                    │
+                    ▼
+            agent/human sees the list
+            and fixes refs or creates files
+```
+
+### The unifying picture
+
+All six features are diagnostics that surface previously-silent failures in `_rules.md` and KB cross-references.
+
+```
+              ┌─────────────────────────────────────┐
+              │      kb-mcp diagnostic surface       │
+              └─────────────────┬───────────────────┘
+                                │
+      ┌─────────────────────────┼─────────────────────────┐
+      ▼                         ▼                         ▼
+ _rules.md issues       KB file issues          Cross-ref issues
+ (patterns)             (mapping)               (depends_on)
+      │                         │                         │
+      ▼                         ▼                         ▼
+ pattern_audit         mapping_status          orphan_dependencies
+ .findings[]           in kb_scaffold          in _index.yaml
+      │                         │                         │
+      ▼                         ▼                         ▼
+      Surface the problem in a machine-readable field.
+      Never auto-fix. Let agent or human decide.
+```
+
+---
+
 ## Presets
 
 `_rules.md` controls how drift detection maps your codebase to KB files. Presets for common stacks are in `knowledge/_mcp/presets/`:

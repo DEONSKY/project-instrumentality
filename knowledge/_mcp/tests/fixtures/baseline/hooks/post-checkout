@@ -1,0 +1,7 @@
+#!/bin/sh
+# kb-mcp managed — updated by kb_init. Do not remove this line.
+LOCAL="knowledge/_mcp/scripts/lint-standalone.js"
+BUNDLED="/home/mc/Projects/pi/project-instrumentality/knowledge/_mcp/scripts/lint-standalone.js"
+if [ -f "$LOCAL" ]; then node "$LOCAL"
+elif [ -f "$BUNDLED" ]; then node "$BUNDLED"
+fi

@@ -1,0 +1,175 @@
+#!/bin/sh
+# kb-mcp managed — updated by kb_init. Do not remove this line.
+
+# ── Submodule branch guard ────────────────────────────────────────────────────
+if [ -f .gitmodules ]; then
+  PARENT_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
+  REMOTE_REF=$(git rev-parse @{upstream} 2>/dev/null) || REMOTE_REF=""
+  TMPFILE=$(mktemp)
+  MISMATCH=""
+  SHARED_WARN=""
+  git config --file .gitmodules --get-regexp 'submodule\..*\.path' > "$TMPFILE" 2>/dev/null
+  while IFS= read -r line; do
+    key=$(printf '%s' "$line" | awk '{print $1}')
+    subpath=$(printf '%s' "$line" | awk '{print $2}')
+    subname=$(printf '%s' "$key" | sed 's/submodule\.\(.*\)\.path/\1/')
+
+    IS_SHARED=$(git config --file .gitmodules submodule."$subname".kb-shared 2>/dev/null)
+    if [ "$IS_SHARED" = "true" ]; then
+      # Shared — no branch enforcement, but warn if pointer changed
+      LOCAL_SUB=$(git ls-tree HEAD "$subpath" 2>/dev/null | awk '{print $3}')
+      if [ -n "$REMOTE_REF" ]; then
+        REMOTE_SUB=$(git ls-tree "$REMOTE_REF" "$subpath" 2>/dev/null | awk '{print $3}')
+      else
+        _BASE=$(git rev-parse "origin/main" 2>/dev/null || git rev-parse "origin/master" 2>/dev/null || echo "")
+        REMOTE_SUB=$(git ls-tree "$_BASE" "$subpath" 2>/dev/null | awk '{print $3}')
+      fi
+      if [ "$LOCAL_SUB" != "$REMOTE_SUB" ]; then
+        SHARED_WARN="$SHARED_WARN\n  $subpath"
+      fi
+      continue
+    fi
+
+    # Owned — check if pointer changed in this push
+    LOCAL_SUB=$(git ls-tree HEAD "$subpath" 2>/dev/null | awk '{print $3}')
+    if [ -n "$REMOTE_REF" ]; then
+      REMOTE_SUB=$(git ls-tree "$REMOTE_REF" "$subpath" 2>/dev/null | awk '{print $3}')
+    else
+      _BASE=$(git rev-parse "origin/main" 2>/dev/null || git rev-parse "origin/master" 2>/dev/null || echo "")
+      REMOTE_SUB=$(git ls-tree "$_BASE" "$subpath" 2>/dev/null | awk '{print $3}')
+    fi
+    [ "$LOCAL_SUB" = "$REMOTE_SUB" ] && continue
+
+    SUB_BRANCH=$(git -C "$subpath" symbolic-ref --short HEAD 2>/dev/null)
+    if [ -n "$SUB_BRANCH" ] && [ "$SUB_BRANCH" != "$PARENT_BRANCH" ]; then
+      MISMATCH="$MISMATCH\n  $subpath  (on '$SUB_BRANCH', expected '$PARENT_BRANCH')"
+    fi
+  done < "$TMPFILE"
+  rm -f "$TMPFILE"
+
+  if [ -n "$MISMATCH" ]; then
+    printf "[kb] ERROR: Submodule branch mismatch — push blocked.\n" >&2
+    printf "[kb] Parent is on '%s' but these submodules are not:%b\n" "$PARENT_BRANCH" "$MISMATCH" >&2
+    printf "[kb]\n" >&2
+    printf "[kb] If the submodule is NOT part of this feature (accidental staging):\n" >&2
+    printf "[kb]   git restore --staged <submodule-path>/\n" >&2
+    printf "[kb]\n" >&2
+    printf "[kb] If the submodule IS part of this feature:\n" >&2
+    printf "[kb]   cd <submodule> && git checkout %s\n" "$PARENT_BRANCH" >&2
+    exit 1
+  fi
+
+  if [ -n "$SHARED_WARN" ]; then
+    printf "[kb] WARNING: Shared submodule pointer(s) updated:%b\n" "$SHARED_WARN" >&2
+    printf "[kb] These affect all projects consuming the module(s). Ensure changes are mergeable to main.\n" >&2
+  fi
+fi
+
+LOCAL="knowledge/_mcp/server.js"
+BUNDLED="/home/mc/Projects/pi/project-instrumentality/knowledge/_mcp/server.js"
+SERVER="$LOCAL"
+[ -f "$BUNDLED" ] && SERVER="$BUNDLED"
+
+# ── Branch-aware drift handling ───────────────────────────────────────────────
+#
+# Protected branches (default: main|master, configurable via
+# `git config kb.protectedBranches "main|master|release"`):
+#   Run full drift + conform detection, stage + auto-commit the queue files
+#   into this push. Preserves the original "PM sees drifts immediately on
+#   remote" behavior.
+#
+# Feature branches:
+#   Run detection in readonly mode (no fs writes, no commit). Print the
+#   pending-entry count as a hint, exit 0. Authors publish via the
+#   "Publish drift" command in the extension when they're ready.
+PUSHED_BRANCH="${PARENT_BRANCH:-$(git symbolic-ref --short HEAD 2>/dev/null)}"
+PROTECTED_PATTERN=$(git config kb.protectedBranches 2>/dev/null)
+[ -z "$PROTECTED_PATTERN" ] && PROTECTED_PATTERN="main|master"
+IS_PROTECTED=0
+case "$PUSHED_BRANCH" in
+  "") IS_PROTECTED=0 ;;
+  *) printf '%s' "$PUSHED_BRANCH" | grep -Eq "^($PROTECTED_PATTERN)\$" && IS_PROTECTED=1 ;;
+esac
+
+if [ "$IS_PROTECTED" = "1" ]; then
+  # Protected branch — full detection + auto-commit (original behavior).
+  node -e "
+const drift = require('$SERVER/../tools/drift');
+drift.runTool({ remote: '$1' }).then(result => {
+  if (result.error) {
+    process.stderr.write('[kb-drift] skipped: ' + result.error + '\\n');
+    return;
+  }
+  const c = result.code_entries || 0;
+  const k = result.kb_entries || 0;
+  if (c > 0) process.stderr.write('[kb-drift] ' + c + ' code→KB entry(s) added to knowledge/sync/code-drift.md\\n');
+  if (k > 0) process.stderr.write('[kb-drift] ' + k + ' KB→code entry(s) added to knowledge/sync/kb-drift.md\\n');
+  if (result.message) process.stderr.write('[kb-drift] ' + result.message + '\\n');
+  if (c > 0 || k > 0) process.stderr.write('[kb-drift] ↑ Clean drift for files you touched before opening a PR.\\n');
+  if (c > 0 || k > 0) process.stderr.write('[kb-drift]   Run kb_drift in Claude to review and resolve.\\n');
+}).catch(() => {});
+" 2>&1 || true
+
+  if [ -f "$SERVER/../tools/conform.js" ]; then
+  node -e "
+const conform = require('$SERVER/../tools/conform');
+conform.runTool({}).then(result => {
+  if (result.error) {
+    process.stderr.write('[kb-conform] skipped: ' + result.error + '\\n');
+    return;
+  }
+  const requested = (result.requested_evaluations || []).length;
+  if (requested > 0) {
+    process.stderr.write('[kb-conform] ' + requested + ' rule evaluation(s) need agent judgment — run kb_conform in Claude before opening a PR.\\n');
+  }
+  if ((result.sprawl_warnings || []).length > 0) {
+    for (const w of result.sprawl_warnings) {
+      process.stderr.write('[kb-conform] sprawl: standard "' + w.standard_id + '" has ' + w.rule_count + ' rules (threshold ' + w.threshold + ')\\n');
+    }
+  }
+}).catch(() => {});
+" 2>&1 || true
+  fi
+
+  # Commit drift files so they travel with the push — PM sees them on remote immediately.
+  # Guard against re-entry: if this hook already created a drift commit, skip.
+  if [ -z "$KB_DRIFT_COMMITTING" ]; then
+    git add knowledge/sync/code-drift.md knowledge/sync/kb-drift.md knowledge/sync/standards-drift.md knowledge/sync/standards-backlog.md 2>/dev/null || true
+    if ! git diff --cached --quiet -- knowledge/sync/code-drift.md knowledge/sync/kb-drift.md knowledge/sync/standards-drift.md knowledge/sync/standards-backlog.md 2>/dev/null; then
+      KB_DRIFT_COMMITTING=1 git commit -m "chore(kb): update drift queue" 2>/dev/null && printf '[kb-drift] drift/conform queues committed — included in this push\n' >&2 || true
+    fi
+  fi
+else
+  # Feature branch — advisory readonly run only. No fs writes, no commit.
+  node -e "
+const drift = require('$SERVER/../tools/drift');
+drift.runTool({ remote: '$1', readonly: true, include_diffs: false }).then(result => {
+  if (result.error) return;
+  const state = result._state || {};
+  const c = (state.codeEntries || []).length;
+  const k = (state.kbEntries || []).length;
+  const total = c + k;
+  if (total > 0) {
+    process.stderr.write('[kb-drift] ' + total + ' unpublished drift entr' + (total === 1 ? 'y' : 'ies') + ' on this branch (' + c + ' code→KB, ' + k + ' KB→code).\\n');
+    process.stderr.write('[kb-drift]   Run "Publish drift" in the extension to include them in your push.\\n');
+  }
+}).catch(() => {});
+" 2>&1 || true
+
+  if [ -f "$SERVER/../tools/conform.js" ]; then
+  node -e "
+const conform = require('$SERVER/../tools/conform');
+conform.runTool({ readonly: true, include_diffs: false }).then(result => {
+  if (result.error) return;
+  const requested = (result.requested_evaluations || []).length;
+  const flagged = ((result._state && result._state.entries) || []).length;
+  if (requested > 0 || flagged > 0) {
+    const parts = [];
+    if (flagged > 0) parts.push(flagged + ' auto-flagged');
+    if (requested > 0) parts.push(requested + ' need agent judgment');
+    process.stderr.write('[kb-conform] ' + parts.join(', ') + ' — readonly preview only on feature branches.\\n');
+  }
+}).catch(() => {});
+" 2>&1 || true
+  fi
+fi

@@ -4,6 +4,7 @@ const matter = require('gray-matter')
 const { resolvePrompt } = require('../lib/prompts')
 const { runTool: get } = require('./get')
 const { stripInlineMarkdown, parseInlineFormatting } = require('../lib/md-to-runs')
+const { createSessionCache } = require('../lib/session-cache')
 
 const SUPPORTED_FORMATS = ['pdf', 'docx', 'markdown', 'confluence', 'notion', 'html', 'json']
 const OUTPUT_DIR = 'knowledge/exports'
@@ -11,21 +12,9 @@ const MAX_EXPORT_CHARS = 80000
 const SESSION_TTL_MS = 10 * 60 * 1000
 
 // ── Session cache for paginated exports ──────────────────────────────────────
-const exportSessions = new Map()
-
-function getSession(key) {
-  const session = exportSessions.get(key)
-  if (!session) return null
-  if (Date.now() - session.created > SESSION_TTL_MS) {
-    exportSessions.delete(key)
-    return null
-  }
-  return session
-}
-
-function clearSession(key) {
-  exportSessions.delete(key)
-}
+const exportSessions = createSessionCache(SESSION_TTL_MS)
+const getSession = (key) => exportSessions.get(key)
+const clearSession = (key) => exportSessions.clear(key)
 
 function sessionKey(scope, format, type) {
   const s = Array.isArray(scope) ? scope.join('+') : (scope || 'all')
@@ -170,8 +159,7 @@ function startPaginatedExport(files, sKey, ctx) {
     purpose: ctx.purpose,
     projectName: ctx.projectName,
     exportDate: ctx.exportDate,
-    outputPath: ctx.outputPath,
-    created: Date.now()
+    outputPath: ctx.outputPath
   }
   exportSessions.set(sKey, session)
 

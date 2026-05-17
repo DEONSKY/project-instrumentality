@@ -4,10 +4,8 @@ const matter = require('gray-matter')
 const { matterStringify } = require('../lib/matter-utils')
 const { runTool: reindex } = require('./reindex')
 const { extractTagsFromText, extractCandidatesFromText, extractBodyWordsFromContent } = require('../lib/tag-extract')
-
-const KB_ROOT = 'knowledge'
-const SKIP_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules', 'drift-log', '_templates', 'sync'])
-const SKIP_FILES = new Set(['_index.yaml', '_rules.md'])
+const { collectMdFiles } = require('../lib/fs-walk')
+const { KB_ROOT } = require('../lib/kb-constants')
 
 async function runTool({ file_path, mode, tags, skipReindex } = {}) {
   const effectiveMode = mode || 'fast'
@@ -344,26 +342,6 @@ function processFile(filePath, blockedWords, knownCompounds) {
   fs.writeFileSync(filePath, updated, 'utf8')
 
   return { changed: true, tags: extractedTags }
-}
-
-function collectMdFiles(dir) {
-  const files = []
-  if (!fs.existsSync(dir)) return files
-
-  function walk(current) {
-    const entries = fs.readdirSync(current, { withFileTypes: true })
-    entries.forEach(entry => {
-      const full = path.join(current, entry.name)
-      if (entry.isDirectory()) {
-        if (!SKIP_DIRS.has(entry.name)) walk(full)
-      } else if (entry.name.endsWith('.md') && !SKIP_FILES.has(entry.name)) {
-        files.push(full)
-      }
-    })
-  }
-
-  walk(dir)
-  return files
 }
 
 module.exports = {

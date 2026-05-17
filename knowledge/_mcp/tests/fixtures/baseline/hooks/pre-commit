@@ -1,0 +1,16 @@
+#!/bin/sh
+# kb-mcp managed — updated by kb_init. Do not remove this line.
+# Warn if Tier 1 auto-generated files are staged
+STAGED=$(git diff --cached --name-only 2>/dev/null)
+TIER1=$(echo "$STAGED" | grep -E "knowledge/_index\.yaml|knowledge/sync/drift-log/" || true)
+if [ -n "$TIER1" ]; then
+  printf "[kb] WARNING: Auto-generated files are staged for commit:\n" >&2
+  echo "$TIER1" | while IFS= read -r f; do printf "[kb]   %s\n" "$f" >&2; done
+  printf "[kb] These are managed by kb-mcp and will be overwritten. Consider: git restore --staged <file>\n" >&2
+fi
+
+LOCAL="knowledge/_mcp/scripts/lint-standalone.js"
+BUNDLED="/home/mc/Projects/pi/project-instrumentality/knowledge/_mcp/scripts/lint-standalone.js"
+if [ -f "$LOCAL" ]; then node "$LOCAL"
+elif [ -f "$BUNDLED" ]; then node "$BUNDLED"
+fi

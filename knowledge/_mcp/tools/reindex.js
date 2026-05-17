@@ -8,10 +8,8 @@ const { estimateTokens } = require('../lib/budget')
 const { extractMentions } = require('../lib/mentions')
 const { inferType } = require('../lib/types')
 const { runTool: lint } = require('./lint')
-
-const KB_ROOT = 'knowledge'
-const SKIP_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules', 'drift-log', '_templates', 'sync'])
-const SKIP_FILES = new Set(['_index.yaml', '_rules.md'])
+const { collectMdFiles } = require('../lib/fs-walk')
+const { KB_ROOT } = require('../lib/kb-constants')
 
 async function runTool({ silent = false } = {}) {
   const rules = loadRules(KB_ROOT)
@@ -179,26 +177,5 @@ async function runTool({ silent = false } = {}) {
 }
 
 // inferType moved to lib/types.js
-
-function collectMdFiles(dir) {
-  const files = []
-  if (!fs.existsSync(dir)) return files
-
-  function walk(current) {
-    const entries = fs.readdirSync(current, { withFileTypes: true })
-    entries.forEach(entry => {
-      const full = path.join(current, entry.name)
-      if (entry.isDirectory()) {
-        if (!SKIP_DIRS.has(entry.name)) walk(full)
-      } else if (entry.name.endsWith('.md') && !SKIP_FILES.has(entry.name)) {
-        files.push(full)
-      }
-    })
-  }
-
-  walk(dir)
-  return files
-}
-
 
 module.exports = { runTool }

@@ -1,2 +1,7 @@
 node_modules/
 dist/
+
+# Build artifact of packages/obsidian-plugin/esbuild.config.mjs.
+# Regenerated from knowledge/_mcp/ by scripts/bundle-runner.mjs on each
+# `npm run build`. Source of truth is knowledge/_mcp/.
+packages/obsidian-plugin/runner/

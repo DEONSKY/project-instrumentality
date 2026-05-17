@@ -90,7 +90,7 @@ var require_kb_root = __commonJS({
     exports2.findKbRoot = findKbRoot2;
     exports2.kbSyncPath = kbSyncPath;
     var fs2 = __importStar(require("fs"));
-    var path3 = __importStar(require("path"));
+    var path4 = __importStar(require("path"));
     var KB_INDICATORS = [
       ["knowledge", "_mcp", "server.js"],
       ["knowledge", "sync"],
@@ -99,18 +99,18 @@ var require_kb_root = __commonJS({
     ];
     function isKbRoot(dir) {
       for (const segs of KB_INDICATORS) {
-        if (fs2.existsSync(path3.join(dir, ...segs)))
+        if (fs2.existsSync(path4.join(dir, ...segs)))
           return true;
       }
       return false;
     }
     function findKbRoot2(startPaths) {
       for (const start of startPaths) {
-        let dir = path3.resolve(start);
+        let dir = path4.resolve(start);
         while (true) {
           if (isKbRoot(dir))
             return dir;
-          const parent = path3.dirname(dir);
+          const parent = path4.dirname(dir);
           if (parent === dir)
             break;
           dir = parent;
@@ -119,7 +119,7 @@ var require_kb_root = __commonJS({
       return null;
     }
     function kbSyncPath(kbRoot, ...segments) {
-      return path3.join(kbRoot, "knowledge", "sync", ...segments);
+      return path4.join(kbRoot, "knowledge", "sync", ...segments);
     }
   }
 });
@@ -606,7 +606,7 @@ var require_conform_pending = __commonJS({
     exports2.conformPendingDir = conformPendingDir;
     exports2.resolveStandardPath = resolveStandardPath2;
     var fs2 = __importStar(require("fs"));
-    var path3 = __importStar(require("path"));
+    var path4 = __importStar(require("path"));
     var kb_root_js_1 = require_kb_root();
     var STANDARD_GROUPS = ["code", "contracts", "knowledge", "process"];
     function parseConformPending(content) {
@@ -634,14 +634,14 @@ var require_conform_pending = __commonJS({
       return parseConformPending(fs2.readFileSync(file, "utf8"));
     }
     function conformPendingDir(kbRoot) {
-      return path3.join((0, kb_root_js_1.kbSyncPath)(kbRoot, ".conform-pending"));
+      return path4.join((0, kb_root_js_1.kbSyncPath)(kbRoot, ".conform-pending"));
     }
     function resolveStandardPath2(kbRoot, standardId) {
       if (!standardId)
         return null;
-      const standardsDir = path3.join(kbRoot, "knowledge", "standards");
+      const standardsDir = path4.join(kbRoot, "knowledge", "standards");
       for (const group of STANDARD_GROUPS) {
-        const candidate = path3.join(standardsDir, group, `${standardId}.md`);
+        const candidate = path4.join(standardsDir, group, `${standardId}.md`);
         if (fs2.existsSync(candidate))
           return candidate;
       }
@@ -815,7 +815,7 @@ var require_lint = __commonJS({
     exports2.runLint = runLint;
     var node_child_process_1 = require("child_process");
     var fs2 = __importStar(require("fs"));
-    var path3 = __importStar(require("path"));
+    var path4 = __importStar(require("path"));
     var LINE_RE = /^\[kb-lint\]\s+(WARN|ERROR)\s+(\S+):\s+(.*)$/;
     function parseLintStderr(stderr) {
       const out = [];
@@ -835,7 +835,7 @@ var require_lint = __commonJS({
       if (opts.commandOverride && opts.commandOverride.trim().length > 0) {
         return runShell(opts.commandOverride.trim(), kbRoot);
       }
-      const script = path3.join(kbRoot, "knowledge", "_mcp", "scripts", "lint-standalone.js");
+      const script = path4.join(kbRoot, "knowledge", "_mcp", "scripts", "lint-standalone.js");
       if (!fs2.existsSync(script)) {
         return Promise.resolve({ violations: [], ran: false });
       }
@@ -4184,7 +4184,7 @@ var require_submodule_status = __commonJS({
     exports2.getSubmoduleStatus = getSubmoduleStatus;
     exports2.buildPushPlan = buildPushPlan2;
     var fs2 = __importStar(require("fs"));
-    var path3 = __importStar(require("path"));
+    var path4 = __importStar(require("path"));
     var node_child_process_1 = require("child_process");
     var node_util_1 = require("util");
     var execFileP = (0, node_util_1.promisify)(node_child_process_1.execFile);
@@ -4197,7 +4197,7 @@ var require_submodule_status = __commonJS({
       }
     }
     function resolveGitdirHead(absSubPath) {
-      const dotGit = path3.join(absSubPath, ".git");
+      const dotGit = path4.join(absSubPath, ".git");
       let st;
       try {
         st = fs2.statSync(dotGit);
@@ -4205,7 +4205,7 @@ var require_submodule_status = __commonJS({
         return null;
       }
       if (st.isDirectory()) {
-        const head = path3.join(dotGit, "HEAD");
+        const head = path4.join(dotGit, "HEAD");
         return fs2.existsSync(head) ? head : null;
       }
       if (st.isFile()) {
@@ -4214,8 +4214,8 @@ var require_submodule_status = __commonJS({
           const m = content.match(/^gitdir:\s*(.+)\s*$/m);
           if (!m)
             return null;
-          const gitdir = path3.isAbsolute(m[1]) ? m[1] : path3.resolve(absSubPath, m[1]);
-          const head = path3.join(gitdir, "HEAD");
+          const gitdir = path4.isAbsolute(m[1]) ? m[1] : path4.resolve(absSubPath, m[1]);
+          const head = path4.join(gitdir, "HEAD");
           return fs2.existsSync(head) ? head : null;
         } catch {
           return null;
@@ -4255,7 +4255,7 @@ var require_submodule_status = __commonJS({
     }
     async function getSubmoduleStatus(kbRoot, opts = {}) {
       const repoRoot = opts.repoRoot ?? kbRoot;
-      const gitmodulesPath = path3.join(repoRoot, ".gitmodules");
+      const gitmodulesPath = path4.join(repoRoot, ".gitmodules");
       if (!fs2.existsSync(gitmodulesPath))
         return null;
       let text;
@@ -4269,7 +4269,7 @@ var require_submodule_status = __commonJS({
       const parentGitdirHeadPath = resolveGitdirHead(repoRoot);
       const entries = [];
       for (const p of parsed) {
-        const fullPath = path3.resolve(repoRoot, p.path);
+        const fullPath = path4.resolve(repoRoot, p.path);
         if (!fs2.existsSync(fullPath))
           continue;
         const type = p.isShared ? "shared" : "owned";
@@ -4378,7 +4378,7 @@ var require_hooks_status = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.getHooksStatus = getHooksStatus;
     var fs2 = __importStar(require("fs"));
-    var path3 = __importStar(require("path"));
+    var path4 = __importStar(require("path"));
     var node_child_process_1 = require("child_process");
     var node_util_1 = require("util");
     var execFileP = (0, node_util_1.promisify)(node_child_process_1.execFile);
@@ -4390,7 +4390,7 @@ var require_hooks_status = __commonJS({
         const rel = stdout.trim();
         if (!rel)
           return null;
-        return path3.isAbsolute(rel) ? rel : path3.resolve(repoRoot, rel);
+        return path4.isAbsolute(rel) ? rel : path4.resolve(repoRoot, rel);
       } catch {
         return null;
       }
@@ -4400,7 +4400,7 @@ var require_hooks_status = __commonJS({
       if (!hooksDir)
         return null;
       const hooks = MANAGED_HOOKS.map((name) => {
-        const file = path3.join(hooksDir, name);
+        const file = path4.join(hooksDir, name);
         let present = false;
         let managed = false;
         try {
@@ -4472,7 +4472,7 @@ var require_status = __commonJS({
     exports2.getStatus = getStatus2;
     var node_child_process_1 = require("child_process");
     var fs2 = __importStar(require("fs"));
-    var path3 = __importStar(require("path"));
+    var path4 = __importStar(require("path"));
     var node_util_1 = require("util");
     var code_drift_js_1 = require_code_drift();
     var kb_drift_js_1 = require_kb_drift();
@@ -4586,7 +4586,7 @@ var require_status = __commonJS({
       };
     }
     function runLiveStatus(kbRoot, bundledRunnerPath) {
-      const vendored = path3.join(kbRoot, "knowledge", "_mcp", "scripts", "live-status.js");
+      const vendored = path4.join(kbRoot, "knowledge", "_mcp", "scripts", "live-status.js");
       let script = null;
       if (fs2.existsSync(vendored)) {
         script = vendored;
@@ -4637,8 +4637,8 @@ var require_entry_id = __commonJS({
   "../shared/dist/entry-id.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.stableEntryId = stableEntryId2;
-    function stableEntryId2(seed, fallbackIndex) {
+    exports2.stableEntryId = stableEntryId3;
+    function stableEntryId3(seed, fallbackIndex) {
       const safe = (seed || "").replace(/[^a-zA-Z0-9_.\-/:@]/g, "_").slice(0, 120);
       return safe || `idx${fallbackIndex}`;
     }
@@ -4813,7 +4813,7 @@ var require_prompts = __commonJS({
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.standardAuthorPrompt = exports2.lintPrompt = exports2.conformPrompt = exports2.promotionPrompt = exports2.standardsDriftPrompt = exports2.kbDriftPrompt = exports2.codeDriftPrompt = void 0;
-    exports2.getActionPrompt = getActionPrompt2;
+    exports2.getActionPrompt = getActionPrompt3;
     var code_drift_js_1 = require_code_drift2();
     Object.defineProperty(exports2, "codeDriftPrompt", { enumerable: true, get: function() {
       return code_drift_js_1.codeDriftPrompt;
@@ -4842,7 +4842,7 @@ var require_prompts = __commonJS({
     Object.defineProperty(exports2, "standardAuthorPrompt", { enumerable: true, get: function() {
       return standard_author_js_1.standardAuthorPrompt;
     } });
-    function getActionPrompt2(input) {
+    function getActionPrompt3(input) {
       switch (input.kind) {
         case "code-drift":
           return (0, code_drift_js_1.codeDriftPrompt)(input.entry);
@@ -5683,25 +5683,279 @@ __export(main_exports, {
   default: () => InstrumentalityPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian2 = require("obsidian");
-var import_shared2 = __toESM(require_dist());
+var import_obsidian3 = require("obsidian");
+var import_shared3 = __toESM(require_dist());
 
 // src/view.ts
-var import_obsidian = require("obsidian");
-var path2 = __toESM(require("path"));
-var import_node_child_process = require("child_process");
+var import_obsidian2 = require("obsidian");
+
+// src/view-helpers.ts
+var path = __toESM(require("path"));
 var import_shared = __toESM(require_dist());
+function buildEntryIndex(status) {
+  const out = /* @__PURE__ */ new Map();
+  if (!status)
+    return out;
+  const push = (e) => {
+    const key = `${e.section}:${e.id}`;
+    out.set(key, { ...e, prompt: (0, import_shared.getActionPrompt)(e.promptInput) });
+  };
+  status.codeDrift.entries.forEach(
+    (e, i) => push({
+      section: "code-drift",
+      id: (0, import_shared.stableEntryId)(e.kbTarget, i),
+      promptInput: { kind: "code-drift", entry: e },
+      sourceFile: path.join("knowledge", e.kbTarget)
+    })
+  );
+  status.kbDrift.entries.forEach(
+    (e, i) => push({
+      section: "kb-drift",
+      id: (0, import_shared.stableEntryId)(e.kbFile, i),
+      promptInput: { kind: "kb-drift", entry: e },
+      sourceFile: path.join("knowledge", e.kbFile)
+    })
+  );
+  status.standardsDrift.entries.forEach(
+    (e, i) => push({
+      section: "standards-drift",
+      id: (0, import_shared.stableEntryId)(`${e.mode}:${e.queueKey}`, i),
+      promptInput: { kind: "standards-drift", entry: e },
+      sourceFile: Object.values(e.filesByParty).flat()[0]?.path,
+      standardId: e.standardId
+    })
+  );
+  for (const p of [status.conformPending.current, status.conformPending.aspirational]) {
+    if (!p || p.requested.length === 0)
+      continue;
+    p.requested.forEach(
+      (r, i) => push({
+        section: "conform-pending",
+        id: (0, import_shared.stableEntryId)(`${p.mode}:${r.file}:${r.standard_id}`, i),
+        promptInput: { kind: "conform", entry: p },
+        sourceFile: r.file,
+        standardId: r.standard_id
+      })
+    );
+  }
+  status.promotions.forEach(
+    (e, i) => push({
+      section: "promotions",
+      id: (0, import_shared.stableEntryId)(e.queueKey, i),
+      promptInput: { kind: "promotion", entry: e },
+      sourceFile: e.files[0]?.path,
+      standardId: e.standardId
+    })
+  );
+  status.lint.violations.forEach(
+    (v, i) => push({
+      section: "lint",
+      id: (0, import_shared.stableEntryId)(`${v.file}:${v.message.slice(0, 40)}`, i),
+      promptInput: { kind: "lint", entry: v },
+      sourceFile: v.file
+    })
+  );
+  return out;
+}
+function cssEscape(s) {
+  return s.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+}
+function classifyBranch(e, parentBranch) {
+  if (!e.branch)
+    return "detached";
+  if (parentBranch && e.branch === parentBranch)
+    return "aligned";
+  return e.type === "owned" ? "blocking" : "advisory";
+}
+function buildAuditFixPrompt(f) {
+  const header = `The knowledge/_rules.md \u2192 code_path_patterns audit surfaced this finding:
+
+`;
+  let body = "";
+  switch (f.type) {
+    case "orphan_pattern":
+      body = `Type: orphan_pattern
+Pattern: intent=${f.intent ?? "(none)"}, kb_target=${f.kb_target}
+Paths: ${JSON.stringify(f.paths)}
+${f.is_submodule_pattern ? "Submodule pattern.\n" : ""}
+The paths globs above match zero files in the current repo. Decide:
+1. If the code was moved/renamed, update the paths globs in knowledge/_rules.md to match the new location.
+2. If the pattern is obsolete, remove it from knowledge/_rules.md.
+3. If the paths are correct but the matching files were deleted, leave the pattern and acknowledge it's currently inactive.
+`;
+      break;
+    case "ghost_target":
+      body = `Type: ghost_target
+Hardcoded kb_target: ${f.resolved_target}
+
+The pattern targets a KB file that does not exist. Either:
+1. Create knowledge/${f.resolved_target} via kb_scaffold (if the concept is real but undocumented).
+2. Fix the kb_target in knowledge/_rules.md (if this was a typo).
+3. Remove the pattern entirely (if the concept is gone).
+`;
+      break;
+    case "multi_target_files":
+      body = `Type: multi_target_files
+File: ${f.file}
+Matched targets: ${JSON.stringify(f.matched_targets, null, 2)}
+
+This code file matches multiple patterns producing distinct kb_targets.
+Post-P0 fan-out: all targets receive drift entries on changes.
+Decide whether this is intentional (cross-cutting concern \u2192 keep) or accidental (overbroad pattern \u2192 narrow one of them in knowledge/_rules.md).
+`;
+      break;
+    case "convention_violation":
+      body = `Type: convention_violation
+Pattern: intent=${f.intent}, kb_target=${f.kb_target}
+Expected folder for intent "${f.intent}": ${f.expected_folder}
+
+The convention table expects intent "${f.intent}" to target ${f.expected_folder}* but this pattern targets a different folder.
+Either fix the kb_target in knowledge/_rules.md, or change the intent label if the mapping is intentional.
+`;
+      break;
+    case "unmapped_kb_group":
+      body = `Type: unmapped_kb_group
+Folder: ${f.folder}
+Count: ${f.count}
+Sample files: ${JSON.stringify(f.sample_files)}
+
+These KB files are not targeted by any code_path_patterns entry \u2014 code\u2192KB drift detection is silent for them.
+Add a pattern to knowledge/_rules.md \u2192 code_path_patterns. Typical shape:
+
+  - intent: <see knowledge/_mcp/presets/ for examples>
+    kb_target: "${f.folder}{name}.md"
+    paths:
+      - "<glob covering the related source files>"
+
+Grep the repo for files related to these KB documents and choose paths globs that catch them.
+`;
+      break;
+    case "fanout_with_hardcoded":
+      body = `Type: fanout_with_hardcoded
+Pattern kb_target (hardcoded): ${f.kb_target}
+Distinct file basenames: ${f.distinct_concepts}
+
+This hardcoded kb_target catches ${f.distinct_concepts} distinct file basenames \u2014 one KB file is documenting many concepts.
+Either switch the kb_target to a {name} template (so each concept gets its own KB file), or narrow the paths glob.
+`;
+      break;
+  }
+  return header + body;
+}
+
+// src/view-modals.ts
+var import_obsidian = require("obsidian");
+function confirmModal(app, opts) {
+  return new Promise((resolve2) => {
+    const modal = new ConfirmModal(app, opts, resolve2);
+    modal.open();
+  });
+}
+var ConfirmModal = class extends import_obsidian.Modal {
+  constructor(app, opts, done) {
+    super(app);
+    this.opts = opts;
+    this.done = done;
+  }
+  resolved = false;
+  onOpen() {
+    this.titleEl.setText(this.opts.title);
+    const detail = this.contentEl.createEl("pre", {
+      cls: "instrumentality-modal-detail",
+      text: this.opts.detail
+    });
+    detail.style.whiteSpace = "pre-wrap";
+    const actions = this.contentEl.createDiv({
+      cls: "instrumentality-modal-actions"
+    });
+    if (!this.opts.hideCancel) {
+      const cancel = actions.createEl("button", { text: "Cancel" });
+      cancel.addEventListener("click", () => {
+        this.resolved = true;
+        this.done(false);
+        this.close();
+      });
+    }
+    const ok = actions.createEl("button", {
+      cls: "mod-cta",
+      text: this.opts.confirmLabel
+    });
+    ok.addEventListener("click", () => {
+      this.resolved = true;
+      this.done(true);
+      this.close();
+    });
+  }
+  onClose() {
+    if (!this.resolved)
+      this.done(false);
+    this.contentEl.empty();
+  }
+};
+function selectModal(app, opts) {
+  return new Promise((resolve2) => {
+    const modal = new SelectModal(app, opts, resolve2);
+    modal.open();
+  });
+}
+var SelectModal = class extends import_obsidian.Modal {
+  constructor(app, opts, done) {
+    super(app);
+    this.opts = opts;
+    this.done = done;
+  }
+  resolved = false;
+  onOpen() {
+    this.titleEl.setText(this.opts.title);
+    if (this.opts.placeholder) {
+      this.contentEl.createDiv({
+        cls: "instrumentality-modal-placeholder",
+        text: this.opts.placeholder
+      });
+    }
+    const list = this.contentEl.createDiv({
+      cls: "instrumentality-modal-select-list"
+    });
+    for (const opt of this.opts.options) {
+      const btn = list.createEl("button", {
+        cls: "instrumentality-modal-select-item"
+      });
+      btn.createSpan({ text: opt.label });
+      if (opt.description) {
+        btn.createSpan({
+          cls: "instrumentality-modal-select-desc",
+          text: opt.description
+        });
+      }
+      btn.addEventListener("click", () => {
+        this.resolved = true;
+        this.done(opt.value);
+        this.close();
+      });
+    }
+  }
+  onClose() {
+    if (!this.resolved)
+      this.done(null);
+    this.contentEl.empty();
+  }
+};
+
+// src/view.ts
+var path3 = __toESM(require("path"));
+var import_node_child_process = require("child_process");
+var import_shared2 = __toESM(require_dist());
 
 // src/watcher.ts
 var fs = __toESM(require("fs"));
-var path = __toESM(require("path"));
+var path2 = __toESM(require("path"));
 var DEBOUNCE_MS = 500;
 var POLL_FALLBACK_MS = 5e3;
 var IGNORED_DIR_SEGMENTS = [".git", "node_modules", "dist", "build", ".obsidian", "out", "target"];
 function patternBaseDir(pattern) {
   const idx = pattern.search(/[*?[]/);
   if (idx === -1)
-    return path.dirname(pattern) || ".";
+    return path2.dirname(pattern) || ".";
   const head = pattern.slice(0, idx);
   const slash = head.lastIndexOf("/");
   return slash === -1 ? "." : head.slice(0, slash);
@@ -5730,7 +5984,7 @@ var SyncWatcher = class {
    * watchers, disposing any that aren't requested anymore.
    */
   start(extraPaths = []) {
-    const dir = path.join(this.kbRoot, "knowledge", "sync");
+    const dir = path2.join(this.kbRoot, "knowledge", "sync");
     if (fs.existsSync(dir) && !this.fsWatcher) {
       try {
         this.fsWatcher = fs.watch(
@@ -5772,11 +6026,11 @@ var SyncWatcher = class {
     const handler = (_event, filename) => {
       if (filename) {
         const rel = typeof filename === "string" ? filename : filename.toString("utf8");
-        const head = rel.split(path.sep)[0];
+        const head = rel.split(path2.sep)[0];
         if (IGNORED_DIR_SEGMENTS.includes(head))
           return;
         for (const seg of IGNORED_DIR_SEGMENTS) {
-          if (rel.includes(path.sep + seg + path.sep))
+          if (rel.includes(path2.sep + seg + path2.sep))
             return;
         }
       }
@@ -5810,7 +6064,7 @@ var SyncWatcher = class {
         if (typeof p !== "string" || !p)
           continue;
         const baseRel = patternBaseDir(p);
-        const abs = path.resolve(this.kbRoot, baseRel);
+        const abs = path2.resolve(this.kbRoot, baseRel);
         if (fs.existsSync(abs))
           want.add(abs);
       }
@@ -5920,7 +6174,7 @@ var SyncWatcher = class {
     try {
       const walk = (d) => {
         for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
-          const full = path.join(d, entry.name);
+          const full = path2.join(d, entry.name);
           if (entry.isDirectory())
             walk(full);
           else if (entry.isFile()) {
@@ -6031,7 +6285,7 @@ var VERDICTS_BY_SECTION = {
 };
 var VIEW_TYPE_INSTRUMENTALITY = "instrumentality-view";
 var ICON_ID = "instrumentality-icon";
-var InstrumentalityView = class extends import_obsidian.ItemView {
+var InstrumentalityView = class extends import_obsidian2.ItemView {
   status = null;
   kbRoot = null;
   watcher = null;
@@ -6099,8 +6353,8 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       return;
     }
     try {
-      const bundledRunnerPath = path2.join(__dirname, "runner", "scripts", "live-status.js");
-      this.status = await (0, import_shared.getStatus)(root, {
+      const bundledRunnerPath = path3.join(__dirname, "runner", "scripts", "live-status.js");
+      this.status = await (0, import_shared2.getStatus)(root, {
         skipLint: true,
         live: true,
         bundledRunnerPath
@@ -6109,7 +6363,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       console.error("[instrumentality] getStatus failed:", err);
       this.status = null;
     }
-    this.entryIndex = this.buildEntryIndex(this.status);
+    this.entryIndex = buildEntryIndex(this.status);
     if (this.watcher && this.status?.submodules) {
       const extras = [];
       if (this.status.submodules.parentGitdirHeadPath) {
@@ -6211,7 +6465,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     if (!this.status)
       return;
     const strip = parent.createDiv({ cls: "instrumentality-pipeline-strip" });
-    const segs = (0, import_shared.pipelineSegments)(this.status);
+    const segs = (0, import_shared2.pipelineSegments)(this.status);
     segs.forEach((s, i) => {
       const cell = strip.createDiv({
         cls: `instrumentality-pipeline-cell ${s.count > 0 ? "active" : "dim"}`,
@@ -6421,8 +6675,8 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
    * surface keeps its own row formatting.
    */
   renderGenericGroups(parent) {
-    const handles = (0, import_shared.buildEntryHandles)(this.status);
-    const groups = (0, import_shared.groupEntries)(handles, this.groupBy);
+    const handles = (0, import_shared2.buildEntryHandles)(this.status);
+    const groups = (0, import_shared2.groupEntries)(handles, this.groupBy);
     for (const g of groups) {
       const card = parent.createDiv({
         cls: "instrumentality-section-card",
@@ -6449,7 +6703,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     const s = this.status;
     switch (h.section) {
       case "code-drift": {
-        const i = s.codeDrift.entries.findIndex((e, idx) => (0, import_shared.stableEntryId)(e.kbTarget, idx) === h.id);
+        const i = s.codeDrift.entries.findIndex((e, idx) => (0, import_shared2.stableEntryId)(e.kbTarget, idx) === h.id);
         if (i >= 0) {
           const e = s.codeDrift.entries[i];
           this.renderCodeDriftRow(parent, e, i, e.source === "working-tree");
@@ -6457,7 +6711,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
         return;
       }
       case "kb-drift": {
-        const i = s.kbDrift.entries.findIndex((e, idx) => (0, import_shared.stableEntryId)(e.kbFile, idx) === h.id);
+        const i = s.kbDrift.entries.findIndex((e, idx) => (0, import_shared2.stableEntryId)(e.kbFile, idx) === h.id);
         if (i >= 0) {
           const e = s.kbDrift.entries[i];
           this.renderKbDriftRow(parent, e, i, e.source === "working-tree");
@@ -6466,7 +6720,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       }
       case "standards-drift": {
         const i = s.standardsDrift.entries.findIndex(
-          (e, idx) => (0, import_shared.stableEntryId)(`${e.mode}:${e.queueKey}`, idx) === h.id
+          (e, idx) => (0, import_shared2.stableEntryId)(`${e.mode}:${e.queueKey}`, idx) === h.id
         );
         if (i >= 0) {
           const e = s.standardsDrift.entries[i];
@@ -6478,7 +6732,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
         for (const p of [s.conformPending.current, s.conformPending.aspirational]) {
           if (!p)
             continue;
-          const idx = p.requested.findIndex((r, j) => (0, import_shared.stableEntryId)(`${p.mode}:${r.file}:${r.standard_id}`, j) === h.id);
+          const idx = p.requested.findIndex((r, j) => (0, import_shared2.stableEntryId)(`${p.mode}:${r.file}:${r.standard_id}`, j) === h.id);
           if (idx >= 0) {
             this.renderConformRow(parent, p, p.requested[idx], idx);
             return;
@@ -6487,14 +6741,14 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
         return;
       }
       case "promotions": {
-        const i = s.promotions.findIndex((e, idx) => (0, import_shared.stableEntryId)(e.queueKey, idx) === h.id);
+        const i = s.promotions.findIndex((e, idx) => (0, import_shared2.stableEntryId)(e.queueKey, idx) === h.id);
         if (i >= 0)
           this.renderPromotionRow(parent, s.promotions[i], i);
         return;
       }
       case "lint": {
         const i = s.lint.violations.findIndex(
-          (v, idx) => (0, import_shared.stableEntryId)(`${v.file}:${v.message.slice(0, 40)}`, idx) === h.id
+          (v, idx) => (0, import_shared2.stableEntryId)(`${v.file}:${v.message.slice(0, 40)}`, idx) === h.id
         );
         if (i >= 0)
           this.renderLintRow(parent, s.lint.violations[i], i);
@@ -6517,7 +6771,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       const help = h2.createEl("button", {
         cls: "instrumentality-banner-question",
         text: "?",
-        attr: { title: `Show ${import_shared.SECTION_GUIDE[kind].label} lifecycle` }
+        attr: { title: `Show ${import_shared2.SECTION_GUIDE[kind].label} lifecycle` }
       });
       help.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -6535,7 +6789,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     return card.createDiv({ cls: "body" });
   }
   renderEducationBanner(parent, kind, dismissed) {
-    const guide = import_shared.SECTION_GUIDE[kind];
+    const guide = import_shared2.SECTION_GUIDE[kind];
     const banner = parent.createDiv({
       cls: "instrumentality-banner education" + (dismissed ? " hidden" : ""),
       attr: { "data-banner-kind": kind }
@@ -6580,7 +6834,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       this.placeholder(parent, emptyMessage);
       return;
     }
-    const { uncommitted, published } = (0, import_shared.splitBySource)(entries);
+    const { uncommitted, published } = (0, import_shared2.splitBySource)(entries);
     if (uncommitted.length === 0) {
       published.forEach((e, i) => rowFn(parent, e, i, false));
       return;
@@ -6588,21 +6842,21 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     if (published.length === 0) {
       this.renderBucketHeader(
         parent,
-        import_shared.UNCOMMITTED_LABEL,
+        import_shared2.UNCOMMITTED_LABEL,
         uncommitted.length,
-        import_shared.SECTION_GUIDE[sectionKind].uncommittedHint
+        import_shared2.SECTION_GUIDE[sectionKind].uncommittedHint
       );
       uncommitted.forEach((e, i) => rowFn(parent, e, i, true));
       return;
     }
     this.renderBucketHeader(
       parent,
-      import_shared.UNCOMMITTED_LABEL,
+      import_shared2.UNCOMMITTED_LABEL,
       uncommitted.length,
-      import_shared.SECTION_GUIDE[sectionKind].uncommittedHint
+      import_shared2.SECTION_GUIDE[sectionKind].uncommittedHint
     );
     uncommitted.forEach((e, i) => rowFn(parent, e, i, true));
-    this.renderBucketHeader(parent, import_shared.PUBLISHED_LABEL, published.length);
+    this.renderBucketHeader(parent, import_shared2.PUBLISHED_LABEL, published.length);
     published.forEach((e, i) => rowFn(parent, e, i, false));
   }
   renderBucketHeader(parent, label, count, hint) {
@@ -6618,10 +6872,10 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     const body = this.sectionShell(
       parent,
       "code-drift",
-      import_shared.SECTION_GUIDE["code-drift"].label + "s",
+      import_shared2.SECTION_GUIDE["code-drift"].label + "s",
       entries.length,
       baseline ? baseline.slice(0, 7) : void 0,
-      import_shared.SECTION_GUIDE["code-drift"].what
+      import_shared2.SECTION_GUIDE["code-drift"].what
     );
     this.renderBucketedBody(
       body,
@@ -6632,7 +6886,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     );
   }
   renderCodeDriftRow(parent, e, i, isUncommitted = false) {
-    const id = (0, import_shared.stableEntryId)(e.kbTarget, i);
+    const id = (0, import_shared2.stableEntryId)(e.kbTarget, i);
     const sev = e.hasShared ? "warn" : "info";
     const text = e.kbTarget + " " + e.codeFiles.map((f) => f.path).join(" ");
     const summary = (h2) => {
@@ -6647,7 +6901,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
         });
       }
     };
-    const meta = `${e.codeFiles.length} file(s) \xB7 ${e.codeFiles.slice(0, 3).map((f) => path2.basename(f.path)).join(", ")}${e.codeFiles.length > 3 ? ` (+${e.codeFiles.length - 3})` : ""}`;
+    const meta = `${e.codeFiles.length} file(s) \xB7 ${e.codeFiles.slice(0, 3).map((f) => path3.basename(f.path)).join(", ")}${e.codeFiles.length > 3 ? ` (+${e.codeFiles.length - 3})` : ""}`;
     const detail = (d) => {
       const div = d.createDiv({ cls: "detail-meta" });
       const row = div.createDiv();
@@ -6673,7 +6927,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       summary,
       meta,
       detail,
-      sourceFile: path2.join("knowledge", e.kbTarget),
+      sourceFile: path3.join("knowledge", e.kbTarget),
       diffableFiles: e.codeFiles.filter((f) => !!f.sinceCommit).map((f) => ({ relPath: f.path, sinceCommit: f.sinceCommit, latestCommit: f.latestCommit })),
       verdictQueueKey: e.kbTarget,
       driftKind: "code-drift",
@@ -6685,10 +6939,10 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     const body = this.sectionShell(
       parent,
       "kb-drift",
-      import_shared.SECTION_GUIDE["kb-drift"].label + "s",
+      import_shared2.SECTION_GUIDE["kb-drift"].label + "s",
       entries.length,
       void 0,
-      import_shared.SECTION_GUIDE["kb-drift"].what
+      import_shared2.SECTION_GUIDE["kb-drift"].what
     );
     this.renderBucketedBody(
       body,
@@ -6699,7 +6953,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     );
   }
   renderKbDriftRow(parent, e, i, isUncommitted = false) {
-    const id = (0, import_shared.stableEntryId)(e.kbFile, i);
+    const id = (0, import_shared2.stableEntryId)(e.kbFile, i);
     const sev = e.unmapped ? "warn" : "info";
     const text = e.kbFile + " " + e.codeAreas.join(" ");
     const summary = (h2) => {
@@ -6752,8 +7006,8 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       summary,
       meta,
       detail,
-      sourceFile: path2.join("knowledge", e.kbFile),
-      diffableFiles: e.sinceCommit ? [{ relPath: path2.join("knowledge", e.kbFile), sinceCommit: e.sinceCommit, latestCommit: e.latestCommit }] : [],
+      sourceFile: path3.join("knowledge", e.kbFile),
+      diffableFiles: e.sinceCommit ? [{ relPath: path3.join("knowledge", e.kbFile), sinceCommit: e.sinceCommit, latestCommit: e.latestCommit }] : [],
       verdictQueueKey: e.kbFile,
       driftKind: "kb-drift",
       isUncommitted
@@ -6764,10 +7018,10 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     const body = this.sectionShell(
       parent,
       "standards-drift",
-      import_shared.SECTION_GUIDE["standards-drift"].label,
+      import_shared2.SECTION_GUIDE["standards-drift"].label,
       entries.length,
       void 0,
-      import_shared.SECTION_GUIDE["standards-drift"].what
+      import_shared2.SECTION_GUIDE["standards-drift"].what
     );
     this.renderBucketedBody(
       body,
@@ -6778,7 +7032,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     );
   }
   renderStandardsDriftRow(parent, e, i, isUncommitted = false) {
-    const id = (0, import_shared.stableEntryId)(`${e.mode}:${e.queueKey}`, i);
+    const id = (0, import_shared2.stableEntryId)(`${e.mode}:${e.queueKey}`, i);
     const sev = e.severity ?? null;
     const fileCount = Object.values(e.filesByParty).reduce((s, fs2) => s + fs2.length, 0);
     const firstFile = Object.values(e.filesByParty).flat()[0]?.path;
@@ -6956,17 +7210,17 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       const btn = banner.createEl("button", { text: "Re-run Phase 1" });
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
-        await navigator.clipboard.writeText((0, import_shared.rerunPhase1Prompt)(staleMode));
-        new import_obsidian.Notice("Instrumentality: Re-run Phase 1 prompt copied.");
+        await navigator.clipboard.writeText((0, import_shared2.rerunPhase1Prompt)(staleMode));
+        new import_obsidian2.Notice("Instrumentality: Re-run Phase 1 prompt copied.");
       });
     } : void 0;
     const body = this.sectionShell(
       parent,
       "conform-pending",
-      import_shared.SECTION_GUIDE["conform-pending"].label,
+      import_shared2.SECTION_GUIDE["conform-pending"].label,
       total,
       stale ? "baseline stale" : void 0,
-      import_shared.SECTION_GUIDE["conform-pending"].what,
+      import_shared2.SECTION_GUIDE["conform-pending"].what,
       renderStaleBanner
     );
     if (total === 0)
@@ -6978,7 +7232,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     }
   }
   renderConformRow(parent, p, r, i) {
-    const id = (0, import_shared.stableEntryId)(`${p.mode}:${r.file}:${r.standard_id}`, i);
+    const id = (0, import_shared2.stableEntryId)(`${p.mode}:${r.file}:${r.standard_id}`, i);
     const sev = p.staleAgainstHead ? "warn" : "info";
     const ruleHint = r.resolvedRules && r.resolvedRules.length > 0 ? ` \xB7 ${r.resolvedRules.map((rr) => rr.title ?? rr.id).join(", ")}` : "";
     const text = r.file + " " + r.standard_id + " " + r.rule_ids.join(" ") + " " + (r.resolvedRules?.map((rr) => rr.title ?? "").join(" ") ?? "");
@@ -7034,17 +7288,17 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     const body = this.sectionShell(
       parent,
       "promotions",
-      import_shared.SECTION_GUIDE.promotions.label,
+      import_shared2.SECTION_GUIDE.promotions.label,
       entries.length,
       void 0,
-      import_shared.SECTION_GUIDE.promotions.what
+      import_shared2.SECTION_GUIDE.promotions.what
     );
     if (entries.length === 0)
       return this.placeholder(body, "No pending promotions");
     entries.forEach((e, i) => this.renderPromotionRow(body, e, i));
   }
   renderPromotionRow(parent, e, i) {
-    const id = (0, import_shared.stableEntryId)(e.queueKey, i);
+    const id = (0, import_shared2.stableEntryId)(e.queueKey, i);
     const sev = e.severity ?? "info";
     const ruleHint = e.resolvedRule?.title ? ` \xB7 ${e.resolvedRule.title}` : "";
     const text = e.queueKey + " " + (e.standardId ?? "") + " " + e.files.map((f) => f.path).join(" ") + " " + (e.resolvedRule?.title ?? "");
@@ -7125,10 +7379,10 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     openLedger.addEventListener("click", async (ev) => {
       ev.stopPropagation();
       if (!this.kbRoot) {
-        new import_obsidian.Notice("Instrumentality: knowledge base not detected.");
+        new import_obsidian2.Notice("Instrumentality: knowledge base not detected.");
         return;
       }
-      const abs = path2.join(
+      const abs = path3.join(
         this.kbRoot,
         "knowledge",
         "sync",
@@ -7143,10 +7397,10 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     const body = this.sectionShell(
       parent,
       "lint",
-      import_shared.SECTION_GUIDE.lint.label,
+      import_shared2.SECTION_GUIDE.lint.label,
       v.length,
       ran ? void 0 : "unavailable",
-      import_shared.SECTION_GUIDE.lint.what
+      import_shared2.SECTION_GUIDE.lint.what
     );
     if (!ran) {
       return this.placeholder(
@@ -7159,10 +7413,10 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     v.forEach((violation, i) => this.renderLintRow(body, violation, i));
   }
   renderLintRow(parent, v, i) {
-    const id = (0, import_shared.stableEntryId)(`${v.file}:${v.message.slice(0, 40)}`, i);
+    const id = (0, import_shared2.stableEntryId)(`${v.file}:${v.message.slice(0, 40)}`, i);
     const text = v.file + " " + v.message;
     const summary = (h2) => {
-      h2.createSpan({ cls: "title", text: path2.basename(v.file) });
+      h2.createSpan({ cls: "title", text: path3.basename(v.file) });
       h2.createSpan({ cls: `badge sev-${v.severity}`, text: v.severity });
     };
     const meta = `${v.file} \u2014 ${v.message}`;
@@ -7197,10 +7451,10 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     const body = this.sectionShell(
       parent,
       "mapping-diagnostics",
-      import_shared.SECTION_GUIDE["mapping-diagnostics"].label,
+      import_shared2.SECTION_GUIDE["mapping-diagnostics"].label,
       findings.length,
       void 0,
-      import_shared.SECTION_GUIDE["mapping-diagnostics"].what
+      import_shared2.SECTION_GUIDE["mapping-diagnostics"].what
     );
     if (findings.length === 0) {
       return this.placeholder(body, "No mapping diagnostics \u2014 patterns are consistent with the current filesystem.");
@@ -7208,7 +7462,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     findings.forEach((f, i) => this.renderMappingDiagnosticsRow(body, f, i));
   }
   renderMappingDiagnosticsRow(parent, f, i) {
-    const id = (0, import_shared.stableEntryId)(`audit:${f.type}`, i);
+    const id = (0, import_shared2.stableEntryId)(`audit:${f.type}`, i);
     const text = JSON.stringify(f);
     const summary = (h2) => {
       switch (f.type) {
@@ -7310,7 +7564,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
           const prompt = buildAuditFixPrompt(f);
           try {
             await navigator.clipboard.writeText(prompt);
-            new import_obsidian.Notice("Audit fix prompt copied to clipboard.");
+            new import_obsidian2.Notice("Audit fix prompt copied to clipboard.");
           } catch {
             const ta = document.createElement("textarea");
             ta.value = prompt;
@@ -7318,9 +7572,9 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
             ta.select();
             try {
               document.execCommand("copy");
-              new import_obsidian.Notice("Audit fix prompt copied to clipboard.");
+              new import_obsidian2.Notice("Audit fix prompt copied to clipboard.");
             } catch {
-              new import_obsidian.Notice("Could not copy \u2014 clipboard API unavailable.");
+              new import_obsidian2.Notice("Could not copy \u2014 clipboard API unavailable.");
             } finally {
               document.body.removeChild(ta);
             }
@@ -7501,7 +7755,7 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
   // ── Submodule actions ──────────────────────────────────────────────────
   async handleSubmoduleSync(subPath, parentBranch) {
     if (!this.kbRoot) {
-      new import_obsidian.Notice("Instrumentality: knowledge base not detected.");
+      new import_obsidian2.Notice("Instrumentality: knowledge base not detected.");
       return;
     }
     const ok = await confirmModal(this.app, {
@@ -7511,26 +7765,26 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
     });
     if (!ok)
       return;
-    const result = await (0, import_shared.syncSubmoduleBranch)(this.kbRoot, subPath, parentBranch);
+    const result = await (0, import_shared2.syncSubmoduleBranch)(this.kbRoot, subPath, parentBranch);
     if (result.success) {
-      new import_obsidian.Notice(
+      new import_obsidian2.Notice(
         `Instrumentality: synced ${subPath} \u2192 ${parentBranch}.`
       );
       void this.refresh();
     } else {
-      new import_obsidian.Notice(
+      new import_obsidian2.Notice(
         `Instrumentality: sync failed: ${result.output || "unknown error"}`
       );
     }
   }
   async handleSubmodulePush() {
     if (!this.kbRoot) {
-      new import_obsidian.Notice("Instrumentality: knowledge base not detected.");
+      new import_obsidian2.Notice("Instrumentality: knowledge base not detected.");
       return;
     }
     const sub = this.status?.submodules;
     if (!sub) {
-      new import_obsidian.Notice("Instrumentality: no submodule data \u2014 refresh first.");
+      new import_obsidian2.Notice("Instrumentality: no submodule data \u2014 refresh first.");
       return;
     }
     if (sub.wouldBlock) {
@@ -7551,18 +7805,18 @@ var InstrumentalityView = class extends import_obsidian.ItemView {
       });
       return;
     }
-    const plan = (0, import_shared.buildPushPlan)(this.kbRoot, sub);
+    const plan = (0, import_shared2.buildPushPlan)(this.kbRoot, sub);
     let parentRemote;
     const parentStep = plan.find((s) => s.type === "parent");
-    if (parentStep?.branch && !await (0, import_shared.hasUpstream)(parentStep.fullPath)) {
-      const remotes = await (0, import_shared.listRemotes)(parentStep.fullPath);
+    if (parentStep?.branch && !await (0, import_shared2.hasUpstream)(parentStep.fullPath)) {
+      const remotes = await (0, import_shared2.listRemotes)(parentStep.fullPath);
       if (remotes.length === 0) {
-        new import_obsidian.Notice(
+        new import_obsidian2.Notice(
           "Instrumentality: parent repo has no git remote configured."
         );
         return;
       }
-      const defaultRemote = await (0, import_shared.detectPushRemote)(
+      const defaultRemote = await (0, import_shared2.detectPushRemote)(
         parentStep.fullPath,
         parentStep.branch,
         remotes
@@ -7607,16 +7861,16 @@ These affect all projects consuming the module.` : "";
     });
     if (!ok)
       return;
-    const result = await (0, import_shared.runPushPlan)(plan, { parentRemote });
+    const result = await (0, import_shared2.runPushPlan)(plan, { parentRemote });
     void this.refresh();
     if (result.allSuccess) {
-      new import_obsidian.Notice(
+      new import_obsidian2.Notice(
         `Instrumentality: pushed ${result.steps.length} step(s) successfully.`
       );
       return;
     }
     const failed = result.steps.find((s) => !s.success);
-    new import_obsidian.Notice(
+    new import_obsidian2.Notice(
       `Instrumentality: push failed at ${failed?.step.path}: ${failed?.output?.slice(0, 200) ?? "unknown error"}`
     );
   }
@@ -7628,14 +7882,14 @@ These affect all projects consuming the module.` : "";
   // handlePublishDrift exactly.
   async handlePublishDrift() {
     if (!this.kbRoot) {
-      new import_obsidian.Notice("Instrumentality: knowledge base not detected.");
+      new import_obsidian2.Notice("Instrumentality: knowledge base not detected.");
       return;
     }
-    const scriptDrift = path2.join(this.kbRoot, "knowledge", "_mcp", "tools", "drift.js");
-    const scriptConform = path2.join(this.kbRoot, "knowledge", "_mcp", "tools", "conform.js");
+    const scriptDrift = path3.join(this.kbRoot, "knowledge", "_mcp", "tools", "drift.js");
+    const scriptConform = path3.join(this.kbRoot, "knowledge", "_mcp", "tools", "conform.js");
     const fs2 = await import("fs");
     if (!fs2.existsSync(scriptDrift)) {
-      new import_obsidian.Notice(
+      new import_obsidian2.Notice(
         "Instrumentality: publish requires knowledge/_mcp/tools/drift.js (missing in this workspace)."
       );
       return;
@@ -7653,7 +7907,7 @@ These affect all projects consuming the module.` : "";
         await this.runNodeTool(scriptConform, this.kbRoot);
       }
     } catch (err) {
-      new import_obsidian.Notice(
+      new import_obsidian2.Notice(
         `Instrumentality: drift detection failed: ${err?.message ?? err}`
       );
       return;
@@ -7663,9 +7917,9 @@ These affect all projects consuming the module.` : "";
       "knowledge/sync/kb-drift.md",
       "knowledge/sync/standards-drift.md",
       "knowledge/sync/standards-backlog.md"
-    ].filter((f) => fs2.existsSync(path2.join(this.kbRoot, f)));
+    ].filter((f) => fs2.existsSync(path3.join(this.kbRoot, f)));
     if (queueFiles.length === 0) {
-      new import_obsidian.Notice(
+      new import_obsidian2.Notice(
         "Instrumentality: nothing to publish \u2014 no queue files present."
       );
       return;
@@ -7673,7 +7927,7 @@ These affect all projects consuming the module.` : "";
     try {
       await this.runGit(["add", "--", ...queueFiles], this.kbRoot);
     } catch (err) {
-      new import_obsidian.Notice(`Instrumentality: git add failed: ${err?.message ?? err}`);
+      new import_obsidian2.Notice(`Instrumentality: git add failed: ${err?.message ?? err}`);
       return;
     }
     let stagedNames = "";
@@ -7685,7 +7939,7 @@ These affect all projects consuming the module.` : "";
     } catch {
     }
     if (!stagedNames) {
-      new import_obsidian.Notice(
+      new import_obsidian2.Notice(
         "Instrumentality: nothing to publish \u2014 drift queue is already up to date."
       );
       void this.refresh();
@@ -7697,10 +7951,10 @@ These affect all projects consuming the module.` : "";
         this.kbRoot
       );
     } catch (err) {
-      new import_obsidian.Notice(`Instrumentality: git commit failed: ${err?.message ?? err}`);
+      new import_obsidian2.Notice(`Instrumentality: git commit failed: ${err?.message ?? err}`);
       return;
     }
-    new import_obsidian.Notice(
+    new import_obsidian2.Notice(
       `Instrumentality: published drift queue (${stagedNames.split("\n").length} file(s)). Push when ready.`
     );
     void this.refresh();
@@ -7751,14 +8005,14 @@ These affect all projects consuming the module.` : "";
     const detail = row.createDiv({ cls: "entry-detail" });
     opts.detail(detail);
     const actions = detail.createDiv({ cls: "entry-actions" });
-    const sendBtn = actions.createEl("button", { text: (0, import_shared.copyActionLabel)(opts.section), cls: "mod-cta" });
+    const sendBtn = actions.createEl("button", { text: (0, import_shared2.copyActionLabel)(opts.section), cls: "mod-cta" });
     sendBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const indexed2 = this.entryIndex.get(`${opts.section}:${opts.id}`);
       if (!indexed2)
         return;
       await navigator.clipboard.writeText(indexed2.prompt);
-      new import_obsidian.Notice(`Instrumentality: ${(0, import_shared.primaryActionLabel)(opts.section).toLowerCase()} prompt copied.`);
+      new import_obsidian2.Notice(`Instrumentality: ${(0, import_shared2.primaryActionLabel)(opts.section).toLowerCase()} prompt copied.`);
     });
     const openBtn = actions.createEl("button", { text: "Open Source" });
     openBtn.addEventListener("click", (e) => {
@@ -7782,13 +8036,13 @@ These affect all projects consuming the module.` : "";
         const refineBtn = actions.createEl("button", { text: "Refine with Agent" });
         refineBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
-          const prompt = (0, import_shared.getActionPrompt)({
+          const prompt = (0, import_shared2.getActionPrompt)({
             kind: "standard-author",
             entry: opts.authorEntry,
             mode: "refine"
           });
           await navigator.clipboard.writeText(prompt);
-          new import_obsidian.Notice("Instrumentality: refine prompt copied to clipboard.");
+          new import_obsidian2.Notice("Instrumentality: refine prompt copied to clipboard.");
         });
       }
     }
@@ -7990,7 +8244,7 @@ These affect all projects consuming the module.` : "";
             throw new Error("Acknowledge requires a drift kind.");
           if (!draft.reason || !draft.reason.trim())
             throw new Error("Acknowledge requires a reason.");
-          prompt = (0, import_shared.acknowledgedPrompt)({
+          prompt = (0, import_shared2.acknowledgedPrompt)({
             verdict: "acknowledged",
             kind: driftKind,
             entryKey: queueKey,
@@ -7999,14 +8253,14 @@ These affect all projects consuming the module.` : "";
           break;
         }
         case "applied":
-          prompt = (0, import_shared.appliedPrompt)({ verdict: "applied", queueKey });
+          prompt = (0, import_shared2.appliedPrompt)({ verdict: "applied", queueKey });
           break;
         case "exempted":
           if (!draft.filePaths || draft.filePaths.length === 0)
             throw new Error("Exempt requires at least one file.");
           if (!draft.reason || !draft.reason.trim())
             throw new Error("Exempt requires a reason.");
-          prompt = (0, import_shared.exemptedPrompt)({
+          prompt = (0, import_shared2.exemptedPrompt)({
             verdict: "exempted",
             queueKey,
             filePaths: draft.filePaths,
@@ -8016,7 +8270,7 @@ These affect all projects consuming the module.` : "";
         case "promoted":
           if (!draft.filePaths || draft.filePaths.length === 0)
             throw new Error("Promote requires at least one originating file.");
-          prompt = (0, import_shared.promotedPrompt)({
+          prompt = (0, import_shared2.promotedPrompt)({
             verdict: "promoted",
             queueKey,
             originatingFiles: draft.filePaths,
@@ -8026,7 +8280,7 @@ These affect all projects consuming the module.` : "";
         case "dismissed":
           if (!draft.reason || !draft.reason.trim())
             throw new Error("Dismiss requires a reason.");
-          prompt = (0, import_shared.dismissedPrompt)({
+          prompt = (0, import_shared2.dismissedPrompt)({
             verdict: "dismissed",
             queueKey,
             reason: draft.reason.trim()
@@ -8037,7 +8291,7 @@ These affect all projects consuming the module.` : "";
             throw new Error("Close promotion requires at least one file.");
           if (!draft.reason || !draft.reason.trim())
             throw new Error("Close promotion requires a reason.");
-          prompt = (0, import_shared.closedPromotionPrompt)({
+          prompt = (0, import_shared2.closedPromotionPrompt)({
             verdict: "closed_promotion",
             queueKey,
             filePaths: draft.filePaths,
@@ -8048,11 +8302,11 @@ These affect all projects consuming the module.` : "";
           throw new Error(`Unknown verdict: ${def.verdict}`);
       }
     } catch (err) {
-      new import_obsidian.Notice(`Instrumentality: ${err?.message ?? err}`);
+      new import_obsidian2.Notice(`Instrumentality: ${err?.message ?? err}`);
       return;
     }
     await navigator.clipboard.writeText(prompt);
-    new import_obsidian.Notice(`Instrumentality: ${def.verdict.replace(/_/g, " ")} prompt copied.`);
+    new import_obsidian2.Notice(`Instrumentality: ${def.verdict.replace(/_/g, " ")} prompt copied.`);
   }
   /**
    * Lazy git-diff disclosure. We don't run git on render — only when the
@@ -8095,9 +8349,9 @@ These affect all projects consuming the module.` : "";
     if (!this.kbRoot)
       return "(kb root not detected)";
     const range = f.latestCommit ? `${f.sinceCommit}^..${f.latestCommit}` : `${f.sinceCommit}^`;
-    const absPath = path2.isAbsolute(f.relPath) ? f.relPath : path2.join(this.kbRoot, f.relPath);
+    const absPath = path3.isAbsolute(f.relPath) ? f.relPath : path3.join(this.kbRoot, f.relPath);
     const repoRoot = await this.resolveRepoRoot(absPath);
-    const relInRepo = path2.relative(repoRoot, absPath);
+    const relInRepo = path3.relative(repoRoot, absPath);
     return new Promise((resolve2, reject) => {
       (0, import_node_child_process.execFile)(
         "git",
@@ -8118,7 +8372,7 @@ These affect all projects consuming the module.` : "";
       (0, import_node_child_process.execFile)(
         "git",
         ["rev-parse", "--show-toplevel"],
-        { cwd: path2.dirname(absPath) },
+        { cwd: path3.dirname(absPath) },
         (err, stdout) => {
           if (err) {
             reject(err);
@@ -8138,18 +8392,18 @@ These affect all projects consuming the module.` : "";
   }
   async openSource(sourceFile) {
     if (!sourceFile || !this.kbRoot) {
-      new import_obsidian.Notice("Instrumentality: no source file for this entry.");
+      new import_obsidian2.Notice("Instrumentality: no source file for this entry.");
       return;
     }
-    const abs = path2.isAbsolute(sourceFile) ? sourceFile : path2.join(this.kbRoot, sourceFile);
+    const abs = path3.isAbsolute(sourceFile) ? sourceFile : path3.join(this.kbRoot, sourceFile);
     await this.openPath(abs);
   }
   async openStandard(standardId) {
     if (!this.kbRoot)
       return;
-    const filePath = (0, import_shared.resolveStandardPath)(this.kbRoot, standardId);
+    const filePath = (0, import_shared2.resolveStandardPath)(this.kbRoot, standardId);
     if (!filePath) {
-      new import_obsidian.Notice(`Instrumentality: standard '${standardId}' not found.`);
+      new import_obsidian2.Notice(`Instrumentality: standard '${standardId}' not found.`);
       return;
     }
     await this.openPath(filePath);
@@ -8157,12 +8411,12 @@ These affect all projects consuming the module.` : "";
   async editRule(standardId, ruleId) {
     if (!this.kbRoot)
       return;
-    const filePath = (0, import_shared.resolveStandardPath)(this.kbRoot, standardId);
+    const filePath = (0, import_shared2.resolveStandardPath)(this.kbRoot, standardId);
     if (!filePath) {
-      new import_obsidian.Notice(`Instrumentality: standard '${standardId}' not found.`);
+      new import_obsidian2.Notice(`Instrumentality: standard '${standardId}' not found.`);
       return;
     }
-    const range = (0, import_shared.findRuleLineRange)(filePath, ruleId);
+    const range = (0, import_shared2.findRuleLineRange)(filePath, ruleId);
     await this.openPath(filePath, range?.start);
   }
   /**
@@ -8177,10 +8431,10 @@ These affect all projects consuming the module.` : "";
     const vault = this.app.vault;
     const adapter = vault.adapter;
     const basePath = adapter.basePath ?? adapter.getBasePath?.();
-    if (basePath && absPath.startsWith(basePath + path2.sep)) {
+    if (basePath && absPath.startsWith(basePath + path3.sep)) {
       const rel = absPath.slice(basePath.length + 1);
       const file = vault.getAbstractFileByPath(rel);
-      if (file instanceof import_obsidian.TFile) {
+      if (file instanceof import_obsidian2.TFile) {
         const leaf = this.app.workspace.getLeaf(false);
         await leaf.openFile(file);
         if (typeof line === "number" && line >= 0) {
@@ -8199,12 +8453,12 @@ These affect all projects consuming the module.` : "";
       if (electron?.shell?.openPath) {
         const result = await electron.shell.openPath(absPath);
         if (result)
-          new import_obsidian.Notice(`Instrumentality: cannot open ${absPath}: ${result}`);
+          new import_obsidian2.Notice(`Instrumentality: cannot open ${absPath}: ${result}`);
         return;
       }
     } catch {
     }
-    new import_obsidian.Notice(`Instrumentality: cannot open ${absPath} (not inside vault).`);
+    new import_obsidian2.Notice(`Instrumentality: cannot open ${absPath} (not inside vault).`);
   }
   // ── Filter (DOM-only, no re-render) ─────────────────────────────────────
   applyFilterDom() {
@@ -8360,252 +8614,6 @@ These affect all projects consuming the module.` : "";
     }
     summary.addEventListener("click", () => row.toggleClass("open", !row.hasClass("open")));
   }
-  // ── Index ──────────────────────────────────────────────────────────────
-  buildEntryIndex(status) {
-    const out = /* @__PURE__ */ new Map();
-    if (!status)
-      return out;
-    const push = (e) => {
-      const key = `${e.section}:${e.id}`;
-      out.set(key, { ...e, prompt: (0, import_shared.getActionPrompt)(e.promptInput) });
-    };
-    status.codeDrift.entries.forEach(
-      (e, i) => push({
-        section: "code-drift",
-        id: (0, import_shared.stableEntryId)(e.kbTarget, i),
-        promptInput: { kind: "code-drift", entry: e },
-        sourceFile: path2.join("knowledge", e.kbTarget)
-      })
-    );
-    status.kbDrift.entries.forEach(
-      (e, i) => push({
-        section: "kb-drift",
-        id: (0, import_shared.stableEntryId)(e.kbFile, i),
-        promptInput: { kind: "kb-drift", entry: e },
-        sourceFile: path2.join("knowledge", e.kbFile)
-      })
-    );
-    status.standardsDrift.entries.forEach(
-      (e, i) => push({
-        section: "standards-drift",
-        id: (0, import_shared.stableEntryId)(`${e.mode}:${e.queueKey}`, i),
-        promptInput: { kind: "standards-drift", entry: e },
-        sourceFile: Object.values(e.filesByParty).flat()[0]?.path,
-        standardId: e.standardId
-      })
-    );
-    for (const p of [status.conformPending.current, status.conformPending.aspirational]) {
-      if (!p || p.requested.length === 0)
-        continue;
-      p.requested.forEach(
-        (r, i) => push({
-          section: "conform-pending",
-          id: (0, import_shared.stableEntryId)(`${p.mode}:${r.file}:${r.standard_id}`, i),
-          promptInput: { kind: "conform", entry: p },
-          sourceFile: r.file,
-          standardId: r.standard_id
-        })
-      );
-    }
-    status.promotions.forEach(
-      (e, i) => push({
-        section: "promotions",
-        id: (0, import_shared.stableEntryId)(e.queueKey, i),
-        promptInput: { kind: "promotion", entry: e },
-        sourceFile: e.files[0]?.path,
-        standardId: e.standardId
-      })
-    );
-    status.lint.violations.forEach(
-      (v, i) => push({
-        section: "lint",
-        id: (0, import_shared.stableEntryId)(`${v.file}:${v.message.slice(0, 40)}`, i),
-        promptInput: { kind: "lint", entry: v },
-        sourceFile: v.file
-      })
-    );
-    return out;
-  }
-};
-function buildAuditFixPrompt(f) {
-  const header = `The knowledge/_rules.md \u2192 code_path_patterns audit surfaced this finding:
-
-`;
-  let body = "";
-  switch (f.type) {
-    case "orphan_pattern":
-      body = `Type: orphan_pattern
-Pattern: intent=${f.intent ?? "(none)"}, kb_target=${f.kb_target}
-Paths: ${JSON.stringify(f.paths)}
-${f.is_submodule_pattern ? "Submodule pattern.\n" : ""}
-The paths globs above match zero files in the current repo. Decide:
-1. If the code was moved/renamed, update the paths globs in knowledge/_rules.md to match the new location.
-2. If the pattern is obsolete, remove it from knowledge/_rules.md.
-3. If the paths are correct but the matching files were deleted, leave the pattern and acknowledge it's currently inactive.
-`;
-      break;
-    case "ghost_target":
-      body = `Type: ghost_target
-Hardcoded kb_target: ${f.resolved_target}
-
-The pattern targets a KB file that does not exist. Either:
-1. Create knowledge/${f.resolved_target} via kb_scaffold (if the concept is real but undocumented).
-2. Fix the kb_target in knowledge/_rules.md (if this was a typo).
-3. Remove the pattern entirely (if the concept is gone).
-`;
-      break;
-    case "multi_target_files":
-      body = `Type: multi_target_files
-File: ${f.file}
-Matched targets: ${JSON.stringify(f.matched_targets, null, 2)}
-
-This code file matches multiple patterns producing distinct kb_targets.
-Post-P0 fan-out: all targets receive drift entries on changes.
-Decide whether this is intentional (cross-cutting concern \u2192 keep) or accidental (overbroad pattern \u2192 narrow one of them in knowledge/_rules.md).
-`;
-      break;
-    case "convention_violation":
-      body = `Type: convention_violation
-Pattern: intent=${f.intent}, kb_target=${f.kb_target}
-Expected folder for intent "${f.intent}": ${f.expected_folder}
-
-The convention table expects intent "${f.intent}" to target ${f.expected_folder}* but this pattern targets a different folder.
-Either fix the kb_target in knowledge/_rules.md, or change the intent label if the mapping is intentional.
-`;
-      break;
-    case "unmapped_kb_group":
-      body = `Type: unmapped_kb_group
-Folder: ${f.folder}
-Count: ${f.count}
-Sample files: ${JSON.stringify(f.sample_files)}
-
-These KB files are not targeted by any code_path_patterns entry \u2014 code\u2192KB drift detection is silent for them.
-Add a pattern to knowledge/_rules.md \u2192 code_path_patterns. Typical shape:
-
-  - intent: <see knowledge/_mcp/presets/ for examples>
-    kb_target: "${f.folder}{name}.md"
-    paths:
-      - "<glob covering the related source files>"
-
-Grep the repo for files related to these KB documents and choose paths globs that catch them.
-`;
-      break;
-    case "fanout_with_hardcoded":
-      body = `Type: fanout_with_hardcoded
-Pattern kb_target (hardcoded): ${f.kb_target}
-Distinct file basenames: ${f.distinct_concepts}
-
-This hardcoded kb_target catches ${f.distinct_concepts} distinct file basenames \u2014 one KB file is documenting many concepts.
-Either switch the kb_target to a {name} template (so each concept gets its own KB file), or narrow the paths glob.
-`;
-      break;
-  }
-  return header + body;
-}
-function cssEscape(s) {
-  return s.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
-}
-function classifyBranch(e, parentBranch) {
-  if (!e.branch)
-    return "detached";
-  if (parentBranch && e.branch === parentBranch)
-    return "aligned";
-  return e.type === "owned" ? "blocking" : "advisory";
-}
-function confirmModal(app, opts) {
-  return new Promise((resolve2) => {
-    const modal = new ConfirmModal(app, opts, resolve2);
-    modal.open();
-  });
-}
-var ConfirmModal = class extends import_obsidian.Modal {
-  constructor(app, opts, done) {
-    super(app);
-    this.opts = opts;
-    this.done = done;
-  }
-  resolved = false;
-  onOpen() {
-    this.titleEl.setText(this.opts.title);
-    const detail = this.contentEl.createEl("pre", {
-      cls: "instrumentality-modal-detail",
-      text: this.opts.detail
-    });
-    detail.style.whiteSpace = "pre-wrap";
-    const actions = this.contentEl.createDiv({
-      cls: "instrumentality-modal-actions"
-    });
-    if (!this.opts.hideCancel) {
-      const cancel = actions.createEl("button", { text: "Cancel" });
-      cancel.addEventListener("click", () => {
-        this.resolved = true;
-        this.done(false);
-        this.close();
-      });
-    }
-    const ok = actions.createEl("button", {
-      cls: "mod-cta",
-      text: this.opts.confirmLabel
-    });
-    ok.addEventListener("click", () => {
-      this.resolved = true;
-      this.done(true);
-      this.close();
-    });
-  }
-  onClose() {
-    if (!this.resolved)
-      this.done(false);
-    this.contentEl.empty();
-  }
-};
-function selectModal(app, opts) {
-  return new Promise((resolve2) => {
-    const modal = new SelectModal(app, opts, resolve2);
-    modal.open();
-  });
-}
-var SelectModal = class extends import_obsidian.Modal {
-  constructor(app, opts, done) {
-    super(app);
-    this.opts = opts;
-    this.done = done;
-  }
-  resolved = false;
-  onOpen() {
-    this.titleEl.setText(this.opts.title);
-    if (this.opts.placeholder) {
-      this.contentEl.createDiv({
-        cls: "instrumentality-modal-placeholder",
-        text: this.opts.placeholder
-      });
-    }
-    const list = this.contentEl.createDiv({
-      cls: "instrumentality-modal-select-list"
-    });
-    for (const opt of this.opts.options) {
-      const btn = list.createEl("button", {
-        cls: "instrumentality-modal-select-item"
-      });
-      btn.createSpan({ text: opt.label });
-      if (opt.description) {
-        btn.createSpan({
-          cls: "instrumentality-modal-select-desc",
-          text: opt.description
-        });
-      }
-      btn.addEventListener("click", () => {
-        this.resolved = true;
-        this.done(opt.value);
-        this.close();
-      });
-    }
-  }
-  onClose() {
-    if (!this.resolved)
-      this.done(null);
-    this.contentEl.empty();
-  }
 };
 
 // src/main.ts
@@ -8617,12 +8625,12 @@ var ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill
   <circle cx="17.5" cy="15.5" r="1.7"/>
   <circle cx="12" cy="12" r="1.6"/>
 </svg>`;
-var InstrumentalityPlugin = class extends import_obsidian2.Plugin {
+var InstrumentalityPlugin = class extends import_obsidian3.Plugin {
   dismissedBanners = /* @__PURE__ */ new Set();
   openSection = void 0;
   submodulesCollapsed = false;
   async onload() {
-    (0, import_obsidian2.addIcon)(ICON_ID, ICON_SVG);
+    (0, import_obsidian3.addIcon)(ICON_ID, ICON_SVG);
     const data = await this.loadData();
     if (data && Array.isArray(data.dismissedBanners)) {
       this.dismissedBanners = new Set(data.dismissedBanners);
@@ -8662,7 +8670,7 @@ var InstrumentalityPlugin = class extends import_obsidian2.Plugin {
       }
     });
     const handleVaultEvent = (file) => {
-      if (!(file instanceof import_obsidian2.TFile))
+      if (!(file instanceof import_obsidian3.TFile))
         return;
       if (file.extension !== "md")
         return;
@@ -8722,7 +8730,7 @@ var InstrumentalityPlugin = class extends import_obsidian2.Plugin {
     const basePath = adapter.basePath ?? adapter.getBasePath?.();
     if (!basePath)
       return null;
-    return (0, import_shared2.findKbRoot)([basePath]);
+    return (0, import_shared3.findKbRoot)([basePath]);
   }
 };
 //# sourceMappingURL=main.js.map
