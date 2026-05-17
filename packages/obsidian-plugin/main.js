@@ -8004,46 +8004,49 @@ These affect all projects consuming the module.` : "";
     summary.createDiv({ cls: "entry-meta", text: opts.meta });
     const detail = row.createDiv({ cls: "entry-detail" });
     opts.detail(detail);
-    const actions = detail.createDiv({ cls: "entry-actions" });
-    const sendBtn = actions.createEl("button", { text: (0, import_shared2.copyActionLabel)(opts.section), cls: "mod-cta" });
-    sendBtn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const indexed2 = this.entryIndex.get(`${opts.section}:${opts.id}`);
-      if (!indexed2)
-        return;
-      await navigator.clipboard.writeText(indexed2.prompt);
-      new import_obsidian2.Notice(`Instrumentality: ${(0, import_shared2.primaryActionLabel)(opts.section).toLowerCase()} prompt copied.`);
-    });
-    const openBtn = actions.createEl("button", { text: "Open Source" });
-    openBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      void this.openSource(opts.sourceFile);
-    });
-    if (opts.standardId) {
-      const stdBtn = actions.createEl("button", { text: "Open Standard" });
-      stdBtn.addEventListener("click", (e) => {
+    const skipDefaultActions = opts.section === "mapping-diagnostics";
+    if (!skipDefaultActions) {
+      const actions = detail.createDiv({ cls: "entry-actions" });
+      const sendBtn = actions.createEl("button", { text: (0, import_shared2.copyActionLabel)(opts.section), cls: "mod-cta" });
+      sendBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
-        void this.openStandard(opts.standardId);
+        const indexed2 = this.entryIndex.get(`${opts.section}:${opts.id}`);
+        if (!indexed2)
+          return;
+        await navigator.clipboard.writeText(indexed2.prompt);
+        new import_obsidian2.Notice(`Instrumentality: ${(0, import_shared2.primaryActionLabel)(opts.section).toLowerCase()} prompt copied.`);
       });
-      if (opts.ruleId) {
-        const editBtn = actions.createEl("button", { text: "Edit Rule" });
-        editBtn.addEventListener("click", (e) => {
+      const openBtn = actions.createEl("button", { text: "Open Source" });
+      openBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        void this.openSource(opts.sourceFile);
+      });
+      if (opts.standardId) {
+        const stdBtn = actions.createEl("button", { text: "Open Standard" });
+        stdBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          void this.editRule(opts.standardId, opts.ruleId);
+          void this.openStandard(opts.standardId);
         });
-      }
-      if (opts.authorEntry) {
-        const refineBtn = actions.createEl("button", { text: "Refine with Agent" });
-        refineBtn.addEventListener("click", async (e) => {
-          e.stopPropagation();
-          const prompt = (0, import_shared2.getActionPrompt)({
-            kind: "standard-author",
-            entry: opts.authorEntry,
-            mode: "refine"
+        if (opts.ruleId) {
+          const editBtn = actions.createEl("button", { text: "Edit Rule" });
+          editBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            void this.editRule(opts.standardId, opts.ruleId);
           });
-          await navigator.clipboard.writeText(prompt);
-          new import_obsidian2.Notice("Instrumentality: refine prompt copied to clipboard.");
-        });
+        }
+        if (opts.authorEntry) {
+          const refineBtn = actions.createEl("button", { text: "Refine with Agent" });
+          refineBtn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            const prompt = (0, import_shared2.getActionPrompt)({
+              kind: "standard-author",
+              entry: opts.authorEntry,
+              mode: "refine"
+            });
+            await navigator.clipboard.writeText(prompt);
+            new import_obsidian2.Notice("Instrumentality: refine prompt copied to clipboard.");
+          });
+        }
       }
     }
     const verdictDefs = opts.isUncommitted ? void 0 : VERDICTS_BY_SECTION[opts.section];

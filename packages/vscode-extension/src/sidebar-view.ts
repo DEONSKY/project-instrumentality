@@ -171,6 +171,12 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
       case "publishDrift":
         await this.cb.onAction({ type: "publishDrift" });
         return;
+      case "copyAuditPrompt": {
+        const prompt = typeof msg.prompt === "string" ? msg.prompt : "";
+        if (!prompt) return;
+        await this.cb.onAction({ type: "copyAuditPrompt", prompt });
+        return;
+      }
       case "reveal":
         // Sidebar selection — no separate target to reveal to. The host can
         // still mirror the highlight to the dashboard via highlightEntry().

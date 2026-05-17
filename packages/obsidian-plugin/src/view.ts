@@ -2142,6 +2142,14 @@ export class InstrumentalityView extends ItemView {
     const detail = row.createDiv({ cls: "entry-detail" });
     opts.detail(detail);
 
+    // Mapping-diagnostics findings aren't queue entries — they have no
+    // entryIndex prompt and no source file. The detail callback supplies its
+    // own "Copy fix prompt" button via buildAuditFixPrompt; skip the default
+    // sendBtn/openBtn so the user doesn't get a prominent mod-cta button
+    // that silently misses entryIndex.
+    const skipDefaultActions = opts.section === "mapping-diagnostics";
+
+    if (!skipDefaultActions) {
     const actions = detail.createDiv({ cls: "entry-actions" });
     const sendBtn = actions.createEl("button", { text: copyActionLabel(opts.section), cls: "mod-cta" });
     sendBtn.addEventListener("click", async (e) => {
@@ -2182,6 +2190,7 @@ export class InstrumentalityView extends ItemView {
           new Notice("Instrumentality: refine prompt copied to clipboard.");
         });
       }
+    }
     }
 
     // Verdict picker — only for sections in VERDICTS_BY_SECTION. Mirrors
