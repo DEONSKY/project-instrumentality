@@ -92,36 +92,6 @@ test('auditPatterns flags ghost_target only for hardcoded targets pointing at mi
   assert.equal(ghosts[0].resolved_target, 'standards/code/missing.md')
 })
 
-// ── auditPatterns: multi_target_files ───────────────────────────────────────
-
-test('auditPatterns flags multi_target_files when one source file produces multiple distinct kb_targets', () => {
-  const { findings } = auditPatterns({
-    patterns: [
-      { intent: 'feature', kb_target: 'features/{name}.md', paths: ['src/auth/**'] },
-      { intent: 'component', kb_target: 'components/{name}.md', paths: ['src/**Form*'] },
-    ],
-    sourceFiles: ['src/auth/LoginForm.tsx'],
-    kbFiles: [],
-  })
-  const multi = findings.find(f => f.type === 'multi_target_files')
-  assert.ok(multi)
-  assert.equal(multi.matched_targets.length, 2)
-})
-
-test('auditPatterns does not flag multi_target_files when patterns resolve to the same kb_target', () => {
-  const { findings } = auditPatterns({
-    patterns: [
-      // Two patterns whose path globs both match and whose template resolves
-      // to the same target — Set dedup gives 1 target, no finding.
-      { intent: 'form', kb_target: 'features/{name}.md', paths: ['src/**Form*'] },
-      { intent: 'feature', kb_target: 'features/{name}.md', paths: ['src/auth/**'] },
-    ],
-    sourceFiles: ['src/auth/LoginForm.tsx'],
-    kbFiles: [],
-  })
-  assert.equal(findings.filter(f => f.type === 'multi_target_files').length, 0)
-})
-
 // ── auditPatterns: convention_violation ─────────────────────────────────────
 
 test('auditPatterns flags convention_violation when intent does not match folder', () => {

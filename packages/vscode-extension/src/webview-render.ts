@@ -1797,7 +1797,7 @@ function renderPatternAuditCard(status: StatusSummary): string {
 
   return `<section class="section-card" data-section="mapping-diagnostics">
     <header><h2>Mapping diagnostics <span class="count">${audit.findings.length}</span></h2>
-      <div class="hint">code_path_patterns vs current filesystem — surfaces orphan paths, ghost targets, multi-target files, convention violations, and unmapped KB folders.</div>
+      <div class="hint">code_path_patterns vs current filesystem — surfaces orphan paths, ghost targets, convention violations, and unmapped KB folders.</div>
     </header>
     <div class="body">
       <div class="audit-summary">${summaryChips}</div>
@@ -1817,10 +1817,6 @@ function patternAuditFindingRow(f: NonNullable<StatusSummary["patternAudit"]>["f
     case "ghost_target":
       title = `Ghost target: <code>${escapeHtml(f.resolved_target)}</code>`;
       body = `<div class="meta">kb_target points at a KB file that does not exist. Either create the KB file or fix the pattern in <code>_rules.md</code>.</div>`;
-      break;
-    case "multi_target_files":
-      title = `Multi-target file: <code>${escapeHtml(f.file)}</code>`;
-      body = `<div class="meta">Matches ${f.matched_targets.length} patterns, producing drift entries for:</div><ul>${f.matched_targets.map(t => `<li><code>${escapeHtml(t.kb_target)}</code></li>`).join("")}</ul><div class="meta">If unintentional, narrow one of the patterns. Post-P0 fan-out: all targets get entries.</div>`;
       break;
     case "convention_violation":
       title = `Convention violation: <code>${escapeHtml(f.kb_target)}</code>`;
@@ -1878,14 +1874,6 @@ function buildAuditFixPrompt(f: NonNullable<StatusSummary["patternAudit"]>["find
         + `1. Create knowledge/${f.resolved_target} via kb_scaffold (if the concept is real but undocumented).\n`
         + `2. Fix the kb_target in knowledge/_rules.md (if this was a typo).\n`
         + `3. Remove the pattern entirely (if the concept is gone).\n`
-      break;
-    case "multi_target_files":
-      body = `Type: multi_target_files\n`
-        + `File: ${f.file}\n`
-        + `Matched targets: ${JSON.stringify(f.matched_targets, null, 2)}\n`
-        + `\nThis code file matches multiple patterns producing distinct kb_targets.\n`
-        + `Post-P0 fan-out: all targets receive drift entries on changes.\n`
-        + `Decide whether this is intentional (cross-cutting concern → keep) or accidental (overbroad pattern → narrow one of them in knowledge/_rules.md).\n`
       break;
     case "convention_violation":
       body = `Type: convention_violation\n`

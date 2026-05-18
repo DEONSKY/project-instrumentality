@@ -1541,11 +1541,6 @@ export class InstrumentalityView extends ItemView {
           h2.createSpan({ cls: "title", text: "Ghost target: " });
           h2.createEl("code", { text: f.resolved_target });
           break;
-        case "multi_target_files":
-          h2.createSpan({ cls: "title", text: "Multi-target file: " });
-          h2.createEl("code", { text: f.file });
-          h2.createSpan({ cls: "badge sev-info", text: `${f.matched_targets.length} targets` });
-          break;
         case "convention_violation":
           h2.createSpan({ cls: "title", text: "Convention violation: " });
           h2.createEl("code", { text: f.kb_target });
@@ -1576,15 +1571,6 @@ export class InstrumentalityView extends ItemView {
             text: "kb_target points at a KB file that does not exist. Either create the KB file or fix the pattern in _rules.md.",
           });
           break;
-        case "multi_target_files": {
-          div.createDiv({ text: `Matches ${f.matched_targets.length} patterns — fan-out drift entries:` });
-          const ul = div.createEl("ul");
-          for (const t of f.matched_targets) ul.createEl("li").createEl("code", { text: t.kb_target });
-          div.createDiv({
-            text: "If unintentional, narrow one of the patterns. Post-P0 all matching targets get entries.",
-          });
-          break;
-        }
         case "convention_violation":
           div.createDiv({
             text: `intent "${f.intent}" conventionally targets ${f.expected_folder} but this pattern points elsewhere.`,

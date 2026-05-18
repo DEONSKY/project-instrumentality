@@ -315,11 +315,6 @@ export type PatternAuditFinding =
       reason: "kb_file_missing";
     }
   | {
-      type: "multi_target_files";
-      file: string;
-      matched_targets: { pattern_index: number; kb_target: string }[];
-    }
-  | {
       type: "convention_violation";
       pattern_index: number;
       intent: string;

@@ -151,14 +151,6 @@ export function buildAuditFixPrompt(f: AuditFinding): string {
         + `2. Fix the kb_target in knowledge/_rules.md (if this was a typo).\n`
         + `3. Remove the pattern entirely (if the concept is gone).\n`;
       break;
-    case "multi_target_files":
-      body = `Type: multi_target_files\n`
-        + `File: ${f.file}\n`
-        + `Matched targets: ${JSON.stringify(f.matched_targets, null, 2)}\n`
-        + `\nThis code file matches multiple patterns producing distinct kb_targets.\n`
-        + `Post-P0 fan-out: all targets receive drift entries on changes.\n`
-        + `Decide whether this is intentional (cross-cutting concern → keep) or accidental (overbroad pattern → narrow one of them in knowledge/_rules.md).\n`;
-      break;
     case "convention_violation":
       body = `Type: convention_violation\n`
         + `Pattern: intent=${f.intent}, kb_target=${f.kb_target}\n`

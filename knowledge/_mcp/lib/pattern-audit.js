@@ -1,7 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
-const { globMatch, matchAllPatterns, resolveKbTarget } = require('./patterns')
+const { globMatch } = require('./patterns')
 const { canonicalize } = require('./promotion-ledger')
 
 // Intent → expected folder convention. Hardcoded from the bundled presets.
@@ -42,19 +42,22 @@ const SOURCE_EXTENSIONS = new Set([
   '.py', '.rb', '.go', '.java', '.kt', '.kts',
   '.rs', '.cs', '.swift', '.dart',
   '.php', '.ex', '.exs', '.clj', '.scala',
+  '.yml', '.yaml', '.properties', '.xml',
 ])
 
 const CONFIG_FILES = new Set([
   'package.json', 'tsconfig.json', 'go.mod', 'pom.xml',
   'build.gradle', 'build.gradle.kts', 'requirements.txt',
   'pyproject.toml', 'Gemfile', 'Cargo.toml',
+  'application.properties', 'application.yml', 'application.yaml',
+  'checkstyle.xml', '.editorconfig',
 ])
 
 function isSourceFile(filename) {
   return SOURCE_EXTENSIONS.has(path.extname(filename).toLowerCase()) || CONFIG_FILES.has(filename)
 }
 
-function collectSourceFiles(rootDir, maxDepth = 6) {
+function collectSourceFiles(rootDir, maxDepth = 15) {
   const files = []
   function walk(dir, depth) {
     if (depth > maxDepth) return
@@ -193,27 +196,7 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
     }
   }
 
-  // 3. Multi-target files: one source file matches 2+ patterns producing 2+
-  //    distinct kb_targets. With P0's fan-out this is no longer lossy (all
-  //    targets get drift entries) — surfaced so users can narrow patterns if
-  //    the fan-out is unintentional.
-  for (const f of sourceFiles) {
-    const matched = matchAllPatterns(f, patterns)
-    if (matched.length < 2) continue
-    const targets = []
-    const seen = new Set()
-    for (const m of matched) {
-      const t = resolveKbTarget(m, f)
-      if (seen.has(t)) continue
-      seen.add(t)
-      targets.push({ pattern_index: patterns.indexOf(m), kb_target: t })
-    }
-    if (targets.length >= 2) {
-      findings.push({ type: 'multi_target_files', file: f, matched_targets: targets, source: '_rules.md' })
-    }
-  }
-
-  // 4. Convention violations: intent → folder mismatch.
+  // 3. Convention violations: intent → folder mismatch.
   for (let i = 0; i < patterns.length; i++) {
     const p = patterns[i]
     if (!p.intent || !p.kb_target) continue
@@ -231,7 +214,7 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
     }
   }
 
-  // 5. Unmapped KB groups: KB files that no pattern targets, aggregated by
+  // 4. Unmapped KB groups: KB files that no pattern targets, aggregated by
   //    folder. One finding per folder, with count + 3-5 samples.
   const unmappedByFolder = new Map()
   for (const kb of kbFiles) {
@@ -261,7 +244,7 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
     })
   }
 
-  // 6. Fan-out with hardcoded target: a pattern with no {name} template that
+  // 5. Fan-out with hardcoded target: a pattern with no {name} template that
   //    catches files of many distinct names — likely overbroad, since one
   //    KB file is supposed to document one concept.
   for (let i = 0; i < patterns.length; i++) {
