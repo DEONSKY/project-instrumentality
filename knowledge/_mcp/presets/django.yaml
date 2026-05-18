@@ -3,14 +3,14 @@
 
 code_path_patterns:
   - intent: validation
-    kb_target: "validation/common.md"
+    kb_target: "data/validation/common.md"
     paths:
       - "*/forms.py"
       - "*/serializers.py"
       - "*/validators.py"
 
   - intent: api-contract
-    kb_target: "features/{name}.api.md"
+    kb_target: "specs/features/{name}.api.md"
     paths:
       - "*/views.py"
       - "*/viewsets.py"
@@ -30,7 +30,7 @@ code_path_patterns:
       case: kebab
 
   - intent: service-logic
-    kb_target: "flows/{name}.md"
+    kb_target: "specs/flows/{name}.md"
     paths:
       - "*/services.py"
       - "*/services/*.py"
@@ -38,14 +38,14 @@ code_path_patterns:
       - "*/tasks/*.py"
 
   - intent: route-guard
-    kb_target: "flows/{name}.guards.md"
+    kb_target: "specs/flows/{name}.guards.md"
     paths:
       - "*/permissions.py"
       - "*/middleware.py"
       - "*/decorators.py"
 
   - intent: form
-    kb_target: "features/{name}.md"
+    kb_target: "specs/features/{name}.md"
     paths:
       - "*/forms.py"
     name_extraction:

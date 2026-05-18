@@ -22,17 +22,14 @@ function getDefaultRules() {
       group_trigger: 5,
       group_warn: 8,
       overrides: {
-        features: 3,
-        flows: 2,
-        ui: 2,
+        specs: 4,
+        data: 3,
         integrations: 2,
-        data: 1,
-        validation: 1,
         decisions: 1,
         standards: 2,
         sync: 1
       },
-      never_group: ['data', 'validation', 'decisions', 'sync']
+      never_group: ['data', 'decisions', 'sync']
     },
     secret_patterns: [
       'sk_live_',
@@ -43,17 +40,17 @@ function getDefaultRules() {
       'secret:'
     ],
     cross_app_refs: {
-      always_shared: ['data', 'validation', 'integrations', 'decisions', 'standards']
+      always_shared: ['data', 'integrations', 'decisions', 'standards']
     },
     code_path_patterns: [
       {
         intent: 'validation',
-        kb_target: 'validation/common.md',
+        kb_target: 'data/validation/common.md',
         paths: ['src/validators/**']
       },
       {
         intent: 'form',
-        kb_target: 'features/{name}.md',
+        kb_target: 'specs/features/{name}.md',
         paths: ['src/components/**Form*'],
         name_extraction: { strip_suffix: ['Form', 'Screen', 'Page', 'View', 'Container'], case: 'kebab' }
       },
@@ -65,12 +62,12 @@ function getDefaultRules() {
       },
       {
         intent: 'route-guard',
-        kb_target: 'flows/{name}.guards.md',
+        kb_target: 'specs/flows/{name}.guards.md',
         paths: ['src/routes/**']
       },
       {
         intent: 'api-contract',
-        kb_target: 'features/{name}.api.md',
+        kb_target: 'specs/features/{name}.api.md',
         paths: ['src/api/**']
       },
       {
@@ -80,7 +77,7 @@ function getDefaultRules() {
       },
       {
         intent: 'service-logic',
-        kb_target: 'flows/{name}.md',
+        kb_target: 'specs/flows/{name}.md',
         paths: ['src/services/**']
       }
     ],

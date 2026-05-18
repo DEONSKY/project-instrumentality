@@ -4,7 +4,7 @@
 
 code_path_patterns:
   - intent: validation
-    kb_target: "validation/common.md"
+    kb_target: "data/validation/common.md"
     paths:
       - "internal/**/validator/**"
       - "internal/**/validation/**"
@@ -13,7 +13,7 @@ code_path_patterns:
       - "internal/**/*_validation.go"
 
   - intent: api-contract
-    kb_target: "features/{name}.api.md"
+    kb_target: "specs/features/{name}.api.md"
     paths:
       - "internal/**/handler/**"
       - "internal/**/handlers/**"
@@ -45,7 +45,7 @@ code_path_patterns:
       - "migrations/**"
 
   - intent: service-logic
-    kb_target: "flows/{name}.md"
+    kb_target: "specs/flows/{name}.md"
     paths:
       - "internal/**/service/**"
       - "internal/**/services/**"
@@ -57,7 +57,7 @@ code_path_patterns:
       case: kebab
 
   - intent: route-guard
-    kb_target: "flows/{name}.guards.md"
+    kb_target: "specs/flows/{name}.guards.md"
     paths:
       - "internal/**/middleware/**"
       - "internal/**/*_middleware.go"
@@ -89,7 +89,7 @@ code_path_patterns:
       case: kebab
 
   - intent: event-messaging
-    kb_target: "flows/{name}.events.md"
+    kb_target: "specs/flows/{name}.events.md"
     paths:
       - "internal/**/consumer/**"
       - "internal/**/*_consumer.go"

@@ -3,14 +3,14 @@
 
 code_path_patterns:
   - intent: validation
-    kb_target: "validation/common.md"
+    kb_target: "data/validation/common.md"
     paths:
       - "src/validators/**"
       - "src/utils/validators/**"
       - "src/schemas/**"
 
   - intent: form
-    kb_target: "features/{name}.md"
+    kb_target: "specs/features/{name}.md"
     paths:
       - "src/screens/**Form*"
       - "src/components/**Form*"
@@ -20,7 +20,7 @@ code_path_patterns:
       case: kebab
 
   - intent: api-contract
-    kb_target: "features/{name}.api.md"
+    kb_target: "specs/features/{name}.api.md"
     paths:
       - "src/api/**"
       - "src/services/api/**"
@@ -36,13 +36,13 @@ code_path_patterns:
       - "src/database/**"
 
   - intent: service-logic
-    kb_target: "flows/{name}.md"
+    kb_target: "specs/flows/{name}.md"
     paths:
       - "src/services/**"
       - "src/features/**/services/**"
 
   - intent: route-guard
-    kb_target: "flows/{name}.guards.md"
+    kb_target: "specs/flows/{name}.guards.md"
     paths:
       - "src/navigation/**"
 

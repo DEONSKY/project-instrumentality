@@ -25,7 +25,7 @@
         "type": "orphan_pattern",
         "pattern_index": 0,
         "intent": "validation",
-        "kb_target": "validation/common.md",
+        "kb_target": "data/validation/common.md",
         "paths": [
           "ms-linestop-admin-be/web-app/src/main/java/**/*Request.java",
           "ms-linestop-admin-be/web-app/src/main/java/**/*RequestDto.java",
@@ -40,7 +40,7 @@
         "type": "orphan_pattern",
         "pattern_index": 3,
         "intent": "api-contract",
-        "kb_target": "features/{name}.api.md",
+        "kb_target": "specs/features/{name}.api.md",
         "paths": [
           "ms-linestop-admin-be/web-app/src/main/java/**/*Controller.java",
           "ms-linestop-admin-be/web-app/src/main/java/**/*RestController.java",
@@ -71,7 +71,7 @@
         "type": "orphan_pattern",
         "pattern_index": 5,
         "intent": "service-logic",
-        "kb_target": "flows/{name}.md",
+        "kb_target": "specs/flows/{name}.md",
         "paths": [
           "ms-linestop-admin-be/web-app/src/main/java/**/*Service.java",
           "ms-linestop-admin-be/web-app/src/main/java/**/*ServiceImpl.java",
@@ -84,7 +84,7 @@
         "type": "orphan_pattern",
         "pattern_index": 6,
         "intent": "route-guard",
-        "kb_target": "flows/{name}.guards.md",
+        "kb_target": "specs/flows/{name}.guards.md",
         "paths": [
           "ms-linestop-admin-be/web-app/src/main/java/**/*Filter.java",
           "ms-linestop-admin-be/web-app/src/main/java/**/*Interceptor.java",
@@ -114,7 +114,7 @@
         "type": "orphan_pattern",
         "pattern_index": 8,
         "intent": "event-messaging",
-        "kb_target": "flows/{name}.events.md",
+        "kb_target": "specs/flows/{name}.events.md",
         "paths": [
           "ms-linestop-admin-be/web-app/src/main/java/**/*Consumer.java",
           "ms-linestop-admin-be/web-app/src/main/java/**/*Producer.java",
@@ -159,7 +159,7 @@
         "type": "orphan_pattern",
         "pattern_index": 12,
         "intent": "validation",
-        "kb_target": "validation/common.md",
+        "kb_target": "data/validation/common.md",
         "paths": [
           "ms-linestop-admin-fe/src/main/java/**/*Request.java",
           "ms-linestop-admin-fe/src/main/java/**/*RequestDto.java",
@@ -174,7 +174,7 @@
         "type": "orphan_pattern",
         "pattern_index": 13,
         "intent": "api-contract",
-        "kb_target": "features/{name}.api.md",
+        "kb_target": "specs/features/{name}.api.md",
         "paths": [
           "ms-linestop-admin-fe/src/main/java/**/*Controller.java",
           "ms-linestop-admin-fe/src/main/java/**/*RestController.java",
@@ -205,7 +205,7 @@
         "type": "orphan_pattern",
         "pattern_index": 15,
         "intent": "service-logic",
-        "kb_target": "flows/{name}.md",
+        "kb_target": "specs/flows/{name}.md",
         "paths": [
           "ms-linestop-admin-fe/src/main/java/**/*Service.java",
           "ms-linestop-admin-fe/src/main/java/**/*ServiceImpl.java",
@@ -218,7 +218,7 @@
         "type": "orphan_pattern",
         "pattern_index": 16,
         "intent": "route-guard",
-        "kb_target": "flows/{name}.guards.md",
+        "kb_target": "specs/flows/{name}.guards.md",
         "paths": [
           "ms-linestop-admin-fe/src/main/java/**/*Filter.java",
           "ms-linestop-admin-fe/src/main/java/**/*Interceptor.java",
@@ -248,7 +248,7 @@
         "type": "orphan_pattern",
         "pattern_index": 18,
         "intent": "event-messaging",
-        "kb_target": "flows/{name}.events.md",
+        "kb_target": "specs/flows/{name}.events.md",
         "paths": [
           "ms-linestop-admin-fe/src/main/java/**/*Consumer.java",
           "ms-linestop-admin-fe/src/main/java/**/*Producer.java",
@@ -293,7 +293,7 @@
         "type": "orphan_pattern",
         "pattern_index": 22,
         "intent": "validation",
-        "kb_target": "validation/common.md",
+        "kb_target": "data/validation/common.md",
         "paths": [
           "ms-linestop-api-be/src/main/java/**/*Request.java",
           "ms-linestop-api-be/src/main/java/**/*RequestDto.java",
@@ -308,7 +308,7 @@
         "type": "orphan_pattern",
         "pattern_index": 23,
         "intent": "api-contract",
-        "kb_target": "features/{name}.api.md",
+        "kb_target": "specs/features/{name}.api.md",
         "paths": [
           "ms-linestop-api-be/src/main/java/**/*Controller.java",
           "ms-linestop-api-be/src/main/java/**/*RestController.java",
@@ -339,7 +339,7 @@
         "type": "orphan_pattern",
         "pattern_index": 25,
         "intent": "service-logic",
-        "kb_target": "flows/{name}.md",
+        "kb_target": "specs/flows/{name}.md",
         "paths": [
           "ms-linestop-api-be/src/main/java/**/*Service.java",
           "ms-linestop-api-be/src/main/java/**/*ServiceImpl.java",
@@ -352,7 +352,7 @@
         "type": "orphan_pattern",
         "pattern_index": 26,
         "intent": "route-guard",
-        "kb_target": "flows/{name}.guards.md",
+        "kb_target": "specs/flows/{name}.guards.md",
         "paths": [
           "ms-linestop-api-be/src/main/java/**/*Filter.java",
           "ms-linestop-api-be/src/main/java/**/*Interceptor.java",
@@ -382,7 +382,7 @@
         "type": "orphan_pattern",
         "pattern_index": 28,
         "intent": "event-messaging",
-        "kb_target": "flows/{name}.events.md",
+        "kb_target": "specs/flows/{name}.events.md",
         "paths": [
           "ms-linestop-api-be/src/main/java/**/*Consumer.java",
           "ms-linestop-api-be/src/main/java/**/*Producer.java",
@@ -427,7 +427,7 @@
         "type": "orphan_pattern",
         "pattern_index": 32,
         "intent": "validation",
-        "kb_target": "validation/common.md",
+        "kb_target": "data/validation/common.md",
         "paths": [
           "ms-linestop-serviceclient/src/main/java/**/*Request.java",
           "ms-linestop-serviceclient/src/main/java/**/*RequestDto.java",
@@ -442,7 +442,7 @@
         "type": "orphan_pattern",
         "pattern_index": 33,
         "intent": "api-contract",
-        "kb_target": "features/{name}.api.md",
+        "kb_target": "specs/features/{name}.api.md",
         "paths": [
           "ms-linestop-serviceclient/src/main/java/**/*Controller.java",
           "ms-linestop-serviceclient/src/main/java/**/*RestController.java",
@@ -473,7 +473,7 @@
         "type": "orphan_pattern",
         "pattern_index": 35,
         "intent": "service-logic",
-        "kb_target": "flows/{name}.md",
+        "kb_target": "specs/flows/{name}.md",
         "paths": [
           "ms-linestop-serviceclient/src/main/java/**/*Service.java",
           "ms-linestop-serviceclient/src/main/java/**/*ServiceImpl.java",
@@ -486,7 +486,7 @@
         "type": "orphan_pattern",
         "pattern_index": 36,
         "intent": "route-guard",
-        "kb_target": "flows/{name}.guards.md",
+        "kb_target": "specs/flows/{name}.guards.md",
         "paths": [
           "ms-linestop-serviceclient/src/main/java/**/*Filter.java",
           "ms-linestop-serviceclient/src/main/java/**/*Interceptor.java",
@@ -516,7 +516,7 @@
         "type": "orphan_pattern",
         "pattern_index": 38,
         "intent": "event-messaging",
-        "kb_target": "flows/{name}.events.md",
+        "kb_target": "specs/flows/{name}.events.md",
         "paths": [
           "ms-linestop-serviceclient/src/main/java/**/*Consumer.java",
           "ms-linestop-serviceclient/src/main/java/**/*Producer.java",
@@ -561,7 +561,7 @@
         "type": "orphan_pattern",
         "pattern_index": 42,
         "intent": "validation",
-        "kb_target": "validation/common.md",
+        "kb_target": "data/validation/common.md",
         "paths": [
           "ms-linestop-domain-be/src/main/java/**/*Request.java",
           "ms-linestop-domain-be/src/main/java/**/*RequestDto.java",
@@ -576,7 +576,7 @@
         "type": "orphan_pattern",
         "pattern_index": 43,
         "intent": "api-contract",
-        "kb_target": "features/{name}.api.md",
+        "kb_target": "specs/features/{name}.api.md",
         "paths": [
           "ms-linestop-domain-be/src/main/java/**/*Controller.java",
           "ms-linestop-domain-be/src/main/java/**/*RestController.java",
@@ -607,7 +607,7 @@
         "type": "orphan_pattern",
         "pattern_index": 45,
         "intent": "service-logic",
-        "kb_target": "flows/{name}.md",
+        "kb_target": "specs/flows/{name}.md",
         "paths": [
           "ms-linestop-domain-be/src/main/java/**/*Service.java",
           "ms-linestop-domain-be/src/main/java/**/*ServiceImpl.java",
@@ -620,7 +620,7 @@
         "type": "orphan_pattern",
         "pattern_index": 46,
         "intent": "route-guard",
-        "kb_target": "flows/{name}.guards.md",
+        "kb_target": "specs/flows/{name}.guards.md",
         "paths": [
           "ms-linestop-domain-be/src/main/java/**/*Filter.java",
           "ms-linestop-domain-be/src/main/java/**/*Interceptor.java",
@@ -650,7 +650,7 @@
         "type": "orphan_pattern",
         "pattern_index": 48,
         "intent": "event-messaging",
-        "kb_target": "flows/{name}.events.md",
+        "kb_target": "specs/flows/{name}.events.md",
         "paths": [
           "ms-linestop-domain-be/src/main/java/**/*Consumer.java",
           "ms-linestop-domain-be/src/main/java/**/*Producer.java",
@@ -695,7 +695,7 @@
         "type": "orphan_pattern",
         "pattern_index": 52,
         "intent": "validation",
-        "kb_target": "validation/common.md",
+        "kb_target": "data/validation/common.md",
         "paths": [
           "ms-measure-common-be/src/main/java/**/*Request.java",
           "ms-measure-common-be/src/main/java/**/*RequestDto.java",
@@ -710,7 +710,7 @@
         "type": "orphan_pattern",
         "pattern_index": 53,
         "intent": "api-contract",
-        "kb_target": "features/{name}.api.md",
+        "kb_target": "specs/features/{name}.api.md",
         "paths": [
           "ms-measure-common-be/src/main/java/**/*Controller.java",
           "ms-measure-common-be/src/main/java/**/*RestController.java",
@@ -741,7 +741,7 @@
         "type": "orphan_pattern",
         "pattern_index": 55,
         "intent": "service-logic",
-        "kb_target": "flows/{name}.md",
+        "kb_target": "specs/flows/{name}.md",
         "paths": [
           "ms-measure-common-be/src/main/java/**/*Service.java",
           "ms-measure-common-be/src/main/java/**/*ServiceImpl.java",
@@ -754,7 +754,7 @@
         "type": "orphan_pattern",
         "pattern_index": 56,
         "intent": "route-guard",
-        "kb_target": "flows/{name}.guards.md",
+        "kb_target": "specs/flows/{name}.guards.md",
         "paths": [
           "ms-measure-common-be/src/main/java/**/*Filter.java",
           "ms-measure-common-be/src/main/java/**/*Interceptor.java",
@@ -784,7 +784,7 @@
         "type": "orphan_pattern",
         "pattern_index": 58,
         "intent": "event-messaging",
-        "kb_target": "flows/{name}.events.md",
+        "kb_target": "specs/flows/{name}.events.md",
         "paths": [
           "ms-measure-common-be/src/main/java/**/*Consumer.java",
           "ms-measure-common-be/src/main/java/**/*Producer.java",
@@ -829,7 +829,7 @@
         "type": "orphan_pattern",
         "pattern_index": 62,
         "intent": "validation",
-        "kb_target": "validation/common.md",
+        "kb_target": "data/validation/common.md",
         "paths": [
           "ms-cvqs-service-client/src/main/java/**/*Request.java",
           "ms-cvqs-service-client/src/main/java/**/*RequestDto.java",
@@ -844,7 +844,7 @@
         "type": "orphan_pattern",
         "pattern_index": 63,
         "intent": "api-contract",
-        "kb_target": "features/{name}.api.md",
+        "kb_target": "specs/features/{name}.api.md",
         "paths": [
           "ms-cvqs-service-client/src/main/java/**/*Controller.java",
           "ms-cvqs-service-client/src/main/java/**/*RestController.java",
@@ -875,7 +875,7 @@
         "type": "orphan_pattern",
         "pattern_index": 65,
         "intent": "service-logic",
-        "kb_target": "flows/{name}.md",
+        "kb_target": "specs/flows/{name}.md",
         "paths": [
           "ms-cvqs-service-client/src/main/java/**/*Service.java",
           "ms-cvqs-service-client/src/main/java/**/*ServiceImpl.java",
@@ -888,7 +888,7 @@
         "type": "orphan_pattern",
         "pattern_index": 66,
         "intent": "route-guard",
-        "kb_target": "flows/{name}.guards.md",
+        "kb_target": "specs/flows/{name}.guards.md",
         "paths": [
           "ms-cvqs-service-client/src/main/java/**/*Filter.java",
           "ms-cvqs-service-client/src/main/java/**/*Interceptor.java",
@@ -918,7 +918,7 @@
         "type": "orphan_pattern",
         "pattern_index": 68,
         "intent": "event-messaging",
-        "kb_target": "flows/{name}.events.md",
+        "kb_target": "specs/flows/{name}.events.md",
         "paths": [
           "ms-cvqs-service-client/src/main/java/**/*Consumer.java",
           "ms-cvqs-service-client/src/main/java/**/*Producer.java",

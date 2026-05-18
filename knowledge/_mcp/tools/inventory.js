@@ -2,7 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const { loadGraph } = require('../lib/graph')
 const { loadStandardsIndex } = require('../lib/standards')
-const { globMatch } = require('../lib/patterns')
+const { globMatch, maxGlobDepth } = require('../lib/patterns')
 const { readLedger } = require('../lib/promotion-ledger')
 
 const KB_ROOT = 'knowledge'
@@ -44,7 +44,8 @@ async function runTool({ depth = DEFAULT_DEPTH, scope } = {}) {
   const graph = loadGraph(KB_ROOT)
   const index = loadStandardsIndex(graph)
 
-  const sourceFiles = collectSourceFiles(process.cwd(), depth)
+  const effectiveDepth = maxGlobDepth(collectAllGlobs(index), depth)
+  const sourceFiles = collectSourceFiles(process.cwd(), effectiveDepth)
   const filteredFiles = scope ? sourceFiles.filter(f => globMatch(f, scope)) : sourceFiles
 
   return {
@@ -110,6 +111,33 @@ function findStaleRules(index, sourceFiles) {
   return stale
 }
 
+// ── Glob collection ─────────────────────────────────────────────────────────
+
+/**
+ * Flatten every applies_to.paths glob in the index — from every rule and from
+ * every contract party. Shared by findUncoveredFiles (matching) and runTool
+ * (computing walk depth via maxGlobDepth).
+ */
+function collectAllGlobs(index) {
+  const globs = []
+  for (const std of index) {
+    if (std.kind === 'contract') {
+      for (const party of Object.values(std.parties || {})) {
+        for (const p of (party.applies_to && party.applies_to.paths) || []) {
+          globs.push(p)
+        }
+      }
+    } else {
+      for (const rule of std.rules || []) {
+        for (const p of (rule.applies_to && rule.applies_to.paths) || []) {
+          globs.push(p)
+        }
+      }
+    }
+  }
+  return globs
+}
+
 // ── Uncovered files ─────────────────────────────────────────────────────────
 
 /**
@@ -121,23 +149,7 @@ function findStaleRules(index, sourceFiles) {
  * Bounded by `cap` (default 50) so a fresh project doesn't dump every file.
  */
 function findUncoveredFiles(index, sourceFiles, cap = 50) {
-  // Pre-collect every glob from every rule and every contract party
-  const allGlobs = []
-  for (const std of index) {
-    if (std.kind === 'contract') {
-      for (const party of Object.values(std.parties || {})) {
-        for (const p of (party.applies_to && party.applies_to.paths) || []) {
-          allGlobs.push(p)
-        }
-      }
-    } else {
-      for (const rule of std.rules || []) {
-        for (const p of (rule.applies_to && rule.applies_to.paths) || []) {
-          allGlobs.push(p)
-        }
-      }
-    }
-  }
+  const allGlobs = collectAllGlobs(index)
 
   const uncovered = []
   for (const f of sourceFiles) {

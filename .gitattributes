@@ -4,7 +4,7 @@ knowledge/sync/kb-drift.md      merge=union
 knowledge/sync/review-queue.md  merge=union
 knowledge/sync/drift-log/**     merge=union
 knowledge/sync/import-review.md merge=union
-knowledge/features/**           merge=kb-conflict
-knowledge/flows/**              merge=kb-conflict
+knowledge/specs/features/**     merge=kb-conflict
+knowledge/specs/flows/**        merge=kb-conflict
 knowledge/_rules.md             merge=kb-conflict
 knowledge/assets/**             filter=lfs diff=lfs merge=lfs -text

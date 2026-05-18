@@ -3,22 +3,22 @@
 #
 # Intent types (first match wins — put specific patterns before generic ones):
 #
-#   validation     → kb_target: validation/*.md
+#   validation     → kb_target: data/validation/*.md
 #                    Matches form validators, DTOs, schema validators
 #
-#   form           → kb_target: features/{name}.md
+#   form           → kb_target: specs/features/{name}.md
 #                    Matches form/screen components — name is extracted
 #
-#   api-contract   → kb_target: features/{name}.api.md
+#   api-contract   → kb_target: specs/features/{name}.api.md
 #                    Matches REST controllers, GraphQL resolvers, API handlers
 #
 #   data-model     → kb_target: data/schema/{name}.md
 #                    Matches DB models, entities, ORM schemas, migrations
 #
-#   service-logic  → kb_target: flows/{name}.md
+#   service-logic  → kb_target: specs/flows/{name}.md
 #                    Matches business logic services, use-cases, domain objects
 #
-#   route-guard    → kb_target: flows/{name}.guards.md
+#   route-guard    → kb_target: specs/flows/{name}.guards.md
 #                    Matches auth middleware, guards, permissions, policies
 #
 #   component      → kb_target: components/{name}.md
@@ -34,13 +34,13 @@
 
 code_path_patterns:
   - intent: validation
-    kb_target: "validation/common.md"
+    kb_target: "data/validation/common.md"
     paths:
       - "src/validators/**"
       # Add your validator paths here
 
   - intent: form
-    kb_target: "features/{name}.md"
+    kb_target: "specs/features/{name}.md"
     paths:
       - "src/components/**Form*"
       # Add your form component paths here
@@ -49,7 +49,7 @@ code_path_patterns:
       case: kebab
 
   - intent: api-contract
-    kb_target: "features/{name}.api.md"
+    kb_target: "specs/features/{name}.api.md"
     paths:
       - "src/api/**"
       # Add your API handler paths here
@@ -61,13 +61,13 @@ code_path_patterns:
       # Add your model paths here
 
   - intent: service-logic
-    kb_target: "flows/{name}.md"
+    kb_target: "specs/flows/{name}.md"
     paths:
       - "src/services/**"
       # Add your service paths here
 
   - intent: route-guard
-    kb_target: "flows/{name}.guards.md"
+    kb_target: "specs/flows/{name}.guards.md"
     paths:
       - "src/middleware/**"
       # Add your guard/middleware paths here

@@ -16,26 +16,26 @@ const {
 const sampleGraph = () => ({
   version: '1.0',
   files: {
-    'features/auth.md': { id: 'auth', type: 'feature', depends_on: [] },
-    'features/session.md': { id: 'session', type: 'feature', depends_on: [] },
-    'flows/login.md': { id: 'login', type: 'flow', depends_on: [] },
+    'specs/features/auth.md': { id: 'auth', type: 'feature', depends_on: [] },
+    'specs/features/session.md': { id: 'session', type: 'feature', depends_on: [] },
+    'specs/flows/login.md': { id: 'login', type: 'flow', depends_on: [] },
   },
 })
 
 test('resolveDep: exact path match', () => {
-  assert.equal(resolveDep(sampleGraph(), 'features/auth'), 'features/auth.md')
+  assert.equal(resolveDep(sampleGraph(), 'specs/features/auth'), 'specs/features/auth.md')
 })
 
 test('resolveDep: id match', () => {
-  assert.equal(resolveDep(sampleGraph(), 'auth'), 'features/auth.md')
+  assert.equal(resolveDep(sampleGraph(), 'auth'), 'specs/features/auth.md')
 })
 
 test('resolveDep: dep with .md suffix is unresolved (matches existing orphan detector)', () => {
-  assert.equal(resolveDep(sampleGraph(), 'features/auth.md'), null)
+  assert.equal(resolveDep(sampleGraph(), 'specs/features/auth.md'), null)
 })
 
 test('resolveDep: dep with #anchor is unresolved (matches existing orphan detector)', () => {
-  assert.equal(resolveDep(sampleGraph(), 'features/auth#section'), null)
+  assert.equal(resolveDep(sampleGraph(), 'specs/features/auth#section'), null)
 })
 
 test('resolveDep: unresolvable returns null', () => {
@@ -59,9 +59,9 @@ test('resolveDep: oracle equivalence with existing orphan detector predicates', 
   }
   const cases = [
     'auth', 'session', 'login',
-    'features/auth', 'features/session', 'flows/login',
-    'features/auth.md', 'features/auth#section',
-    'nonexistent', 'features/nonexistent',
+    'specs/features/auth', 'specs/features/session', 'specs/flows/login',
+    'specs/features/auth.md', 'specs/features/auth#section',
+    'nonexistent', 'specs/features/nonexistent',
     '',
   ]
   for (const dep of cases) {

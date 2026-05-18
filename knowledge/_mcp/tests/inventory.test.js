@@ -150,6 +150,26 @@ test('stale_rules: contracts are stale only when ALL party paths match nothing',
   assert.equal(res2.stale_rules[0].kind, 'contract')
 }))
 
+test('stale_rules: deep-tree rule with ** glob is NOT stale', withProject(async (dir) => {
+  // Regression: previously the walker capped at depth 6 and missed files at
+  // depth 10+. A rule whose glob explicitly says `**` should match no matter
+  // how deep the file lives.
+  bootstrapKb(dir, {
+    standards: [{
+      id: 's1',
+      rules: [{
+        id: 'r1', title: 't', severity: 'warn', description: 'd',
+        applies_to: { paths: ['src/main/java/**/*Controller.java'] }
+      }]
+    }],
+    codeFiles: {
+      'src/main/java/com/foo/bar/baz/qux/quux/MyController.java': 'class MyController {}\n'
+    }
+  })
+  const res = await INVENTORY.runTool({})
+  assert.equal(res.stale_rules.length, 0, JSON.stringify(res.stale_rules))
+}))
+
 // ── Uncovered files ─────────────────────────────────────────────────────────
 
 test('uncovered_files: source files matching no rule are listed', withProject(async (dir) => {
@@ -181,6 +201,27 @@ test('uncovered_files: when no standards exist, all source files are uncovered (
   })
   const res = await INVENTORY.runTool({})
   assert.equal(res.uncovered_files.count, 2)
+}))
+
+test('uncovered_files: deep files are surfaced when any rule uses **', withProject(async (dir) => {
+  // Regression: deep uncovered files used to be invisible because the walker
+  // never reached them. With ** in any rule, the walker now goes unbounded.
+  bootstrapKb(dir, {
+    standards: [{
+      id: 's1',
+      rules: [{
+        id: 'r1', title: 't', severity: 'warn', description: 'd',
+        applies_to: { paths: ['src/main/java/**/*Controller.java'] }
+      }]
+    }],
+    codeFiles: {
+      'src/main/java/com/foo/bar/baz/qux/MyController.java': 'covered\n',
+      'src/main/java/com/foo/bar/baz/qux/MyService.java': 'uncovered\n'
+    }
+  })
+  const res = await INVENTORY.runTool({})
+  assert.equal(res.uncovered_files.count, 1)
+  assert.equal(res.uncovered_files.files[0], 'src/main/java/com/foo/bar/baz/qux/MyService.java')
 }))
 
 test('uncovered_files: respects scope glob', withProject(async (dir) => {

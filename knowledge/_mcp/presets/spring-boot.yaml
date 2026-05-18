@@ -3,7 +3,7 @@
 
 code_path_patterns:
   - intent: validation
-    kb_target: "validation/common.md"
+    kb_target: "data/validation/common.md"
     paths:
       - "src/main/java/**/*Request.java"
       - "src/main/java/**/*RequestDto.java"
@@ -12,7 +12,7 @@ code_path_patterns:
       - "src/main/java/**/validation/**"
 
   - intent: api-contract
-    kb_target: "features/{name}.api.md"
+    kb_target: "specs/features/{name}.api.md"
     paths:
       - "src/main/java/**/*Controller.java"
       - "src/main/java/**/*RestController.java"
@@ -41,7 +41,7 @@ code_path_patterns:
       - "src/main/resources/db/migration/**"
 
   - intent: service-logic
-    kb_target: "flows/{name}.md"
+    kb_target: "specs/flows/{name}.md"
     paths:
       - "src/main/java/**/*Service.java"
       - "src/main/java/**/*ServiceImpl.java"
@@ -51,7 +51,7 @@ code_path_patterns:
       case: kebab
 
   - intent: route-guard
-    kb_target: "flows/{name}.guards.md"
+    kb_target: "specs/flows/{name}.guards.md"
     paths:
       - "src/main/java/**/*Filter.java"
       - "src/main/java/**/*Interceptor.java"
@@ -75,7 +75,7 @@ code_path_patterns:
       case: kebab
 
   - intent: event-messaging
-    kb_target: "flows/{name}.events.md"
+    kb_target: "specs/flows/{name}.events.md"
     paths:
       - "src/main/java/**/*Consumer.java"
       - "src/main/java/**/*Producer.java"

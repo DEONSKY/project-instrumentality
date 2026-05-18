@@ -11,11 +11,10 @@ const { resolveFilePath } = require('../lib/kb-paths')
 const KB_ROOT = 'knowledge'
 
 const FOLDER_STRUCTURE = [
-  'features',
-  'flows',
+  'specs/features',
+  'specs/flows',
   'data/schema',
-  'validation',
-  'ui',
+  'data/validation',
   'integrations',
   'decisions',
   'standards/code',
@@ -23,7 +22,6 @@ const FOLDER_STRUCTURE = [
   'standards/knowledge',
   'standards/process',
   '_templates/data',
-  '_templates/ui',
   '_templates/standards',
   '_templates/prompts',
   '_prompt-overrides',
@@ -45,8 +43,8 @@ knowledge/sync/drift-log/**          merge=union
 knowledge/sync/import-review.md      merge=union
 knowledge/sync/inbound/**            merge=union
 knowledge/sync/outbound/**           merge=union
-knowledge/features/**                merge=kb-conflict
-knowledge/flows/**                   merge=kb-conflict
+knowledge/specs/features/**          merge=kb-conflict
+knowledge/specs/flows/**             merge=kb-conflict
 knowledge/_rules.md                  merge=kb-conflict
 knowledge/assets/**                  filter=lfs diff=lfs merge=lfs -text
 `
@@ -301,18 +299,14 @@ depth_policy:
   group_trigger: 5
   group_warn: 8
   overrides:
-    features: 3
-    flows: 2
-    ui: 2
+    specs: 4
+    data: 3
     integrations: 2
-    data: 2
-    validation: 1
     decisions: 1
     standards: 2
     sync: 1
   never_group:
     - data
-    - validation
     - decisions
     - sync
 

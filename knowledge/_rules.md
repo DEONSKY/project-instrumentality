@@ -9,17 +9,14 @@ depth_policy:
   group_trigger: 5
   group_warn: 8
   overrides:
-    features: 3
-    flows: 2
+    specs: 4
+    data: 3
     integrations: 2
-    data: 2
-    validation: 1
     decisions: 1
     standards: 2
     sync: 1
   never_group:
     - data
-    - validation
     - decisions
     - sync
 
@@ -34,7 +31,6 @@ secret_patterns:
 cross_app_refs:
   always_shared:
     - data
-    - validation
     - integrations
     - decisions
     - standards

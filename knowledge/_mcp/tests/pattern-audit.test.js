@@ -14,7 +14,7 @@ const {
 test('validateCodePathPattern accepts a well-formed pattern', () => {
   const r = validateCodePathPattern({
     intent: 'form',
-    kb_target: 'features/{name}.md',
+    kb_target: 'specs/features/{name}.md',
     paths: ['src/components/**Form*'],
     name_extraction: { strip_suffix: ['Form'], case: 'kebab' },
   })
@@ -55,18 +55,18 @@ test('validateCodePathPattern rejects bad name_extraction.case', () => {
 
 test('auditPatterns flags orphan_pattern when paths match no source files', () => {
   const { findings } = auditPatterns({
-    patterns: [{ intent: 'feature', kb_target: 'features/{name}.md', paths: ['src/legacy/**'] }],
+    patterns: [{ intent: 'feature', kb_target: 'specs/features/{name}.md', paths: ['src/legacy/**'] }],
     sourceFiles: ['src/new/Foo.ts'],
-    kbFiles: ['features/foo.md'],
+    kbFiles: ['specs/features/foo.md'],
   })
   const orphan = findings.find(f => f.type === 'orphan_pattern')
   assert.ok(orphan, 'orphan_pattern emitted')
-  assert.equal(orphan.kb_target, 'features/{name}.md')
+  assert.equal(orphan.kb_target, 'specs/features/{name}.md')
 })
 
 test('auditPatterns marks orphan_pattern with is_submodule_pattern when paths target a submodule', () => {
   const { findings } = auditPatterns({
-    patterns: [{ intent: 'feature', kb_target: 'features/{name}.md', paths: ['sub-a/src/**'] }],
+    patterns: [{ intent: 'feature', kb_target: 'specs/features/{name}.md', paths: ['sub-a/src/**'] }],
     sourceFiles: ['src/Foo.ts'],
     kbFiles: [],
     submodulePaths: ['sub-a'],
@@ -82,10 +82,10 @@ test('auditPatterns flags ghost_target only for hardcoded targets pointing at mi
   const { findings } = auditPatterns({
     patterns: [
       { intent: 'config', kb_target: 'standards/code/missing.md', paths: ['package.json'] },
-      { intent: 'feature', kb_target: 'features/{name}.md', paths: ['src/**'] }, // template — never ghost
+      { intent: 'feature', kb_target: 'specs/features/{name}.md', paths: ['src/**'] }, // template — never ghost
     ],
     sourceFiles: ['package.json', 'src/auth.ts'],
-    kbFiles: ['features/auth.md'],
+    kbFiles: ['specs/features/auth.md'],
   })
   const ghosts = findings.filter(f => f.type === 'ghost_target')
   assert.equal(ghosts.length, 1)
@@ -97,22 +97,22 @@ test('auditPatterns flags ghost_target only for hardcoded targets pointing at mi
 test('auditPatterns flags convention_violation when intent does not match folder', () => {
   const { findings } = auditPatterns({
     patterns: [
-      { intent: 'form', kb_target: 'flows/login.md', paths: ['src/**Form*'] }, // form should target features/
+      { intent: 'form', kb_target: 'specs/flows/login.md', paths: ['src/**Form*'] }, // form should target features/
     ],
     sourceFiles: ['src/LoginForm.tsx'],
-    kbFiles: ['flows/login.md'],
+    kbFiles: ['specs/flows/login.md'],
   })
   const v = findings.find(f => f.type === 'convention_violation')
   assert.ok(v)
-  assert.equal(v.expected_folder, 'features/')
+  assert.equal(v.expected_folder, 'specs/features/')
   assert.equal(v.source, 'preset', 'convention_violation must declare preset provenance')
 })
 
 test('auditPatterns does not flag convention_violation when intent and folder agree', () => {
   const { findings } = auditPatterns({
-    patterns: [{ intent: 'form', kb_target: 'features/login.md', paths: ['src/**Form*'] }],
+    patterns: [{ intent: 'form', kb_target: 'specs/features/login.md', paths: ['src/**Form*'] }],
     sourceFiles: ['src/LoginForm.tsx'],
-    kbFiles: ['features/login.md'],
+    kbFiles: ['specs/features/login.md'],
   })
   assert.equal(findings.filter(f => f.type === 'convention_violation').length, 0)
 })
@@ -121,19 +121,19 @@ test('auditPatterns does not flag convention_violation when intent and folder ag
 
 test('auditPatterns aggregates unmapped KB files by folder', () => {
   const { findings } = auditPatterns({
-    patterns: [{ intent: 'feature', kb_target: 'features/{name}.md', paths: ['src/features/**'] }],
+    patterns: [{ intent: 'feature', kb_target: 'specs/features/{name}.md', paths: ['src/features/**'] }],
     sourceFiles: ['src/features/auth.ts'],
     kbFiles: [
-      'features/auth.md',           // covered by pattern
-      'flows/checkout.md',          // not covered
-      'flows/onboarding.md',        // not covered, same folder
+      'specs/features/auth.md',           // covered by pattern
+      'specs/flows/checkout.md',          // not covered
+      'specs/flows/onboarding.md',        // not covered, same folder
       'integrations/stripe.md',     // not covered, different folder
     ],
   })
   const groups = findings.filter(f => f.type === 'unmapped_kb_group')
   // One finding per folder
   assert.equal(groups.length, 2)
-  const flows = groups.find(g => g.folder === 'flows/')
+  const flows = groups.find(g => g.folder === 'specs/flows/')
   assert.ok(flows)
   assert.equal(flows.count, 2)
 })
@@ -178,18 +178,18 @@ test('auditPatterns does not flag fanout_with_hardcoded for template targets', (
 // ── checkSingleKbFile ───────────────────────────────────────────────────────
 
 test('checkSingleKbFile reports unmapped when no pattern targets the file', () => {
-  const r = checkSingleKbFile('features/new-feature.md', [
+  const r = checkSingleKbFile('specs/features/new-feature.md', [
     { intent: 'config', kb_target: 'standards/code/conventions.md', paths: ['tsconfig.json'] },
   ])
   assert.equal(r.unmapped, true)
   assert.ok(r.suggested_pattern)
-  assert.equal(r.suggested_pattern.kb_target, 'features/{name}.md')
+  assert.equal(r.suggested_pattern.kb_target, 'specs/features/{name}.md')
   assert.equal(r.suggested_pattern.intent, 'form')  // first conv-table match for features/
 })
 
 test('checkSingleKbFile reports not-unmapped when a template pattern covers the file', () => {
-  const r = checkSingleKbFile('features/auth.md', [
-    { intent: 'feature', kb_target: 'features/{name}.md', paths: ['src/**'] },
+  const r = checkSingleKbFile('specs/features/auth.md', [
+    { intent: 'feature', kb_target: 'specs/features/{name}.md', paths: ['src/**'] },
   ])
   assert.equal(r.unmapped, false)
 })
@@ -206,12 +206,12 @@ test('checkSingleKbFile reports not-unmapped when a hardcoded pattern matches ex
 test('computePatternFingerprint is stable when paths are reordered', () => {
   const a = computePatternFingerprint({
     intent: 'feature',
-    kb_target: 'features/{name}.md',
+    kb_target: 'specs/features/{name}.md',
     paths: ['src/auth/**', 'src/profile/**', 'src/settings/**'],
   })
   const b = computePatternFingerprint({
     intent: 'feature',
-    kb_target: 'features/{name}.md',
+    kb_target: 'specs/features/{name}.md',
     paths: ['src/settings/**', 'src/auth/**', 'src/profile/**'],
   })
   assert.equal(a, b, 'reordering paths must not change fingerprint')
@@ -220,12 +220,12 @@ test('computePatternFingerprint is stable when paths are reordered', () => {
 test('computePatternFingerprint is stable when a duplicate path is added', () => {
   const a = computePatternFingerprint({
     intent: 'feature',
-    kb_target: 'features/{name}.md',
+    kb_target: 'specs/features/{name}.md',
     paths: ['src/auth/**'],
   })
   const b = computePatternFingerprint({
     intent: 'feature',
-    kb_target: 'features/{name}.md',
+    kb_target: 'specs/features/{name}.md',
     paths: ['src/auth/**', 'src/auth/**'],
   })
   assert.equal(a, b, 'duplicate paths must not change fingerprint')
@@ -234,13 +234,13 @@ test('computePatternFingerprint is stable when a duplicate path is added', () =>
 test('computePatternFingerprint is stable when name_extraction object keys reorder', () => {
   const a = computePatternFingerprint({
     intent: 'form',
-    kb_target: 'features/{name}.md',
+    kb_target: 'specs/features/{name}.md',
     paths: ['src/**Form*'],
     name_extraction: { case: 'kebab', strip_suffix: ['Form', 'Page'] },
   })
   const b = computePatternFingerprint({
     intent: 'form',
-    kb_target: 'features/{name}.md',
+    kb_target: 'specs/features/{name}.md',
     paths: ['src/**Form*'],
     name_extraction: { strip_suffix: ['Form', 'Page'], case: 'kebab' },
   })
@@ -250,12 +250,12 @@ test('computePatternFingerprint is stable when name_extraction object keys reord
 test('computePatternFingerprint DOES change when a meaningful field changes', () => {
   const a = computePatternFingerprint({
     intent: 'feature',
-    kb_target: 'features/{name}.md',
+    kb_target: 'specs/features/{name}.md',
     paths: ['src/auth/**'],
   })
   const b = computePatternFingerprint({
     intent: 'feature',
-    kb_target: 'features/{name}.md',
+    kb_target: 'specs/features/{name}.md',
     paths: ['src/authentication/**'],   // semantic change
   })
   assert.notEqual(a, b, 'changing a paths glob must invalidate the fingerprint')
@@ -264,7 +264,7 @@ test('computePatternFingerprint DOES change when a meaningful field changes', ()
 test('computePatternFingerprint format matches sha256: prefix', () => {
   const fp = computePatternFingerprint({
     intent: 'feature',
-    kb_target: 'features/{name}.md',
+    kb_target: 'specs/features/{name}.md',
     paths: ['src/**'],
   })
   assert.match(fp, /^sha256:[a-f0-9]{16}$/, 'fingerprint shape must be sha256:<16-hex>')
@@ -274,10 +274,10 @@ test('computePatternFingerprint format matches sha256: prefix', () => {
 
 test('findPatternForKbTarget matches template patterns by regex shape', () => {
   const patterns = [
-    { intent: 'feature', kb_target: 'features/{name}.md', paths: ['src/**'] },
+    { intent: 'feature', kb_target: 'specs/features/{name}.md', paths: ['src/**'] },
     { intent: 'config', kb_target: 'standards/code/conventions.md', paths: ['tsconfig.json'] },
   ]
-  const r = findPatternForKbTarget('features/auth.md', patterns)
+  const r = findPatternForKbTarget('specs/features/auth.md', patterns)
   assert.ok(r)
   assert.equal(r.intent, 'feature')
 })
@@ -293,9 +293,9 @@ test('findPatternForKbTarget matches hardcoded patterns by exact equality', () =
 
 test('findPatternForKbTarget returns null when no pattern matches', () => {
   const patterns = [
-    { intent: 'feature', kb_target: 'features/{name}.md', paths: ['src/**'] },
+    { intent: 'feature', kb_target: 'specs/features/{name}.md', paths: ['src/**'] },
   ]
-  assert.equal(findPatternForKbTarget('flows/checkout.md', patterns), null)
+  assert.equal(findPatternForKbTarget('specs/flows/checkout.md', patterns), null)
 })
 
 // ── array-form kb_target (alternative-targets fallback) ─────────────────────
@@ -303,7 +303,7 @@ test('findPatternForKbTarget returns null when no pattern matches', () => {
 test('validateCodePathPattern accepts array kb_target', () => {
   const r = validateCodePathPattern({
     intent: 'feature',
-    kb_target: ['features/{name}.md', 'features/{name}s.md'],
+    kb_target: ['specs/features/{name}.md', 'specs/features/{name}s.md'],
     paths: ['src/**Controller*'],
   })
   assert.equal(r.valid, true, `unexpected errors: ${r.errors.join(', ')}`)
@@ -324,7 +324,7 @@ test('validateCodePathPattern rejects array with non-string entries', () => {
 test('auditPatterns: ghost_target skips array-form with a {name} alternative', () => {
   // Mixed array (one literal missing, one {name} template) — templated overall, no ghost.
   const { findings } = auditPatterns({
-    patterns: [{ kb_target: ['legacy/dropped.md', 'features/{name}.md'], paths: ['src/**'] }],
+    patterns: [{ kb_target: ['legacy/dropped.md', 'specs/features/{name}.md'], paths: ['src/**'] }],
     sourceFiles: ['src/foo.js'],
     kbFiles: [],
   })
@@ -335,7 +335,7 @@ test('auditPatterns: ghost_target fires when all hardcoded array candidates are 
   const { findings } = auditPatterns({
     patterns: [{ kb_target: ['legacy/a.md', 'legacy/b.md'], paths: ['src/**'] }],
     sourceFiles: ['src/foo.js'],
-    kbFiles: ['features/other.md'],
+    kbFiles: ['specs/features/other.md'],
   })
   const ghost = findings.find(f => f.type === 'ghost_target')
   assert.ok(ghost)
@@ -345,16 +345,16 @@ test('auditPatterns: ghost_target fires when all hardcoded array candidates are 
 
 test('auditPatterns: ghost_target suppressed when ANY hardcoded array candidate exists', () => {
   const { findings } = auditPatterns({
-    patterns: [{ kb_target: ['legacy/missing.md', 'features/buffer-definitions.md'], paths: ['src/**'] }],
+    patterns: [{ kb_target: ['legacy/missing.md', 'specs/features/buffer-definitions.md'], paths: ['src/**'] }],
     sourceFiles: ['src/foo.js'],
-    kbFiles: ['features/buffer-definitions.md'],
+    kbFiles: ['specs/features/buffer-definitions.md'],
   })
   assert.equal(findings.some(f => f.type === 'ghost_target'), false)
 })
 
 test('auditPatterns: convention_violation fires when any array candidate is in the wrong folder', () => {
   const { findings } = auditPatterns({
-    patterns: [{ intent: 'api-contract', kb_target: ['features/{name}.md', 'data/{name}.md'], paths: ['src/**Controller*'] }],
+    patterns: [{ intent: 'api-contract', kb_target: ['specs/features/{name}.md', 'data/{name}.md'], paths: ['src/**Controller*'] }],
     sourceFiles: ['src/FooController.java'],
     kbFiles: [],
   })
@@ -362,24 +362,24 @@ test('auditPatterns: convention_violation fires when any array candidate is in t
 })
 
 test('checkSingleKbFile reports not-unmapped when array-form template matches', () => {
-  const r = checkSingleKbFile('features/auth.md', [
-    { kb_target: ['features/{name}.md', 'features/{name}s.md'], paths: ['src/**'] },
+  const r = checkSingleKbFile('specs/features/auth.md', [
+    { kb_target: ['specs/features/{name}.md', 'specs/features/{name}s.md'], paths: ['src/**'] },
   ])
   assert.equal(r.unmapped, false)
 })
 
 test('checkSingleKbFile reports not-unmapped when plural-alias candidate matches', () => {
   // Singular template misses, plural template hits — array form keeps the file mapped.
-  const r = checkSingleKbFile('features/buffer-definitions.md', [
-    { kb_target: ['features/{name}.md', 'features/{name}s.md'], paths: ['src/**'] },
+  const r = checkSingleKbFile('specs/features/buffer-definitions.md', [
+    { kb_target: ['specs/features/{name}.md', 'specs/features/{name}s.md'], paths: ['src/**'] },
   ])
   assert.equal(r.unmapped, false)
 })
 
 test('findPatternForKbTarget matches when target appears in array-form candidate', () => {
   const patterns = [
-    { kb_target: ['features/{name}.md', 'features/{name}s.md'], paths: ['src/**'] },
+    { kb_target: ['specs/features/{name}.md', 'specs/features/{name}s.md'], paths: ['src/**'] },
   ]
-  const r = findPatternForKbTarget('features/buffer-definitions.md', patterns)
+  const r = findPatternForKbTarget('specs/features/buffer-definitions.md', patterns)
   assert.ok(r)
 })

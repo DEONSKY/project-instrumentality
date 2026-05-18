@@ -352,9 +352,9 @@ module.exports = {
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Path to a single KB file (e.g. knowledge/features/auth.md), or "all" to tag the entire KB. Default: all. Used by fast and review modes.' },
+        file_path: { type: 'string', description: 'Path to a single KB file (e.g. knowledge/specs/features/auth.md), or "all" to tag the entire KB. Default: all. Used by fast and review modes.' },
         mode: { type: 'string', enum: ['fast', 'review', 'apply'], description: 'fast: regex-extract and overwrite tags (default). review: return scored candidates grouped by confidence for LLM validation. apply: write LLM-reviewed tags from the tags parameter.' },
-        tags: { type: 'object', description: 'For mode=apply only. Map of file_path to tag array, e.g. { "features/auth.md": ["auth", "session", "jwt"] }.' }
+        tags: { type: 'object', description: 'For mode=apply only. Map of file_path to tag array, e.g. { "specs/features/auth.md": ["auth", "session", "jwt"] }.' }
       }
     }
   }

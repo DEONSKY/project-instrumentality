@@ -295,7 +295,7 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
     // Fan out: a code file may match multiple patterns, each producing its own
     // kb_target. Symmetric with the kb→code direction (reverseMapKbTarget already
     // returns all matches). Dedup via Set when two patterns resolve to the same
-    // kb_target (e.g. both use the "features/{name}.md" template with different
+    // kb_target (e.g. both use the "specs/features/{name}.md" template with different
     // glob scopes).
     const matches = matchAllPatterns(file, patterns)
     const kbTargets = new Set(matches.map(p => resolveKbTarget(p, file)))
@@ -455,7 +455,7 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
     let instruction = 'For each entry in `_diffs.code` and `_diffs.kb`:\n'
       + '1. Read `diff` directly. If it is null, truncated, or has `error`, run the `cmd`.\n'
       + '2. Compare against the counterpart (KB file for code drift, listed code areas for kb drift).\n'
-      + '3. For kb drift: verify the KB file is internally consistent; cross-check validation/ and flows/ for related rules.\n'
+      + '3. For kb drift: verify the KB file is internally consistent; cross-check data/validation/ and specs/flows/ for related rules.\n'
       + '4. Present both values (KB spec vs actual code) to the user and wait for explicit confirmation.\n'
       + '5. After confirmation: edit, then close with `kb_drift({ summaries: [...] })` (code drift) or `kb_drift({ kb_confirmed: [...] })` (kb drift).\n\n'
       + 'Never close silently. Never close without seeing the diff.'

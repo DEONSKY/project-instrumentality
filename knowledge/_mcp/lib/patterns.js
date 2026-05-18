@@ -224,4 +224,21 @@ function expandGlob(pattern, opts = {}) {
   return { files, matchedCount: files.length, truncated }
 }
 
-module.exports = { globMatch, matchAllPatterns, pickBestMatch, globSpecificity, resolveKbTarget, extractName, expandGlob }
+/**
+ * Compute the directory walk depth required to give the matcher real candidates
+ * for a set of globs. If any glob contains `**` the depth is unbounded (Infinity);
+ * otherwise it's the deepest literal segment count across the globs, with `floor`
+ * as a minimum. Used by source-file walkers (kb_inventory, kb_analyze) to honor
+ * the glob's stated reach instead of capping the walk at a fixed default.
+ */
+function maxGlobDepth(globs, floor = 0) {
+  let max = floor
+  for (const g of globs) {
+    if (g.includes('**')) return Infinity
+    const segments = g.split('/').filter(Boolean).length
+    if (segments > max) max = segments
+  }
+  return max
+}
+
+module.exports = { globMatch, matchAllPatterns, pickBestMatch, globSpecificity, resolveKbTarget, extractName, expandGlob, maxGlobDepth }

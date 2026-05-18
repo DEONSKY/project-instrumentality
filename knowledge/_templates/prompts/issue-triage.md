@@ -54,7 +54,7 @@ Based on the KB docs (flows, features, integrations), hypothesize what might be 
 ## Suggested KB Updates
 
 For each KB document that should be updated, specify:
-- **File:** relative path (e.g., `knowledge/features/cart.md`)
+- **File:** relative path (e.g., `knowledge/specs/features/cart.md`)
 - **Section:** which section to update (e.g., `## Edge Cases`)
 - **Action:** add | update | flag-for-review
 - **Content:** what to add or change
@@ -63,6 +63,6 @@ Only suggest updates that are directly supported by the issue details. Do not sp
 ```
 
 Important:
-- The `related_kb` frontmatter field should list paths relative to the project root (e.g., `features/cart.md`, not full paths)
+- The `related_kb` frontmatter field should list paths relative to the project root (e.g., `specs/features/cart.md`, not full paths)
 - If no KB docs are related, still write the report but note the gap — this itself is valuable information
 - Be factual, not aspirational — only reference what the KB docs actually say

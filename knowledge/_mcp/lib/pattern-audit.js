@@ -39,19 +39,19 @@ function kbFileMatchesTarget(target, kbPath) {
 // apart from project-declared rules (`source: '_rules.md'`, used by everything
 // derived from this project's _rules.md patterns + knowledge/ tree).
 // Patterns without `intent` skip the convention check. Folders are
-// prefix-matched, so kb_target "features/auth.md" satisfies expected_folder
-// "features/".
+// prefix-matched, so kb_target "specs/features/auth.md" satisfies
+// expected_folder "specs/features/".
 const INTENT_FOLDER_CONVENTIONS = {
-  form: 'features/',
-  'api-contract': 'features/',
-  feature: 'features/',
-  'service-logic': 'flows/',
-  'route-guard': 'flows/',
-  flow: 'flows/',
+  form: 'specs/features/',
+  'api-contract': 'specs/features/',
+  feature: 'specs/features/',
+  'service-logic': 'specs/flows/',
+  'route-guard': 'specs/flows/',
+  flow: 'specs/flows/',
   'data-model': 'data/schema/',
   schema: 'data/schema/',
-  validation: 'validation/',
-  validator: 'validation/',
+  validation: 'data/validation/',
+  validator: 'data/validation/',
   component: 'components/',
   integration: 'integrations/',
   dependency: 'standards/code/',
@@ -260,12 +260,18 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
   }
 
   // 4. Unmapped KB groups: KB files that no pattern targets, aggregated by
-  //    folder. One finding per folder, with count + 3-5 samples.
+  //    folder. One finding per folder, with count + 3-5 samples. Folder uses
+  //    the longest matching convention prefix (e.g. "specs/flows/") and
+  //    falls back to the first path segment when no convention matches.
+  const conventionFolders = Object.values(INTENT_FOLDER_CONVENTIONS)
+    .slice()
+    .sort((a, b) => b.length - a.length)
   const unmappedByFolder = new Map()
   for (const kb of kbFiles) {
     const targeted = patterns.some(p => kbFileMatchesTarget(p.kb_target, kb))
     if (!targeted) {
-      const folder = kb.split('/')[0] + '/'
+      const matched = conventionFolders.find(f => kb.startsWith(f))
+      const folder = matched || (kb.split('/')[0] + '/')
       if (!unmappedByFolder.has(folder)) unmappedByFolder.set(folder, [])
       unmappedByFolder.get(folder).push(kb)
     }
@@ -315,14 +321,24 @@ function checkSingleKbFile(kbRelPath, patterns) {
   const targeted = patterns.some(p => kbFileMatchesTarget(p.kb_target, kbRelPath))
   if (targeted) return { unmapped: false }
 
-  const folder = kbRelPath.split('/')[0]
-  // Reverse the convention table: folder → most-natural intent (first match).
+  // Reverse the convention table: folder prefix → most-natural intent (first match).
+  // Iterate by descending prefix length so e.g. "specs/features/" wins over a
+  // hypothetical "specs/" entry.
   let suggestedIntent = null
-  for (const [intent, expectedFolder] of Object.entries(INTENT_FOLDER_CONVENTIONS)) {
-    if (expectedFolder === folder + '/') { suggestedIntent = intent; break }
+  let matchedFolder = null
+  const entries = Object.entries(INTENT_FOLDER_CONVENTIONS)
+    .sort((a, b) => b[1].length - a[1].length)
+  for (const [intent, expectedFolder] of entries) {
+    if (kbRelPath.startsWith(expectedFolder)) {
+      suggestedIntent = intent
+      matchedFolder = expectedFolder
+      break
+    }
   }
 
   // Suggest a template target so the same pattern covers future siblings.
+  // Fall back to the first path segment when no convention matches.
+  const folder = matchedFolder ? matchedFolder.replace(/\/$/, '') : kbRelPath.split('/')[0]
   const suggestedTarget = `${folder}/{name}.md`
 
   return {

@@ -38,7 +38,7 @@ version: "1.0"
 depth_policy:
   default_max: 3
   overrides:
-    features: 3
+    specs: 4
     standards: 2
     sync: 1
 secret_patterns: []
@@ -245,7 +245,7 @@ test('writing a non-standard file does not trigger an aspirational sweep', withR
   sh(dir, 'git add -A && git commit -q -m "init"')
 
   const res = await WRITE.runTool({
-    file_path: 'knowledge/features/foo.md',
+    file_path: 'knowledge/specs/features/foo.md',
     content: '---\nid: foo\ntype: feature\napp_scope: all\ncreated: 2026-04-26\ntags: [test]\n---\n\n# Foo\n\nDescription here.\n'
   })
 

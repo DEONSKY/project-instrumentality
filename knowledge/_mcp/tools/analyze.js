@@ -1,7 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const { loadRules } = require('../lib/rules')
-const { matchAllPatterns, resolveKbTarget } = require('../lib/patterns')
+const { matchAllPatterns, resolveKbTarget, maxGlobDepth } = require('../lib/patterns')
 const { runTool: write } = require('./write')
 
 const KB_ROOT = 'knowledge'
@@ -28,7 +28,9 @@ async function runTool({ depth = 4, write_drafts = false } = {}) {
   const patterns = raw.code_path_patterns
 
   // 1. Collect source files
-  const sourceFiles = collectSourceFiles(process.cwd(), depth)
+  const allGlobs = patterns.flatMap(p => p.paths || [])
+  const effectiveDepth = maxGlobDepth(allGlobs, depth)
+  const sourceFiles = collectSourceFiles(process.cwd(), effectiveDepth)
 
   // 2. Match each file against code_path_patterns
   const grouped = groupByKbTarget(sourceFiles, patterns)

@@ -25,7 +25,7 @@ using only the knowledge base files provided.
 
 - Answer only from the KB context. Do not invent or assume.
 - Cite the source file and section for every claim:
-  (per features/billing/invoice-create.md ## Fields)
+  (per specs/features/billing/invoice-create.md ## Fields)
 - If the answer is not in the KB, say so clearly:
   "This is not documented in the KB. Consider adding it to
   [most relevant file]."

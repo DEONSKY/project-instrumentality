@@ -10,7 +10,7 @@ const ORIGINAL_CWD = process.cwd()
 
 function mkTempKb() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-patterns-test-'))
-  fs.mkdirSync(path.join(dir, 'knowledge', 'features'), { recursive: true })
+  fs.mkdirSync(path.join(dir, 'knowledge', 'specs', 'features'), { recursive: true })
   return dir
 }
 
@@ -30,51 +30,51 @@ function withKb(fn) {
 
 test('resolveKbTarget: single template string substitutes {name}', withKb(async () => {
   const r = resolveKbTarget(
-    { kb_target: 'features/{name}.md', name_extraction: { strip_suffix: ['Controller'], case: 'kebab' } },
+    { kb_target: 'specs/features/{name}.md', name_extraction: { strip_suffix: ['Controller'], case: 'kebab' } },
     'UserDefinitionController.java'
   )
-  assert.equal(r, 'features/user-definition.md')
+  assert.equal(r, 'specs/features/user-definition.md')
 }))
 
 test('resolveKbTarget: single literal target returned as-is', withKb(async () => {
-  const r = resolveKbTarget({ kb_target: 'features/auth.md' }, 'ignored.java')
-  assert.equal(r, 'features/auth.md')
+  const r = resolveKbTarget({ kb_target: 'specs/features/auth.md' }, 'ignored.java')
+  assert.equal(r, 'specs/features/auth.md')
 }))
 
 // ── resolveKbTarget: array form (alternative-targets) ───────────────────────
 
 test('resolveKbTarget: array prefers first candidate when it exists', withKb(async (dir) => {
-  fs.writeFileSync(path.join(dir, 'knowledge', 'features', 'mail-settings.md'), '')
+  fs.writeFileSync(path.join(dir, 'knowledge', 'specs', 'features', 'mail-settings.md'), '')
   const r = resolveKbTarget(
-    { kb_target: ['features/{name}.md', 'features/{name}s.md'], name_extraction: { strip_suffix: ['Controller'], case: 'kebab' } },
+    { kb_target: ['specs/features/{name}.md', 'specs/features/{name}s.md'], name_extraction: { strip_suffix: ['Controller'], case: 'kebab' } },
     'MailSettingsController.java'
   )
-  assert.equal(r, 'features/mail-settings.md')
+  assert.equal(r, 'specs/features/mail-settings.md')
 }))
 
 test('resolveKbTarget: array falls through to plural alias when singular is missing', withKb(async (dir) => {
-  fs.writeFileSync(path.join(dir, 'knowledge', 'features', 'buffer-definitions.md'), '')
+  fs.writeFileSync(path.join(dir, 'knowledge', 'specs', 'features', 'buffer-definitions.md'), '')
   const r = resolveKbTarget(
-    { kb_target: ['features/{name}.md', 'features/{name}s.md'], name_extraction: { strip_suffix: ['Controller'], case: 'kebab' } },
+    { kb_target: ['specs/features/{name}.md', 'specs/features/{name}s.md'], name_extraction: { strip_suffix: ['Controller'], case: 'kebab' } },
     'BufferDefinitionController.java'
   )
-  assert.equal(r, 'features/buffer-definitions.md')
+  assert.equal(r, 'specs/features/buffer-definitions.md')
 }))
 
 test('resolveKbTarget: array returns first candidate (scaffold target) when none exist', withKb(async () => {
   const r = resolveKbTarget(
-    { kb_target: ['features/{name}.md', 'features/{name}s.md'], name_extraction: { strip_suffix: ['Controller'], case: 'kebab' } },
+    { kb_target: ['specs/features/{name}.md', 'specs/features/{name}s.md'], name_extraction: { strip_suffix: ['Controller'], case: 'kebab' } },
     'ParameterAuditController.java'
   )
-  assert.equal(r, 'features/parameter-audit.md')
+  assert.equal(r, 'specs/features/parameter-audit.md')
 }))
 
 test('resolveKbTarget: array with recursive glob finds nested files', withKb(async (dir) => {
-  fs.mkdirSync(path.join(dir, 'knowledge', 'features', 'auth'), { recursive: true })
-  fs.writeFileSync(path.join(dir, 'knowledge', 'features', 'auth', 'login.md'), '')
+  fs.mkdirSync(path.join(dir, 'knowledge', 'specs', 'features', 'auth'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'knowledge', 'specs', 'features', 'auth', 'login.md'), '')
   const r = resolveKbTarget(
-    { kb_target: ['features/{name}.md', 'features/**/{name}.md'] },
+    { kb_target: ['specs/features/{name}.md', 'specs/features/**/{name}.md'] },
     'login.ts'
   )
-  assert.equal(r, 'features/auth/login.md')
+  assert.equal(r, 'specs/features/auth/login.md')
 }))

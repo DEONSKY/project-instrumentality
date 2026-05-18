@@ -25,7 +25,7 @@ tags: []
 
 | field | label | type | required | default | validation | notes |
 | ----- | ----- | ---- | -------- | ------- | ---------- | ----- |
-| {{field}} | {{Human-readable label}} | {{type}} | {{yes\|no}} | {{default}} | [[validation/{{rule_id}}]] | {{notes}} |
+| {{field}} | {{Human-readable label}} | {{type}} | {{yes\|no}} | {{default}} | [[data/validation/{{rule_id}}]] | {{notes}} |
 
 ## Business rules
 

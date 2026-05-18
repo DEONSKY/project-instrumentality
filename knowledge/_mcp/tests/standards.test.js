@@ -231,7 +231,7 @@ function makeGraph() {
         },
         rules: [{ id: 'keys-only', title: 't', severity: 'error', description: 'd' }]
       },
-      'features/x.md': {
+      'specs/features/x.md': {
         id: 'x', type: 'feature', app_scope: 'fe', rules: [], tags: []
       }
     }

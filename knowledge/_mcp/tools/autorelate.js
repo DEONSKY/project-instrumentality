@@ -261,15 +261,14 @@ function resolveDirection(fileA, fileB, graph) {
 }
 
 function inferType(filePath) {
-  if (filePath.startsWith('features/')) return 'feature'
-  if (filePath.startsWith('flows/')) return 'flow'
+  if (filePath.startsWith('specs/features/')) return 'feature'
+  if (filePath.startsWith('specs/flows/')) return 'flow'
   if (filePath.startsWith('data/schema/')) return 'schema'
+  if (filePath.startsWith('data/validation/')) return 'validation'
   if (filePath.startsWith('data/')) return 'data'
-  if (filePath.startsWith('validation/')) return 'validation'
   if (filePath.startsWith('integrations/')) return 'integration'
   if (filePath.startsWith('decisions/')) return 'decision'
   if (filePath.startsWith('standards/')) return 'standard'
-  if (filePath.startsWith('ui/')) return 'ui'
   return 'unknown'
 }
 
@@ -300,7 +299,7 @@ function wouldCreateCycle(adjacency, from, to) {
 
     const neighbors = adjacency.get(current) || []
     for (const n of neighbors) {
-      // Handle partial path matches (e.g., "auth" matching "features/auth.md")
+      // Handle partial path matches (e.g., "auth" matching "specs/features/auth.md")
       const resolved = resolveDepPath(n, adjacency)
       for (const r of resolved) {
         if (!visited.has(r)) queue.push(r)

@@ -45,7 +45,7 @@ Before writing the summary and calling `kb_drift` with summaries, you MUST:
 
 1. **Read `{{kb_target}}`** and check its current content.
 2. **If the file has `{{placeholders}}`** — it was never filled. Update it first
-   using `kb_extract` (standards from code) or `kb_scaffold` (features/flows/ui).
+   using `kb_extract` (standards from code) or `kb_scaffold` (features/flows).
 3. **If the file does not exist** — create it first. Do not close the entry
    against a missing file.
 4. **If the file is up to date** — proceed to write the summary and close.

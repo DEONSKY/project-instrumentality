@@ -212,7 +212,7 @@ module.exports = {
       type: 'object',
       required: ['file_path', 'content'],
       properties: {
-        file_path: { type: 'string', description: 'Path to the KB file (e.g. knowledge/features/my-feature.md)' },
+        file_path: { type: 'string', description: 'Path to the KB file (e.g. knowledge/specs/features/my-feature.md)' },
         content: { type: 'string', description: 'Full file content including YAML front-matter' }
       }
     }

@@ -3,7 +3,7 @@ const WIKILINK_REGEX = /!?\[\[([^\]|#]+?)(?:#([^\]|]+?))?(?:\|[^\]]+?)?\]\]/g
 /**
  * Extract wikilink references from KB content, ignoring code blocks and inline code.
  * Returns deduplicated array of paths, preserving #section where present
- * (e.g. ["features/auth", "data/schema/postgres#users"]).
+ * (e.g. ["specs/features/auth", "data/schema/postgres#users"]).
  */
 function extractMentions(content) {
   const stripped = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '')

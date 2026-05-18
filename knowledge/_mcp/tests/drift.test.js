@@ -12,12 +12,12 @@ const RULES = `---
 version: "1.0"
 code_path_patterns:
   - intent: validator
-    kb_target: "validation/common.md"
+    kb_target: "data/validation/common.md"
     paths:
       - "src/validators/**"
       - "sub/src/validators/**"
   - intent: feature
-    kb_target: "features/{name}.md"
+    kb_target: "specs/features/{name}.md"
     paths:
       - "src/features/**"
 ---
@@ -77,7 +77,7 @@ test('scenario 1: fresh queue bootstrap writes baseline lines in both headers', 
 
 test('scenario 2: kb→code detection advances baseline; back-to-back run is a no-op', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n\nInitial spec.\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n\nInitial spec.\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m seed')
 
@@ -85,7 +85,7 @@ test('scenario 2: kb→code detection advances baseline; back-to-back run is a n
   const kb0 = fs.readFileSync(path.join(dir, 'knowledge/sync/kb-drift.md'), 'utf8')
   const baseline0 = kb0.match(/<!-- baseline: ([a-f0-9]{40}) -->/)[1]
 
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n\nUpdated spec.\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n\nUpdated spec.\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m "edit login spec"')
 
@@ -94,7 +94,7 @@ test('scenario 2: kb→code detection advances baseline; back-to-back run is a n
   assert.equal(edit.kb_entries, 1, 'one kb→code entry should be written')
 
   const kb1 = fs.readFileSync(path.join(dir, 'knowledge/sync/kb-drift.md'), 'utf8')
-  assert.match(kb1, /## features\/login\.md/, 'kb-drift.md contains entry for edited KB file')
+  assert.match(kb1, /## specs\/features\/login\.md/, 'kb-drift.md contains entry for edited KB file')
   const baseline1 = kb1.match(/<!-- baseline: ([a-f0-9]{40}) -->/)[1]
   assert.notEqual(baseline1, baseline0, 'baseline advanced past the edit commit')
   assert.equal(baseline1, sh(dir, 'git rev-parse HEAD'), 'baseline equals HEAD after edit')
@@ -107,12 +107,12 @@ test('scenario 2: kb→code detection advances baseline; back-to-back run is a n
 
 test('scenario 3: purge clears queue, advances baseline, writes PURGE drift-log entry', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
-  writeFile(dir, 'knowledge/features/login.md', '# Login v2\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login v2\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m edit')
   await DRIFT.runTool({})
@@ -122,7 +122,7 @@ test('scenario 3: purge clears queue, advances baseline, writes PURGE drift-log 
   assert.equal(result.purged, true, 'purge flag echoed back')
 
   const kb = fs.readFileSync(path.join(dir, 'knowledge/sync/kb-drift.md'), 'utf8')
-  assert.doesNotMatch(kb, /## features\/login\.md/, 'kb-drift.md entry cleared')
+  assert.doesNotMatch(kb, /## specs\/features\/login\.md/, 'kb-drift.md entry cleared')
   assert.match(kb, /<!-- baseline: [a-f0-9]{40} -->/, 'baseline line still present after purge')
 
   const driftLogDir = path.join(dir, 'knowledge/sync/drift-log')
@@ -165,7 +165,7 @@ test('scenario 4: submodule code change surfaces in parent code-drift.md', withR
 
     const code = fs.readFileSync(path.join(parent, 'knowledge/sync/code-drift.md'), 'utf8')
     assert.match(code, /sub\/src\/validators\/email\.js/, 'code-drift.md contains submodule-prefixed path')
-    assert.match(code, /## validation\/common\.md/, 'code-drift.md entry keyed by KB target')
+    assert.match(code, /## data\/validation\/common\.md/, 'code-drift.md entry keyed by KB target')
   } finally {
     rmTempRepo(subSource)
   }
@@ -173,14 +173,14 @@ test('scenario 4: submodule code change surfaces in parent code-drift.md', withR
 
 test('scenario A: Since tracks the commit that touched the file, not HEAD (Bug 1 — kb→code)', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n')
   writeFile(dir, 'README.md', 'seed\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
   // C1: touches the KB file
-  writeFile(dir, 'knowledge/features/login.md', '# Login v2\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login v2\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m "edit login spec"')
   const c1Short = sh(dir, 'git rev-parse --short=7 HEAD')
@@ -235,13 +235,13 @@ test('scenario A-mirror: code-drift.md since stamps the commit that touched the 
 
 test('scenario B: re-edits bump Latest and re-surface (Bug 2 — kb→code)', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
   // First edit — entry created with Since=C1, no Latest
-  writeFile(dir, 'knowledge/features/login.md', '# Login v2\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login v2\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m "first edit"')
   const c1Short = sh(dir, 'git rev-parse --short=7 HEAD')
@@ -254,7 +254,7 @@ test('scenario B: re-edits bump Latest and re-surface (Bug 2 — kb→code)', wi
   assert.doesNotMatch(kbAfterFirst, /\*\*Latest:\*\*/, 'no Latest line when Since==Latest')
 
   // Second edit — existing entry, Latest should bump to C2
-  writeFile(dir, 'knowledge/features/login.md', '# Login v3\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login v3\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m "second edit"')
   const c2Short = sh(dir, 'git rev-parse --short=7 HEAD')
@@ -403,12 +403,12 @@ test('scenario 5: dedup_baselines collapses duplicate baseline lines to the desc
 
 test('_diffs: kb-drift entry carries stat, commits, diff, and reproducible cmd', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n\nInitial spec.\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n\nInitial spec.\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n\nUpdated spec.\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n\nUpdated spec.\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m "edit login spec"')
 
@@ -417,7 +417,7 @@ test('_diffs: kb-drift entry carries stat, commits, diff, and reproducible cmd',
   assert.equal(result._diffs.kb.length, 1, 'one kb entry in _diffs')
 
   const entry = result._diffs.kb[0]
-  assert.equal(entry.kb_file, 'features/login.md')
+  assert.equal(entry.kb_file, 'specs/features/login.md')
   assert.ok(entry.diff && entry.diff.includes('Updated spec'), 'diff contains the change')
   assert.ok(entry.diff && entry.diff.includes('-Initial spec'), 'diff shows removal of old spec')
   assert.equal(entry.binary, false)
@@ -427,7 +427,7 @@ test('_diffs: kb-drift entry carries stat, commits, diff, and reproducible cmd',
   assert.equal(entry.commits.length, 1)
   assert.ok(/edit login spec/.test(entry.commits[0].subject), 'commit subject preserved')
   assert.ok(entry.cmd && entry.cmd.startsWith('git diff'), `cmd looks right: ${entry.cmd}`)
-  assert.ok(entry.cmd.includes('knowledge/features/login.md'), 'cmd references kb file path')
+  assert.ok(entry.cmd.includes('knowledge/specs/features/login.md'), 'cmd references kb file path')
 }))
 
 test('_diffs: code-drift entry carries per-file diffs with correct cmd', withRepo(async (dir) => {
@@ -482,8 +482,8 @@ test('_diffs: submodule file uses git -C in cmd and sets submodule field', withR
 
     const result = await DRIFT.runTool({})
     assert.ok(result._diffs, '_diffs present')
-    const entry = result._diffs.code.find(e => e.kb_target === 'validation/common.md')
-    assert.ok(entry, 'validation/common.md entry present')
+    const entry = result._diffs.code.find(e => e.kb_target === 'data/validation/common.md')
+    assert.ok(entry, 'data/validation/common.md entry present')
     const f = entry.files.find(x => x.path === 'sub/src/validators/email.js')
     assert.ok(f, 'submodule file in entry')
     assert.equal(f.submodule, 'sub')
@@ -498,33 +498,33 @@ test('_diffs: submodule file uses git -C in cmd and sets submodule field', withR
 
 test('_diffs: diffs larger than per-file cap are truncated; cmd preserved', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/features/big.md', '# Big\n')
+  writeFile(dir, 'knowledge/specs/features/big.md', '# Big\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
   // Write a 600-line body to a KB file — the resulting diff exceeds the 400-line per-file cap.
   const bigBody = Array.from({ length: 600 }, (_, i) => `line ${i + 1}`).join('\n') + '\n'
-  writeFile(dir, 'knowledge/features/big.md', bigBody)
+  writeFile(dir, 'knowledge/specs/features/big.md', bigBody)
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m "balloon"')
 
   const result = await DRIFT.runTool({})
-  const entry = result._diffs.kb.find(e => e.kb_file === 'features/big.md')
+  const entry = result._diffs.kb.find(e => e.kb_file === 'specs/features/big.md')
   assert.ok(entry, 'big.md entry in _diffs')
   assert.equal(entry.truncated, true, 'diff marked truncated')
   assert.equal(entry.diff_lines, 400, 'truncated to PER_FILE_LINE_CAP')
-  assert.ok(entry.cmd && entry.cmd.includes('knowledge/features/big.md'), 'cmd preserved for manual fetch')
+  assert.ok(entry.cmd && entry.cmd.includes('knowledge/specs/features/big.md'), 'cmd preserved for manual fetch')
 }))
 
 test('_diffs: include_diffs=false suppresses _diffs but keeps _instruction', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
-  writeFile(dir, 'knowledge/features/login.md', '# Login v2\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login v2\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m edit')
 
@@ -550,8 +550,8 @@ test('_diffs: binary file is marked binary and not counted against budget', with
   sh(dir, 'git commit -q -m "binary change"')
 
   const result = await DRIFT.runTool({})
-  const entry = result._diffs.code.find(e => e.kb_target === 'features/logo.md')
-  assert.ok(entry, 'features/logo.md entry present')
+  const entry = result._diffs.code.find(e => e.kb_target === 'specs/features/logo.md')
+  assert.ok(entry, 'specs/features/logo.md entry present')
   const f = entry.files.find(x => x.path === 'src/features/logo.png')
   assert.ok(f, 'png file in entry')
   assert.equal(f.binary, true, 'binary flag set')
@@ -563,19 +563,19 @@ test('_diffs: binary file is marked binary and not counted against budget', with
 
 test('_diffs.v2: changed_identifiers extracted from KB diff', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/validation/common.md', '# Common validation\n\n| field | rule |\n| --- | --- |\n| email | max 300 characters |\n')
+  writeFile(dir, 'knowledge/data/validation/common.md', '# Common validation\n\n| field | rule |\n| --- | --- |\n| email | max 300 characters |\n')
   writeFile(dir, 'src/validators/email.js', '// seed\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
-  writeFile(dir, 'knowledge/validation/common.md', '# Common validation\n\n| field | rule |\n| --- | --- |\n| linestopMail | max 500 characters |\n')
+  writeFile(dir, 'knowledge/data/validation/common.md', '# Common validation\n\n| field | rule |\n| --- | --- |\n| linestopMail | max 500 characters |\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m "update validation"')
 
   const result = await DRIFT.runTool({})
-  const entry = result._diffs.kb.find(e => e.kb_file === 'validation/common.md')
-  assert.ok(entry, 'validation/common.md entry present')
+  const entry = result._diffs.kb.find(e => e.kb_file === 'data/validation/common.md')
+  assert.ok(entry, 'data/validation/common.md entry present')
   assert.ok(Array.isArray(entry.changed_identifiers), 'changed_identifiers is an array')
   assert.ok(entry.changed_identifiers.includes('linestopMail'),
     `camelCase identifier extracted: ${JSON.stringify(entry.changed_identifiers)}`)
@@ -585,7 +585,7 @@ test('_diffs.v2: changed_identifiers extracted from KB diff', withRepo(async (di
 
 test('_diffs.v2: code_areas expansion produces matched files', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/validation/common.md', '# v1\n\n| roleType | required |\n')
+  writeFile(dir, 'knowledge/data/validation/common.md', '# v1\n\n| roleType | required |\n')
   writeFile(dir, 'src/validators/email.js', '// roleType check\n')
   writeFile(dir, 'src/validators/phone.js', '// phone\n')
   writeFile(dir, 'src/validators/login/Form.jsx', '// form\n')
@@ -593,12 +593,12 @@ test('_diffs.v2: code_areas expansion produces matched files', withRepo(async (d
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
-  writeFile(dir, 'knowledge/validation/common.md', '# v2\n\n| roleType | required, max 30 |\n')
+  writeFile(dir, 'knowledge/data/validation/common.md', '# v2\n\n| roleType | required, max 30 |\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m edit')
 
   const result = await DRIFT.runTool({})
-  const entry = result._diffs.kb.find(e => e.kb_file === 'validation/common.md')
+  const entry = result._diffs.kb.find(e => e.kb_file === 'data/validation/common.md')
   assert.ok(entry.code_areas, 'code_areas present')
   const area = entry.code_areas.find(a => a.pattern === 'src/validators/**')
   assert.ok(area, 'src/validators/** area present')
@@ -610,7 +610,7 @@ test('_diffs.v2: code_areas expansion produces matched files', withRepo(async (d
 
 test('_diffs.v2: code_areas expansion truncates past FILES_PER_AREA_CAP', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/validation/common.md', '# v1\n\n| roleType | required |\n')
+  writeFile(dir, 'knowledge/data/validation/common.md', '# v1\n\n| roleType | required |\n')
   for (let i = 0; i < 30; i++) {
     writeFile(dir, `src/validators/v${i}.js`, `// v${i}\n`)
   }
@@ -618,12 +618,12 @@ test('_diffs.v2: code_areas expansion truncates past FILES_PER_AREA_CAP', withRe
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
-  writeFile(dir, 'knowledge/validation/common.md', '# v2\n\n| roleType | required, max 30 |\n')
+  writeFile(dir, 'knowledge/data/validation/common.md', '# v2\n\n| roleType | required, max 30 |\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m edit')
 
   const result = await DRIFT.runTool({})
-  const entry = result._diffs.kb.find(e => e.kb_file === 'validation/common.md')
+  const entry = result._diffs.kb.find(e => e.kb_file === 'data/validation/common.md')
   const area = entry.code_areas.find(a => a.pattern === 'src/validators/**')
   assert.equal(area.truncated, true, 'truncation flagged')
   assert.equal(area.matched_sample.length, 25, 'sample capped at FILES_PER_AREA_CAP')
@@ -631,19 +631,19 @@ test('_diffs.v2: code_areas expansion truncates past FILES_PER_AREA_CAP', withRe
 
 test('_diffs.v2: grep intersection returns ranked hits', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/validation/common.md', '# v1\n\n| roleType | required |\n')
+  writeFile(dir, 'knowledge/data/validation/common.md', '# v1\n\n| roleType | required |\n')
   writeFile(dir, 'src/validators/high.js', '// roleType line\nfunction roleType() {}\nconst roleType = 1\n')
   writeFile(dir, 'src/validators/low.js', '// no mention\nconst x = 1\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
-  writeFile(dir, 'knowledge/validation/common.md', '# v2\n\n| roleType | required, max 30 |\n')
+  writeFile(dir, 'knowledge/data/validation/common.md', '# v2\n\n| roleType | required, max 30 |\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m edit')
 
   const result = await DRIFT.runTool({})
-  const entry = result._diffs.kb.find(e => e.kb_file === 'validation/common.md')
+  const entry = result._diffs.kb.find(e => e.kb_file === 'data/validation/common.md')
   const area = entry.code_areas.find(a => a.pattern === 'src/validators/**')
   assert.ok(area.hits_top.length > 0, 'hits_top populated')
   assert.equal(area.hits_top[0].file, 'src/validators/high.js', 'high-count file ranked first')
@@ -665,19 +665,19 @@ test('_diffs.v2: submodule pattern uses submodule grep and parent-relative hit p
 
   try {
     writeFile(parent, 'knowledge/_rules.md', RULES)
-    writeFile(parent, 'knowledge/validation/common.md', '# v1\n\n| roleType | required |\n')
+    writeFile(parent, 'knowledge/data/validation/common.md', '# v1\n\n| roleType | required |\n')
     sh(parent, 'git add .')
     sh(parent, 'git commit -q -m seed-parent')
     sh(parent, `git -c protocol.file.allow=always submodule add -q "${subSource}" sub`)
     sh(parent, 'git commit -q -m "add submodule"')
     await DRIFT.runTool({})
 
-    writeFile(parent, 'knowledge/validation/common.md', '# v2\n\n| roleType | required, max 30 |\n')
+    writeFile(parent, 'knowledge/data/validation/common.md', '# v2\n\n| roleType | required, max 30 |\n')
     sh(parent, 'git add .')
     sh(parent, 'git commit -q -m "edit kb"')
 
     const result = await DRIFT.runTool({})
-    const entry = result._diffs.kb.find(e => e.kb_file === 'validation/common.md')
+    const entry = result._diffs.kb.find(e => e.kb_file === 'data/validation/common.md')
     assert.ok(entry.code_areas, 'code_areas present')
     const area = entry.code_areas.find(a => a.pattern === 'sub/src/validators/**')
     assert.ok(area, 'submodule-rooted area present')
@@ -698,22 +698,22 @@ test('_diffs.v2: pattern_no_match skipped_reason when no files on disk', withRep
 version: "1.0"
 code_path_patterns:
   - intent: feature
-    kb_target: "features/{name}.md"
+    kb_target: "specs/features/{name}.md"
     paths:
       - "does-not-exist/**"
 ---
 `)
-  writeFile(dir, 'knowledge/features/ghost.md', '# v1\n\n| roleType | required |\n')
+  writeFile(dir, 'knowledge/specs/features/ghost.md', '# v1\n\n| roleType | required |\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
-  writeFile(dir, 'knowledge/features/ghost.md', '# v2\n\n| roleType | required, max 10 |\n')
+  writeFile(dir, 'knowledge/specs/features/ghost.md', '# v2\n\n| roleType | required, max 10 |\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m edit')
 
   const result = await DRIFT.runTool({})
-  const entry = result._diffs.kb.find(e => e.kb_file === 'features/ghost.md')
+  const entry = result._diffs.kb.find(e => e.kb_file === 'specs/features/ghost.md')
   assert.ok(entry.code_areas, 'code_areas present')
   const area = entry.code_areas[0]
   assert.equal(area.matched_count, 0)
@@ -738,7 +738,7 @@ test('_diffs.v2: renamed code-drift file uses --follow-aware cmd', withRepo(asyn
   sh(dir, 'git commit -q -m "rename and tweak"')
 
   const result = await DRIFT.runTool({})
-  const entry = result._diffs.code.find(e => e.kb_target === 'validation/common.md')
+  const entry = result._diffs.code.find(e => e.kb_target === 'data/validation/common.md')
   assert.ok(entry, 'entry present')
   const renamed = entry.files.find(f => f.renamedFrom)
   assert.ok(renamed, `renamed file present: ${JSON.stringify(entry.files)}`)
@@ -774,13 +774,13 @@ code_path_patterns: []
 
 test('_diffs.v2: include_diffs=false suppresses v2 fields too', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/validation/common.md', '# v1\n\n| roleType | required |\n')
+  writeFile(dir, 'knowledge/data/validation/common.md', '# v1\n\n| roleType | required |\n')
   writeFile(dir, 'src/validators/email.js', '// roleType\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
-  writeFile(dir, 'knowledge/validation/common.md', '# v2\n\n| roleType | required, max 30 |\n')
+  writeFile(dir, 'knowledge/data/validation/common.md', '# v2\n\n| roleType | required, max 30 |\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m edit')
 
@@ -791,18 +791,18 @@ test('_diffs.v2: include_diffs=false suppresses v2 fields too', withRepo(async (
 
 test('_diffs.v2: empty identifiers emit expansion-only areas', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/validation/common.md', '# Notes\n\nplain prose without identifiers\n')
+  writeFile(dir, 'knowledge/data/validation/common.md', '# Notes\n\nplain prose without identifiers\n')
   writeFile(dir, 'src/validators/email.js', '// seed\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
-  writeFile(dir, 'knowledge/validation/common.md', '# Notes\n\nplain prose without identifiers, but slightly different\n')
+  writeFile(dir, 'knowledge/data/validation/common.md', '# Notes\n\nplain prose without identifiers, but slightly different\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m edit')
 
   const result = await DRIFT.runTool({})
-  const entry = result._diffs.kb.find(e => e.kb_file === 'validation/common.md')
+  const entry = result._diffs.kb.find(e => e.kb_file === 'data/validation/common.md')
   assert.ok(entry, 'entry present')
   // When identifiers are empty, v2 still expands globs so the agent sees the
   // candidate file list — but skips grep. grep_cmd should be null in that case.
@@ -826,35 +826,35 @@ test('phase2: summaries with unknown kb_target returns not_found + error, does n
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
-  const result = await DRIFT.runTool({ summaries: [{ kb_target: 'features/ghost.md', summary: 'nope' }] })
+  const result = await DRIFT.runTool({ summaries: [{ kb_target: 'specs/features/ghost.md', summary: 'nope' }] })
   assert.equal(result.resolved, 0, 'nothing was actually closed')
   assert.equal(result.closed.length, 0, 'closed array is empty')
   assert.equal(result.not_found.length, 1, 'unknown target surfaces in not_found')
-  assert.equal(result.not_found[0].kb_target, 'features/ghost.md')
+  assert.equal(result.not_found[0].kb_target, 'specs/features/ghost.md')
   assert.ok(result.error, 'error field set when nothing matched')
   assert.ok(!result.not_found[0].hint, 'no cross-phase hint when target is truly absent')
 }))
 
 test('phase2: summaries on a kb-drift target hints kb_confirmed is the right phase', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n\nupdated\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n\nupdated\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m edit')
   await DRIFT.runTool({})
 
-  const result = await DRIFT.runTool({ summaries: [{ kb_target: 'features/login.md', summary: 'wrong phase' }] })
+  const result = await DRIFT.runTool({ summaries: [{ kb_target: 'specs/features/login.md', summary: 'wrong phase' }] })
   assert.equal(result.resolved, 0)
   assert.equal(result.not_found.length, 1)
   assert.match(result.not_found[0].hint, /kb_confirmed/, 'hint points at kb_confirmed')
   assert.ok(result.error)
 
   const kbDrift = fs.readFileSync(path.join(dir, 'knowledge/sync/kb-drift.md'), 'utf8')
-  assert.match(kbDrift, /## features\/login\.md/, 'kb-drift entry was NOT wrongly closed')
+  assert.match(kbDrift, /## specs\/features\/login\.md/, 'kb-drift entry was NOT wrongly closed')
 }))
 
 test('phase2: summaries with mixed valid+invalid closes valid, reports invalid', withRepo(async (dir) => {
@@ -871,18 +871,18 @@ test('phase2: summaries with mixed valid+invalid closes valid, reports invalid',
 
   const result = await DRIFT.runTool({
     summaries: [
-      { kb_target: 'features/auth.md', summary: 'valid update' },
-      { kb_target: 'features/ghost.md', summary: 'bogus' }
+      { kb_target: 'specs/features/auth.md', summary: 'valid update' },
+      { kb_target: 'specs/features/ghost.md', summary: 'bogus' }
     ]
   })
   assert.equal(result.resolved, 1, 'one valid entry closed')
-  assert.equal(result.closed[0].kb_target, 'features/auth.md')
+  assert.equal(result.closed[0].kb_target, 'specs/features/auth.md')
   assert.equal(result.not_found.length, 1)
-  assert.equal(result.not_found[0].kb_target, 'features/ghost.md')
+  assert.equal(result.not_found[0].kb_target, 'specs/features/ghost.md')
   assert.ok(result.error, 'partial failure still reports error')
 
   const codeDrift = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
-  assert.doesNotMatch(codeDrift, /## features\/auth\.md/, 'valid entry actually removed from queue')
+  assert.doesNotMatch(codeDrift, /## specs\/features\/auth\.md/, 'valid entry actually removed from queue')
 }))
 
 test('phase2: kb_confirmed on a code-drift target hints summaries is the right phase', withRepo(async (dir) => {
@@ -897,14 +897,14 @@ test('phase2: kb_confirmed on a code-drift target hints summaries is the right p
   sh(dir, 'git commit -q -m edit')
   await DRIFT.runTool({})
 
-  const result = await DRIFT.runTool({ kb_confirmed: [{ kb_file: 'features/auth.md' }] })
+  const result = await DRIFT.runTool({ kb_confirmed: [{ kb_file: 'specs/features/auth.md' }] })
   assert.equal(result.confirmed, 0)
   assert.equal(result.not_found.length, 1)
   assert.match(result.not_found[0].hint, /summaries/, 'hint points at summaries')
   assert.ok(result.error)
 
   const codeDrift = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
-  assert.match(codeDrift, /## features\/auth\.md/, 'code-drift entry was NOT wrongly closed')
+  assert.match(codeDrift, /## specs\/features\/auth\.md/, 'code-drift entry was NOT wrongly closed')
 }))
 
 test('phase2: reverted with unknown code_file reports not_found and does not inflate count', withRepo(async (dir) => {
@@ -934,24 +934,24 @@ test('phase2: reverted with unknown code_file reports not_found and does not inf
 
 test('phase2: kb_confirmed on valid entry still closes it and returns closed array', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n\nupdated\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n\nupdated\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m edit')
   await DRIFT.runTool({})
 
-  const result = await DRIFT.runTool({ kb_confirmed: [{ kb_file: 'features/login.md' }] })
+  const result = await DRIFT.runTool({ kb_confirmed: [{ kb_file: 'specs/features/login.md' }] })
   assert.equal(result.confirmed, 1)
-  assert.equal(result.closed[0].kb_file, 'features/login.md')
+  assert.equal(result.closed[0].kb_file, 'specs/features/login.md')
   assert.equal(result.not_found.length, 0)
   assert.ok(!result.error)
 
   const kbDrift = fs.readFileSync(path.join(dir, 'knowledge/sync/kb-drift.md'), 'utf8')
-  assert.doesNotMatch(kbDrift, /## features\/login\.md/, 'entry actually removed')
+  assert.doesNotMatch(kbDrift, /## specs\/features\/login\.md/, 'entry actually removed')
 }))
 
 // ── Phase 2d: dismiss ghost entries ──────────────────────────────────────────
@@ -969,46 +969,46 @@ test('dismiss: valid code-drift entry is removed and logged as DISMISSED', withR
   await DRIFT.runTool({})
 
   const codeBefore = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
-  assert.match(codeBefore, /## features\/auth\.md/, 'entry seeded in code-drift')
+  assert.match(codeBefore, /## specs\/features\/auth\.md/, 'entry seeded in code-drift')
 
   const result = await DRIFT.runTool({
-    dismiss: [{ queue: 'code-drift', queue_key: 'features/auth.md', reason: 'ghost entry from bad pattern' }]
+    dismiss: [{ queue: 'code-drift', queue_key: 'specs/features/auth.md', reason: 'ghost entry from bad pattern' }]
   })
   assert.equal(result.dismissed, 1)
   assert.equal(result.closed.length, 1)
   assert.equal(result.closed[0].queue, 'code-drift')
-  assert.equal(result.closed[0].queue_key, 'features/auth.md')
+  assert.equal(result.closed[0].queue_key, 'specs/features/auth.md')
   assert.equal(result.not_found.length, 0)
   assert.ok(!result.error)
 
   const codeAfter = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
-  assert.doesNotMatch(codeAfter, /## features\/auth\.md/, 'entry removed from queue')
+  assert.doesNotMatch(codeAfter, /## specs\/features\/auth\.md/, 'entry removed from queue')
 
   const logDir = path.join(dir, 'knowledge/sync/drift-log')
   const logContent = fs.readdirSync(logDir).map(f => fs.readFileSync(path.join(logDir, f), 'utf8')).join('\n')
   assert.match(logContent, /· DISMISSED · code-drift/, 'DISMISSED heading written')
-  assert.match(logContent, /\*\*Queue key:\*\* `features\/auth\.md`/, 'queue key recorded')
+  assert.match(logContent, /\*\*Queue key:\*\* `specs\/features\/auth\.md`/, 'queue key recorded')
   assert.match(logContent, /\*\*Reason:\*\* ghost entry from bad pattern/, 'reason recorded')
 }))
 
 test('dismiss: valid kb-drift entry is removed and logged', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m seed')
   await DRIFT.runTool({})
 
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n\nedit\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n\nedit\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m edit')
   await DRIFT.runTool({})
 
   const result = await DRIFT.runTool({
-    dismiss: [{ queue: 'kb-drift', queue_key: 'features/login.md', reason: 'test dismiss kb' }]
+    dismiss: [{ queue: 'kb-drift', queue_key: 'specs/features/login.md', reason: 'test dismiss kb' }]
   })
   assert.equal(result.dismissed, 1)
   const kbDrift = fs.readFileSync(path.join(dir, 'knowledge/sync/kb-drift.md'), 'utf8')
-  assert.doesNotMatch(kbDrift, /## features\/login\.md/, 'kb-drift entry removed')
+  assert.doesNotMatch(kbDrift, /## specs\/features\/login\.md/, 'kb-drift entry removed')
 }))
 
 test('dismiss: missing reason rejects the input and does not remove the entry', withRepo(async (dir) => {
@@ -1024,7 +1024,7 @@ test('dismiss: missing reason rejects the input and does not remove the entry', 
   await DRIFT.runTool({})
 
   const result = await DRIFT.runTool({
-    dismiss: [{ queue: 'code-drift', queue_key: 'features/auth.md', reason: '   ' }]
+    dismiss: [{ queue: 'code-drift', queue_key: 'specs/features/auth.md', reason: '   ' }]
   })
   assert.equal(result.dismissed, 0)
   assert.equal(result.not_found.length, 1)
@@ -1032,7 +1032,7 @@ test('dismiss: missing reason rejects the input and does not remove the entry', 
   assert.ok(result.error)
 
   const codeAfter = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
-  assert.match(codeAfter, /## features\/auth\.md/, 'entry NOT removed')
+  assert.match(codeAfter, /## specs\/features\/auth\.md/, 'entry NOT removed')
 }))
 
 test('dismiss: unknown queue value rejects input', withRepo(async (dir) => {
@@ -1058,7 +1058,7 @@ test('dismiss: key not in specified queue returns not_found', withRepo(async (di
   await DRIFT.runTool({})
 
   const result = await DRIFT.runTool({
-    dismiss: [{ queue: 'code-drift', queue_key: 'features/nope.md', reason: 'test' }]
+    dismiss: [{ queue: 'code-drift', queue_key: 'specs/features/nope.md', reason: 'test' }]
   })
   assert.equal(result.dismissed, 0)
   assert.equal(result.not_found.length, 1)
@@ -1080,14 +1080,14 @@ test('dismiss: mixed valid + invalid batch closes valid and reports invalid', wi
 
   const result = await DRIFT.runTool({
     dismiss: [
-      { queue: 'code-drift', queue_key: 'features/auth.md', reason: 'real ghost' },
-      { queue: 'code-drift', queue_key: 'features/nope.md', reason: 'not there' }
+      { queue: 'code-drift', queue_key: 'specs/features/auth.md', reason: 'real ghost' },
+      { queue: 'code-drift', queue_key: 'specs/features/nope.md', reason: 'not there' }
     ]
   })
   assert.equal(result.dismissed, 1)
-  assert.equal(result.closed[0].queue_key, 'features/auth.md')
+  assert.equal(result.closed[0].queue_key, 'specs/features/auth.md')
   assert.equal(result.not_found.length, 1)
-  assert.equal(result.not_found[0].queue_key, 'features/nope.md')
+  assert.equal(result.not_found[0].queue_key, 'specs/features/nope.md')
   assert.ok(result.error)
 }))
 
@@ -1125,7 +1125,7 @@ test('baseline advance: resolveWithSummaries moves baseline to entry Latest', wi
   assert.equal(readBaseline(dir, 'code-drift'), seedSha, 'baseline rewound to seed')
 
   const result = await DRIFT.runTool({
-    summaries: [{ kb_target: 'features/auth.md', summary: 'kb updated' }]
+    summaries: [{ kb_target: 'specs/features/auth.md', summary: 'kb updated' }]
   })
   assert.equal(result.resolved, 1)
   assert.equal(readBaseline(dir, 'code-drift'), editSha, 'resolve advanced baseline to entry Latest')
@@ -1151,7 +1151,7 @@ test('baseline advance: resolveWithSummaries does not roll baseline back', withR
   const beforeResolve = readBaseline(dir, 'code-drift')
 
   const result = await DRIFT.runTool({
-    summaries: [{ kb_target: 'features/auth.md', summary: 'kb updated' }]
+    summaries: [{ kb_target: 'specs/features/auth.md', summary: 'kb updated' }]
   })
   assert.equal(result.resolved, 1)
   assert.equal(readBaseline(dir, 'code-drift'), beforeResolve, 'baseline unchanged — no roll-back')
@@ -1180,13 +1180,13 @@ test('baseline advance: resolveReverted moves baseline to reverted file Latest',
 
 test('baseline advance: resolveKbConfirmed moves kb-drift baseline', withRepo(async (dir) => {
   writeFile(dir, 'knowledge/_rules.md', RULES)
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m seed')
   const seedSha = sh(dir, 'git rev-parse HEAD')
   await DRIFT.runTool({})
 
-  writeFile(dir, 'knowledge/features/login.md', '# Login v2\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login v2\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m edit')
   const editSha = sh(dir, 'git rev-parse HEAD')
@@ -1195,7 +1195,7 @@ test('baseline advance: resolveKbConfirmed moves kb-drift baseline', withRepo(as
   await DRIFT.runTool({ force_baseline: seedSha, purge: false })
   assert.equal(readBaseline(dir, 'kb-drift'), seedSha, 'baseline rewound to seed')
 
-  const result = await DRIFT.runTool({ kb_confirmed: [{ kb_file: 'features/login.md' }] })
+  const result = await DRIFT.runTool({ kb_confirmed: [{ kb_file: 'specs/features/login.md' }] })
   assert.equal(result.confirmed, 1)
   assert.equal(readBaseline(dir, 'kb-drift'), editSha, 'resolve advanced kb-drift baseline to entry Latest')
 }))
@@ -1218,7 +1218,7 @@ test('baseline advance: resolveDismissed advances per-queue baseline for dismiss
   const kbBefore = readBaseline(dir, 'kb-drift')
 
   const result = await DRIFT.runTool({
-    dismiss: [{ queue: 'code-drift', queue_key: 'features/auth.md', reason: 'ghost' }]
+    dismiss: [{ queue: 'code-drift', queue_key: 'specs/features/auth.md', reason: 'ghost' }]
   })
   assert.equal(result.dismissed, 1)
   assert.equal(readBaseline(dir, 'code-drift'), editSha, 'code-drift baseline advanced on dismiss')
@@ -1251,7 +1251,7 @@ test('baseline advance: partial drain only uses resolved entries\' Latest', with
   // Resolve only the auth entry — baseline should advance to authSha,
   // not all the way to the billing commit.
   const result = await DRIFT.runTool({
-    summaries: [{ kb_target: 'features/auth.md', summary: 'kb updated for auth' }]
+    summaries: [{ kb_target: 'specs/features/auth.md', summary: 'kb updated for auth' }]
   })
   assert.equal(result.resolved, 1)
   assert.equal(readBaseline(dir, 'code-drift'), authSha, 'baseline advanced only to resolved entry\'s Latest')
@@ -1283,7 +1283,7 @@ test('baseline advance: unreachable (e.g. submodule) Latest does not advance bas
   fs.writeFileSync(codeDriftPath, rewritten)
 
   const result = await DRIFT.runTool({
-    summaries: [{ kb_target: 'features/auth.md', summary: 'kb updated' }]
+    summaries: [{ kb_target: 'specs/features/auth.md', summary: 'kb updated' }]
   })
   assert.equal(result.resolved, 1)
   assert.equal(readBaseline(dir, 'code-drift'), seedSha, 'baseline unchanged when Latest is unreachable')
@@ -1332,8 +1332,8 @@ test('patterns.js: name_regex that does not match leaves basename untouched', ()
 test('pickBestMatch: path-anchored feature pattern beats basename-only file-type pattern', () => {
   const { pickBestMatch } = require('../lib/patterns')
   const patterns = [
-    { intent: 'validation', kb_target: 'validation/common.md', paths: ['*RequestDto.java'] },
-    { intent: 'feature', kb_target: 'features/user-definition.md', paths: ['**/userdefinition/**'] }
+    { intent: 'validation', kb_target: 'data/validation/common.md', paths: ['*RequestDto.java'] },
+    { intent: 'feature', kb_target: 'specs/features/user-definition.md', paths: ['**/userdefinition/**'] }
   ]
   const file = 'src/main/java/com/example/userdefinition/UserDefinitionRequestDto.java'
   const winner = pickBestMatch(file, patterns)
@@ -1372,11 +1372,11 @@ test('pickBestMatch: drift uses specificity — feature pattern wins over valida
 version: "1.0"
 code_path_patterns:
   - intent: validation
-    kb_target: "validation/common.md"
+    kb_target: "data/validation/common.md"
     paths:
       - "*RequestDto.java"
   - intent: feature
-    kb_target: "features/user-definition.md"
+    kb_target: "specs/features/user-definition.md"
     paths:
       - "**/userdefinition/**"
 ---
@@ -1395,8 +1395,8 @@ code_path_patterns:
   const result = await DRIFT.runTool({})
   assert.ok(!result.error, `unexpected error: ${result.error}`)
   const code = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
-  assert.match(code, /## features\/user-definition\.md/, 'entry should be routed to feature kb_target')
-  assert.doesNotMatch(code, /## validation\/common\.md/, 'entry should NOT be routed to validation/common.md')
+  assert.match(code, /## specs\/features\/user-definition\.md/, 'entry should be routed to feature kb_target')
+  assert.doesNotMatch(code, /## data\/validation\/common\.md/, 'entry should NOT be routed to validation/common.md')
 }))
 
 // ── 1B: submodule diff is anchored at parent gitlink, not working HEAD ───────
@@ -1482,7 +1482,7 @@ const FANOUT_RULES = `---
 version: "1.0"
 code_path_patterns:
   - intent: feature
-    kb_target: "features/{name}.md"
+    kb_target: "specs/features/{name}.md"
     paths:
       - "src/auth/**"
   - intent: component
@@ -1490,7 +1490,7 @@ code_path_patterns:
     paths:
       - "src/**Form*"
   - intent: form
-    kb_target: "features/{name}.md"
+    kb_target: "specs/features/{name}.md"
     paths:
       - "src/**Form*"
 ---
@@ -1516,7 +1516,7 @@ test('P0 fan-out: one code file matching two patterns with distinct kb_targets p
   assert.equal(result.code_entries_new, 2, 'two code→KB entries created (one per kb_target)')
 
   const code = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
-  assert.match(code, /## features\/AuthForm\.md/, 'feature kb_target gets entry')
+  assert.match(code, /## specs\/features\/AuthForm\.md/, 'feature kb_target gets entry')
   assert.match(code, /## components\/AuthForm\.md/, 'component kb_target gets entry')
 }))
 
@@ -1541,8 +1541,8 @@ test('P0 fan-out: two patterns resolving to same kb_target dedup to one entry', 
   assert.equal(result.code_entries_new, 2, 'three patterns dedup to two distinct kb_targets')
 
   const code = fs.readFileSync(path.join(dir, 'knowledge/sync/code-drift.md'), 'utf8')
-  const featuresCount = (code.match(/## features\/LoginForm\.md/g) || []).length
-  assert.equal(featuresCount, 1, 'features/LoginForm.md appears exactly once (dedup works)')
+  const featuresCount = (code.match(/## specs\/features\/LoginForm\.md/g) || []).length
+  assert.equal(featuresCount, 1, 'specs/features/LoginForm.md appears exactly once (dedup works)')
 }))
 
 test('P0 fan-out: rename moves file out of one pattern, keeps the others', withRepo(async (dir) => {

@@ -45,18 +45,18 @@ function withRepo(fn) {
 }
 
 test('returns commit history with file-scoped numstat', withRepo(async (dir) => {
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n\nv1\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n\nv1\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m "add login feature"')
 
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n\nv1\n\n## New section\n\nmore\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n\nv1\n\n## New section\n\nmore\n')
   writeFile(dir, 'unrelated.md', 'noise\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m "mixed commit touching multiple files"')
 
-  const result = await HISTORY.runTool({ file: 'knowledge/features/login.md' })
+  const result = await HISTORY.runTool({ file: 'knowledge/specs/features/login.md' })
 
-  assert.equal(result.file, 'knowledge/features/login.md')
+  assert.equal(result.file, 'knowledge/specs/features/login.md')
   assert.equal(result.commits.length, 2)
   // Most recent commit first
   assert.equal(result.commits[0].subject, 'mixed commit touching multiple files')
@@ -69,22 +69,22 @@ test('returns commit history with file-scoped numstat', withRepo(async (dir) => 
 }))
 
 test('include_diff: true returns patch bodies', withRepo(async (dir) => {
-  writeFile(dir, 'knowledge/features/login.md', 'line1\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', 'line1\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m "init"')
 
-  writeFile(dir, 'knowledge/features/login.md', 'line1\nline2\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', 'line1\nline2\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m "add line"')
 
-  const result = await HISTORY.runTool({ file: 'knowledge/features/login.md', include_diff: true })
+  const result = await HISTORY.runTool({ file: 'knowledge/specs/features/login.md', include_diff: true })
 
   assert.ok(result.commits[0].patch, 'patch should be present when include_diff is true')
   assert.match(result.commits[0].patch, /\+line2/)
 }))
 
 test('collects drift-log mentions that reference the file', withRepo(async (dir) => {
-  writeFile(dir, 'knowledge/features/login.md', '# Login\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '# Login\n')
   writeFile(dir, 'knowledge/sync/drift-log/2026-04.md', [
     '# April drift log',
     '',
@@ -100,7 +100,7 @@ test('collects drift-log mentions that reference the file', withRepo(async (dir)
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m "seed"')
 
-  const result = await HISTORY.runTool({ file: 'knowledge/features/login.md' })
+  const result = await HISTORY.runTool({ file: 'knowledge/specs/features/login.md' })
 
   assert.equal(result.drift_log_mentions.length, 1)
   assert.equal(result.drift_log_mentions[0].section, 'auth rename')
@@ -108,14 +108,14 @@ test('collects drift-log mentions that reference the file', withRepo(async (dir)
 }))
 
 test('follows renames via git --follow', withRepo(async (dir) => {
-  writeFile(dir, 'knowledge/features/old-name.md', '# Old\n\ncontent\n')
+  writeFile(dir, 'knowledge/specs/features/old-name.md', '# Old\n\ncontent\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m "add old-name"')
 
-  sh(dir, 'git mv knowledge/features/old-name.md knowledge/features/new-name.md')
+  sh(dir, 'git mv knowledge/specs/features/old-name.md knowledge/specs/features/new-name.md')
   sh(dir, 'git commit -q -m "rename to new-name"')
 
-  const result = await HISTORY.runTool({ file: 'knowledge/features/new-name.md' })
+  const result = await HISTORY.runTool({ file: 'knowledge/specs/features/new-name.md' })
   // --follow should surface both the rename commit and the original creation
   assert.equal(result.commits.length, 2)
 }))
@@ -137,15 +137,15 @@ test('accepts bare path without knowledge/ prefix', withRepo(async (dir) => {
 }))
 
 test('limit caps number of commits returned', withRepo(async (dir) => {
-  writeFile(dir, 'knowledge/features/login.md', '0\n')
+  writeFile(dir, 'knowledge/specs/features/login.md', '0\n')
   sh(dir, 'git add .')
   sh(dir, 'git commit -q -m "c0"')
   for (let i = 1; i <= 5; i++) {
-    writeFile(dir, 'knowledge/features/login.md', `${i}\n`)
+    writeFile(dir, 'knowledge/specs/features/login.md', `${i}\n`)
     sh(dir, 'git add .')
     sh(dir, `git commit -q -m "c${i}"`)
   }
 
-  const result = await HISTORY.runTool({ file: 'knowledge/features/login.md', limit: 3 })
+  const result = await HISTORY.runTool({ file: 'knowledge/specs/features/login.md', limit: 3 })
   assert.equal(result.commits.length, 3)
 }))

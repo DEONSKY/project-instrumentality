@@ -38,7 +38,7 @@ function getDependents(graph, id) {
   const results = []
   for (const [filePath, entry] of Object.entries(graph.files || {})) {
     const deps = entry.depends_on || []
-    // Exact match or path-segment match (e.g. "features/auth" matches dep "features/auth")
+    // Exact match or path-segment match (e.g. "specs/features/auth" matches dep "specs/features/auth")
     const inDeps = deps.some(d => d === id || d.endsWith('/' + id))
     const inFlows = (entry.affects_flows || []).some(f => f === id || f.endsWith('/' + id))
     if (inDeps || inFlows) {

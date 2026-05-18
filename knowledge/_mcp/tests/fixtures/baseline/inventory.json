@@ -14,7 +14,7 @@
       "rule_id": "must-have-description",
       "file": "standards/knowledge/validation-feature-doc-shape.md",
       "paths": [
-        "knowledge/features/**"
+        "knowledge/specs/features/**"
       ],
       "reason": "no source file matches applies_to.paths"
     }

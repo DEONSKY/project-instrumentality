@@ -4,7 +4,7 @@
 
 code_path_patterns:
   - intent: service-logic
-    kb_target: "flows/{name}.md"
+    kb_target: "specs/flows/{name}.md"
     paths:
       - "src/**/*.py"
       - "src/*.py"
@@ -25,7 +25,7 @@ code_path_patterns:
       case: kebab
 
   - intent: api-contract
-    kb_target: "features/{name}.api.md"
+    kb_target: "specs/features/{name}.api.md"
     paths:
       - "src/api/**/*.py"
       - "api/**/*.py"
@@ -34,13 +34,13 @@ code_path_patterns:
       case: kebab
 
   - intent: validation
-    kb_target: "validation/common.md"
+    kb_target: "data/validation/common.md"
     paths:
       - "src/validators/**/*.py"
       - "validators/**/*.py"
 
   - intent: route-guard
-    kb_target: "flows/{name}.guards.md"
+    kb_target: "specs/flows/{name}.guards.md"
     paths:
       - "src/middleware/**/*.py"
       - "middleware/**/*.py"

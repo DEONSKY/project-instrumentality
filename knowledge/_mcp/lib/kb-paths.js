@@ -10,10 +10,10 @@ function getTemplatesDir() {
 }
 
 const TYPE_TO_PATH = {
-  feature: 'features/{id}.md',
-  flow: 'flows/{id}.md',
+  feature: 'specs/features/{id}.md',
+  flow: 'specs/flows/{id}.md',
   schema: 'data/schema/{id}.md',
-  validation: 'validation/{id}.md',
+  validation: 'data/validation/{id}.md',
   integration: 'integrations/{id}.md',
   decision: 'decisions/{id}.md',
   standard: 'standards/{id}.md',
@@ -59,15 +59,15 @@ const CLASSIFY_TYPE_TO_SCAFFOLD = {
 
 function getGroupFolder(type) {
   const map = {
-    feature: 'features',
-    flow: 'flows',
+    feature: 'specs/features',
+    flow: 'specs/flows',
     schema: 'data/schema',
-    validation: 'validation',
+    validation: 'data/validation',
     integration: 'integrations',
     decision: 'decisions',
     standard: 'standards'
   }
-  return map[type] || 'features'
+  return map[type] || 'specs/features'
 }
 
 // Valid sub-folders under standards/<group>/<id>.md. Surfaced to scaffold/extract
@@ -89,7 +89,7 @@ function resolveFilePath(type, id, group) {
     const base = template.replace('{id}', id)
     if (group) {
       const parts = base.split('/')
-      parts.splice(1, 0, group)
+      parts.splice(parts.length - 1, 0, group)
       return path.join(KB_ROOT, parts.join('/'))
     }
     return path.join(KB_ROOT, base)
