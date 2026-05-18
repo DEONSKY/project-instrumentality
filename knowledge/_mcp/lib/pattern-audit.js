@@ -4,6 +4,35 @@ const crypto = require('crypto')
 const { globMatch } = require('./patterns')
 const { canonicalize } = require('./promotion-ledger')
 
+// Helpers for `kb_target` being either a string or an array of fallback
+// alternatives (the resolver in patterns.js prefers the first existing one).
+// Audit logic operates over the full candidate list so a single bad entry in
+// an otherwise-valid array doesn't slip through.
+function targetCandidates(target) {
+  if (!target) return []
+  return Array.isArray(target) ? target : [target]
+}
+function isHardcoded(target) {
+  const cs = targetCandidates(target)
+  return cs.length > 0 && cs.every(c => !c.includes('{name}'))
+}
+function kbFileMatchesTarget(target, kbPath) {
+  for (const c of targetCandidates(target)) {
+    if (c.includes('{name}') || c.includes('*')) {
+      const re = new RegExp('^' + c
+        .replace(/\./g, '\\.')
+        .replace(/\{name\}/g, '[^/]+')
+        .replace(/\*\*/g, '__DS__')
+        .replace(/\*/g, '[^/]*')
+        .replace(/__DS__/g, '.*') + '$')
+      if (re.test(kbPath)) return true
+    } else if (c === kbPath) {
+      return true
+    }
+  }
+  return false
+}
+
 // Intent → expected folder convention. Hardcoded from the bundled presets.
 // Every finding emitted by auditPatterns carries a `source:` field so callers
 // can tell preset opinion (`source: 'preset'`, used by convention_violation)
@@ -126,7 +155,16 @@ const VALID_CASE = new Set(['kebab', 'camel', 'pascal', 'snake'])
 function validateCodePathPattern(p) {
   const errors = []
   if (!p || typeof p !== 'object') return { valid: false, errors: ['pattern is not an object'] }
-  if (!p.kb_target || typeof p.kb_target !== 'string') errors.push('missing kb_target')
+  if (!p.kb_target) {
+    errors.push('missing kb_target')
+  } else if (typeof p.kb_target !== 'string' && !Array.isArray(p.kb_target)) {
+    errors.push('kb_target must be a string or array of strings')
+  } else if (Array.isArray(p.kb_target)) {
+    if (p.kb_target.length === 0) errors.push('kb_target array must be non-empty')
+    for (const t of p.kb_target) {
+      if (typeof t !== 'string') { errors.push('kb_target array entries must be strings'); break }
+    }
+  }
   if (!Array.isArray(p.paths) || p.paths.length === 0) errors.push('paths required and non-empty')
   else for (const g of p.paths) {
     if (typeof g !== 'string') { errors.push('paths must be string globs'); break }
@@ -180,29 +218,36 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
     }
   }
 
-  // 2. Ghost targets: hardcoded kb_target (no {name}) points at a file that
-  //    doesn't exist. Template targets are draft opportunities, not ghosts.
+  // 2. Ghost targets: fully-hardcoded kb_target (no {name} in any candidate)
+  //    where NONE of the candidates exist on disk. With array form, the
+  //    resolver picks the first existing file as the live target — only
+  //    flag when every alternative is missing.
   for (let i = 0; i < patterns.length; i++) {
     const p = patterns[i]
-    if (!p.kb_target || p.kb_target.includes('{name}')) continue
-    if (!kbFileSet.has(p.kb_target)) {
+    if (!isHardcoded(p.kb_target)) continue
+    const cs = targetCandidates(p.kb_target)
+    if (cs.every(c => !kbFileSet.has(c))) {
       findings.push({
         type: 'ghost_target',
         pattern_index: i,
-        resolved_target: p.kb_target,
+        resolved_target: cs[0],
         reason: 'kb_file_missing',
         source: '_rules.md',
       })
     }
   }
 
-  // 3. Convention violations: intent → folder mismatch.
+  // 3. Convention violations: intent → folder mismatch. With array form,
+  //    flag if ANY candidate is outside the expected folder — a single
+  //    mis-rooted alternative is still a rule-correctness bug.
   for (let i = 0; i < patterns.length; i++) {
     const p = patterns[i]
     if (!p.intent || !p.kb_target) continue
     const expected = INTENT_FOLDER_CONVENTIONS[p.intent]
     if (!expected) continue
-    if (!p.kb_target.startsWith(expected)) {
+    const cs = targetCandidates(p.kb_target)
+    const offender = cs.find(c => !c.startsWith(expected))
+    if (offender) {
       findings.push({
         type: 'convention_violation',
         pattern_index: i,
@@ -218,16 +263,7 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
   //    folder. One finding per folder, with count + 3-5 samples.
   const unmappedByFolder = new Map()
   for (const kb of kbFiles) {
-    const targeted = patterns.some(p => {
-      const tgt = p.kb_target || ''
-      if (tgt.includes('{name}')) {
-        // Template target — does this kb file fit the pattern shape?
-        // e.g. "features/{name}.md" matches "features/auth.md" but not "components/x.md".
-        const re = new RegExp('^' + tgt.replace(/\./g, '\\.').replace(/\{name\}/g, '[^/]+') + '$')
-        return re.test(kb)
-      }
-      return tgt === kb
-    })
+    const targeted = patterns.some(p => kbFileMatchesTarget(p.kb_target, kb))
     if (!targeted) {
       const folder = kb.split('/')[0] + '/'
       if (!unmappedByFolder.has(folder)) unmappedByFolder.set(folder, [])
@@ -244,12 +280,14 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
     })
   }
 
-  // 5. Fan-out with hardcoded target: a pattern with no {name} template that
-  //    catches files of many distinct names — likely overbroad, since one
-  //    KB file is supposed to document one concept.
+  // 5. Fan-out with hardcoded target: a fully-hardcoded pattern (no {name}
+  //    in any candidate) that catches files of many distinct names —
+  //    likely overbroad, since one KB file is supposed to document one
+  //    concept. Array-form rules with {name} fallbacks skip this check
+  //    because they're already templated.
   for (let i = 0; i < patterns.length; i++) {
     const p = patterns[i]
-    if (!p.kb_target || p.kb_target.includes('{name}')) continue
+    if (!isHardcoded(p.kb_target)) continue
     const matched = sourceFiles.filter(f => (p.paths || []).some(g => globMatch(f, g)))
     if (matched.length <= 3) continue  // few files = probably right
     // distinct basename (sans ext) count as a proxy for "distinct concepts"
@@ -274,14 +312,7 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
  * pattern shape the agent can edit into _rules.md.
  */
 function checkSingleKbFile(kbRelPath, patterns) {
-  const targeted = patterns.some(p => {
-    const tgt = p.kb_target || ''
-    if (tgt.includes('{name}')) {
-      const re = new RegExp('^' + tgt.replace(/\./g, '\\.').replace(/\{name\}/g, '[^/]+') + '$')
-      return re.test(kbRelPath)
-    }
-    return tgt === kbRelPath
-  })
+  const targeted = patterns.some(p => kbFileMatchesTarget(p.kb_target, kbRelPath))
   if (targeted) return { unmapped: false }
 
   const folder = kbRelPath.split('/')[0]
@@ -347,13 +378,7 @@ function computePatternFingerprint(pattern) {
  */
 function findPatternForKbTarget(queueKbTarget, patterns) {
   for (const p of patterns) {
-    const tgt = p.kb_target || ''
-    if (tgt.includes('{name}')) {
-      const re = new RegExp('^' + tgt.replace(/\./g, '\\.').replace(/\{name\}/g, '[^/]+') + '$')
-      if (re.test(queueKbTarget)) return p
-    } else if (tgt === queueKbTarget) {
-      return p
-    }
+    if (kbFileMatchesTarget(p.kb_target, queueKbTarget)) return p
   }
   return null
 }

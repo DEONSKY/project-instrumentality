@@ -297,3 +297,89 @@ test('findPatternForKbTarget returns null when no pattern matches', () => {
   ]
   assert.equal(findPatternForKbTarget('flows/checkout.md', patterns), null)
 })
+
+// ── array-form kb_target (alternative-targets fallback) ─────────────────────
+
+test('validateCodePathPattern accepts array kb_target', () => {
+  const r = validateCodePathPattern({
+    intent: 'feature',
+    kb_target: ['features/{name}.md', 'features/{name}s.md'],
+    paths: ['src/**Controller*'],
+  })
+  assert.equal(r.valid, true, `unexpected errors: ${r.errors.join(', ')}`)
+})
+
+test('validateCodePathPattern rejects empty array kb_target', () => {
+  const r = validateCodePathPattern({ kb_target: [], paths: ['src/**'] })
+  assert.equal(r.valid, false)
+  assert.match(r.errors.join(' '), /kb_target array must be non-empty/)
+})
+
+test('validateCodePathPattern rejects array with non-string entries', () => {
+  const r = validateCodePathPattern({ kb_target: ['ok.md', 42], paths: ['src/**'] })
+  assert.equal(r.valid, false)
+  assert.match(r.errors.join(' '), /kb_target array entries must be strings/)
+})
+
+test('auditPatterns: ghost_target skips array-form with a {name} alternative', () => {
+  // Mixed array (one literal missing, one {name} template) — templated overall, no ghost.
+  const { findings } = auditPatterns({
+    patterns: [{ kb_target: ['legacy/dropped.md', 'features/{name}.md'], paths: ['src/**'] }],
+    sourceFiles: ['src/foo.js'],
+    kbFiles: [],
+  })
+  assert.equal(findings.some(f => f.type === 'ghost_target'), false)
+})
+
+test('auditPatterns: ghost_target fires when all hardcoded array candidates are missing', () => {
+  const { findings } = auditPatterns({
+    patterns: [{ kb_target: ['legacy/a.md', 'legacy/b.md'], paths: ['src/**'] }],
+    sourceFiles: ['src/foo.js'],
+    kbFiles: ['features/other.md'],
+  })
+  const ghost = findings.find(f => f.type === 'ghost_target')
+  assert.ok(ghost)
+  // resolved_target should be the first candidate (canonical scaffold path)
+  assert.equal(ghost.resolved_target, 'legacy/a.md')
+})
+
+test('auditPatterns: ghost_target suppressed when ANY hardcoded array candidate exists', () => {
+  const { findings } = auditPatterns({
+    patterns: [{ kb_target: ['legacy/missing.md', 'features/buffer-definitions.md'], paths: ['src/**'] }],
+    sourceFiles: ['src/foo.js'],
+    kbFiles: ['features/buffer-definitions.md'],
+  })
+  assert.equal(findings.some(f => f.type === 'ghost_target'), false)
+})
+
+test('auditPatterns: convention_violation fires when any array candidate is in the wrong folder', () => {
+  const { findings } = auditPatterns({
+    patterns: [{ intent: 'api-contract', kb_target: ['features/{name}.md', 'data/{name}.md'], paths: ['src/**Controller*'] }],
+    sourceFiles: ['src/FooController.java'],
+    kbFiles: [],
+  })
+  assert.ok(findings.some(f => f.type === 'convention_violation'))
+})
+
+test('checkSingleKbFile reports not-unmapped when array-form template matches', () => {
+  const r = checkSingleKbFile('features/auth.md', [
+    { kb_target: ['features/{name}.md', 'features/{name}s.md'], paths: ['src/**'] },
+  ])
+  assert.equal(r.unmapped, false)
+})
+
+test('checkSingleKbFile reports not-unmapped when plural-alias candidate matches', () => {
+  // Singular template misses, plural template hits — array form keeps the file mapped.
+  const r = checkSingleKbFile('features/buffer-definitions.md', [
+    { kb_target: ['features/{name}.md', 'features/{name}s.md'], paths: ['src/**'] },
+  ])
+  assert.equal(r.unmapped, false)
+})
+
+test('findPatternForKbTarget matches when target appears in array-form candidate', () => {
+  const patterns = [
+    { kb_target: ['features/{name}.md', 'features/{name}s.md'], paths: ['src/**'] },
+  ]
+  const r = findPatternForKbTarget('features/buffer-definitions.md', patterns)
+  assert.ok(r)
+})

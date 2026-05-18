@@ -700,6 +700,31 @@ async function handleAction(
       }
       return;
     }
+    case "scaffold": {
+      if (entry.promptInput.kind !== "code-drift") {
+        void vscode.window.showWarningMessage(
+          "Instrumentality: Scaffold is only available on code-drift entries."
+        );
+        return;
+      }
+      const cdEntry = entry.promptInput.entry;
+      const fileList = cdEntry.codeFiles.map((f) => `- \`${f.path}\``).join("\n");
+      const prompt = [
+        `The KB target \`${cdEntry.kbTarget}\` does not exist yet but is required by a \`code_path_patterns\` rule in \`_rules.md\`. The following code file(s) currently have no documentation:`,
+        "",
+        fileList,
+        "",
+        "Please:",
+        `1. Run \`kb_scaffold\` to create \`${cdEntry.kbTarget}\` using the appropriate template (infer type and group from the path).`,
+        "2. Read the listed code file(s) and follow the returned fill prompt to populate the new KB doc from their actual behavior — fields, endpoints, validation, etc.",
+        "3. Run `kb_autotag` on the new file so it becomes discoverable via `kb_get`.",
+        "",
+        "If the code is **not** meant to be documented (test fixture, deprecated, internal-only), propose adding an `exceptions:` entry to the matching `code_path_patterns` rule in `_rules.md` instead of scaffolding — and explain why before making the change.",
+      ].join("\n");
+      const result = await sendPrompt(prompt);
+      void vscode.window.showInformationMessage(`Instrumentality: ${result.message}`);
+      return;
+    }
     case "openStandard": {
       if (!entry.standardId || !kbRoot) {
         void vscode.window.showWarningMessage("Instrumentality: no standard id for this entry.");

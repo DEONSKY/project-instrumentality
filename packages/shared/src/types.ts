@@ -304,13 +304,16 @@ export type PatternAuditFinding =
       type: "orphan_pattern";
       pattern_index: number;
       intent?: string;
-      kb_target: string;
+      // Mirrors the rule's `kb_target` field — string OR string[] when the
+      // pattern declares fallback alternatives.
+      kb_target: string | string[];
       paths: string[];
       is_submodule_pattern: boolean;
     }
   | {
       type: "ghost_target";
       pattern_index: number;
+      // Always a single resolved path (the first candidate when array form).
       resolved_target: string;
       reason: "kb_file_missing";
     }
@@ -318,7 +321,7 @@ export type PatternAuditFinding =
       type: "convention_violation";
       pattern_index: number;
       intent: string;
-      kb_target: string;
+      kb_target: string | string[];
       expected_folder: string;
     }
   | {
@@ -330,12 +333,22 @@ export type PatternAuditFinding =
   | {
       type: "fanout_with_hardcoded";
       pattern_index: number;
-      kb_target: string;
+      kb_target: string | string[];
       distinct_concepts: number;
     };
 
 export interface PatternAudit {
   findings: PatternAuditFinding[];
+}
+
+/**
+ * Normalize a `kb_target` field (string or array of fallback alternatives)
+ * to a single user-readable string for display. Joins arrays with ` | ` so
+ * the UI shows all candidates without picking one — that disambiguation
+ * happens at resolve time, not at display time.
+ */
+export function formatKbTarget(t: string | string[]): string {
+  return Array.isArray(t) ? t.join(" | ") : t;
 }
 
 // ── Submodule status ────────────────────────────────────────────────────────

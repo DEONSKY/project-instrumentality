@@ -13,14 +13,25 @@ function reverseMapKbTarget(kbRelative, patterns) {
 }
 
 function matchesKbTargetPattern(patternTarget, actualPath) {
-  const regexStr = patternTarget
-    .replace(/\./g, '\\.')
-    .replace(/\{name\}/g, '[^/]+')
-  try {
-    return new RegExp(`^${regexStr}$`).test(actualPath)
-  } catch {
-    return patternTarget === actualPath
+  // `patternTarget` is a rule's `kb_target` field — string OR string[]. An
+  // array matches if any candidate matches. Globs inside a candidate are also
+  // converted to regex so recursive-form rules (e.g. recursive-glob feature
+  // paths) can be reverse-mapped too.
+  const candidates = Array.isArray(patternTarget) ? patternTarget : [patternTarget]
+  for (const c of candidates) {
+    const regexStr = c
+      .replace(/\./g, '\\.')
+      .replace(/\{name\}/g, '[^/]+')
+      .replace(/\*\*/g, '__DS__')
+      .replace(/\*/g, '[^/]*')
+      .replace(/__DS__/g, '.*')
+    try {
+      if (new RegExp(`^${regexStr}$`).test(actualPath)) return true
+    } catch {
+      if (c === actualPath) return true
+    }
   }
+  return false
 }
 
 function isKbContentFile(file) {

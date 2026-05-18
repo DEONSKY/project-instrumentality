@@ -87,6 +87,9 @@ async function handleMessage(msg: any): Promise<void> {
     case "open":
       await cb.onAction({ type: "open", ref: msg.ref });
       return;
+    case "scaffold":
+      await cb.onAction({ type: "scaffold", ref: msg.ref });
+      return;
     case "openStandard":
       await cb.onAction({ type: "openStandard", ref: msg.ref });
       return;

@@ -120,6 +120,9 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
       case "open":
         await this.cb.onAction({ type: "open", ref: msg.ref });
         return;
+      case "scaffold":
+        await this.cb.onAction({ type: "scaffold", ref: msg.ref });
+        return;
       case "openStandard":
         await this.cb.onAction({ type: "openStandard", ref: msg.ref });
         return;

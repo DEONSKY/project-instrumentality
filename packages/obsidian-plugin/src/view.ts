@@ -7,6 +7,7 @@ import {
   type RenderedEntry,
 } from "./view-helpers";
 import { confirmModal, selectModal } from "./view-modals";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
 import {
@@ -17,6 +18,7 @@ import {
   findRuleLineRange,
   primaryActionLabel,
   copyActionLabel,
+  formatKbTarget,
   pipelineSegments,
   buildEntryHandles,
   groupEntries,
@@ -894,7 +896,10 @@ export class InstrumentalityView extends ItemView {
 
   private renderCodeDriftRow(parent: HTMLElement, e: CodeDriftEntry, i: number, isUncommitted: boolean = false): void {
     const id = stableEntryId(e.kbTarget, i);
-    const sev = e.hasShared ? "warn" : "info";
+    const targetMissing = this.kbRoot
+      ? !fs.existsSync(path.join(this.kbRoot, "knowledge", e.kbTarget))
+      : false;
+    const sev = targetMissing || e.hasShared ? "warn" : "info";
     const text = e.kbTarget + " " + e.codeFiles.map((f) => f.path).join(" ");
     const summary = (h2: HTMLElement) => {
       h2.createSpan({ cls: "title", text: e.kbTarget });
@@ -904,6 +909,13 @@ export class InstrumentalityView extends ItemView {
           cls: "badge preview-mode",
           text: "preview",
           attr: { title: "Uncommitted preview — not yet published" },
+        });
+      }
+      if (targetMissing) {
+        h2.createSpan({
+          cls: "badge sev-warn",
+          text: "missing",
+          attr: { title: "Target KB file does not exist — click Scaffold to create it" },
         });
       }
     };
@@ -917,6 +929,16 @@ export class InstrumentalityView extends ItemView {
       row.createSpan({ text: "KB target: " });
       row.createEl("code", { text: e.kbTarget });
       this.renderAcknowledgement(div, e.acknowledgement);
+      if (targetMissing) {
+        const note = div.createDiv({ cls: "rule-row warn-note" });
+        note.createSpan({ text: "⚠ Target KB file does not exist. Use " });
+        note.createEl("strong", { text: "Scaffold KB doc" });
+        note.createSpan({ text: " to copy a scaffold prompt for the agent, or add an exception to the matching " });
+        note.createEl("code", { text: "code_path_patterns" });
+        note.createSpan({ text: " entry in " });
+        note.createEl("code", { text: "_rules.md" });
+        note.createSpan({ text: " if this code should not be documented." });
+      }
       const filesBlock = div.createDiv();
       filesBlock.createEl("strong", { text: "Changed files:" });
       const ul = filesBlock.createEl("ul");
@@ -926,6 +948,28 @@ export class InstrumentalityView extends ItemView {
         if (f.author) this.renderAuthorBadge(li, f.author);
       }
     };
+    const openOverride = targetMissing
+      ? {
+          label: "Scaffold KB doc",
+          onClick: async () => {
+            const fileList = e.codeFiles.map((f) => `- \`${f.path}\``).join("\n");
+            const prompt = [
+              `The KB target \`${e.kbTarget}\` does not exist yet but is required by a \`code_path_patterns\` rule in \`_rules.md\`. The following code file(s) currently have no documentation:`,
+              "",
+              fileList,
+              "",
+              "Please:",
+              `1. Run \`kb_scaffold\` to create \`${e.kbTarget}\` using the appropriate template (infer type and group from the path).`,
+              "2. Read the listed code file(s) and follow the returned fill prompt to populate the new KB doc from their actual behavior — fields, endpoints, validation, etc.",
+              "3. Run `kb_autotag` on the new file so it becomes discoverable via `kb_get`.",
+              "",
+              "If the code is **not** meant to be documented (test fixture, deprecated, internal-only), propose adding an `exceptions:` entry to the matching `code_path_patterns` rule in `_rules.md` instead of scaffolding — and explain why before making the change.",
+            ].join("\n");
+            await navigator.clipboard.writeText(prompt);
+            new Notice("Instrumentality: scaffold prompt copied to clipboard.");
+          },
+        }
+      : undefined;
     this.entryShell({
       parent,
       section: "code-drift",
@@ -942,6 +986,7 @@ export class InstrumentalityView extends ItemView {
       verdictQueueKey: e.kbTarget,
       driftKind: "code-drift",
       isUncommitted,
+      openOverride,
     });
   }
 
@@ -1534,7 +1579,7 @@ export class InstrumentalityView extends ItemView {
       switch (f.type) {
         case "orphan_pattern":
           h2.createSpan({ cls: "title", text: "Orphan pattern: " });
-          h2.createEl("code", { text: f.kb_target });
+          h2.createEl("code", { text: formatKbTarget(f.kb_target) });
           if (f.is_submodule_pattern) h2.createSpan({ cls: "badge sev-info", text: "submodule" });
           break;
         case "ghost_target":
@@ -1543,7 +1588,7 @@ export class InstrumentalityView extends ItemView {
           break;
         case "convention_violation":
           h2.createSpan({ cls: "title", text: "Convention violation: " });
-          h2.createEl("code", { text: f.kb_target });
+          h2.createEl("code", { text: formatKbTarget(f.kb_target) });
           break;
         case "unmapped_kb_group":
           h2.createSpan({ cls: "title", text: "Unmapped KB folder: " });
@@ -1552,7 +1597,7 @@ export class InstrumentalityView extends ItemView {
           break;
         case "fanout_with_hardcoded":
           h2.createSpan({ cls: "title", text: "Overbroad hardcoded pattern: " });
-          h2.createEl("code", { text: f.kb_target });
+          h2.createEl("code", { text: formatKbTarget(f.kb_target) });
           break;
       }
     };
@@ -2125,6 +2170,12 @@ export class InstrumentalityView extends ItemView {
      * published entries) and stamps the row with a "preview" marker.
      */
     isUncommitted?: boolean;
+    /**
+     * Replaces the default "Open Source" button. Used by code-drift entries
+     * whose KB target file does not exist — the button becomes a scaffold
+     * action instead of an open-file action that would error out.
+     */
+    openOverride?: { label: string; onClick: () => void | Promise<void> };
   }): void {
     const attr: Record<string, string> = {
       "data-entry-section": opts.section,
@@ -2162,11 +2213,20 @@ export class InstrumentalityView extends ItemView {
       await navigator.clipboard.writeText(indexed2.prompt);
       new Notice(`Instrumentality: ${primaryActionLabel(opts.section).toLowerCase()} prompt copied.`);
     });
-    const openBtn = actions.createEl("button", { text: "Open Source" });
-    openBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      void this.openSource(opts.sourceFile);
-    });
+    if (opts.openOverride) {
+      const override = opts.openOverride;
+      const overrideBtn = actions.createEl("button", { text: override.label });
+      overrideBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        void override.onClick();
+      });
+    } else {
+      const openBtn = actions.createEl("button", { text: "Open Source" });
+      openBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        void this.openSource(opts.sourceFile);
+      });
+    }
     if (opts.standardId) {
       const stdBtn = actions.createEl("button", { text: "Open Standard" });
       stdBtn.addEventListener("click", (e) => {

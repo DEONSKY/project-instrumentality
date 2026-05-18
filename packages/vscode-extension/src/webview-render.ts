@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { CSS } from "./webview-css";
 import {
@@ -5,6 +6,7 @@ import {
   stableEntryId,
   primaryActionLabel,
   copyActionLabel,
+  formatKbTarget,
   pipelineSegments,
   buildEntryHandles,
   groupEntries,
@@ -83,6 +85,7 @@ export type DashboardAction =
   | { type: "send"; ref: EntryRef }
   | { type: "copy"; ref: EntryRef }
   | { type: "open"; ref: EntryRef }
+  | { type: "scaffold"; ref: EntryRef }
   | { type: "openStandard"; ref: EntryRef }
   | { type: "editRule"; ref: EntryRef }
   | { type: "refineStandard"; ref: EntryRef }
@@ -1243,11 +1246,15 @@ function entryShell(
   diffableFiles: DiffableFile[],
   modeAttr?: string,
   verdictFiles?: string[],
-  isUncommitted: boolean = false
+  isUncommitted: boolean = false,
+  openOverride?: { label: string; action: string }
 ): string {
   const sevAttr = sev ?? "";
   const modeHtml = modeAttr ? ` data-entry-mode="${escapeAttr(modeAttr)}"` : "";
   const bucketAttr = isUncommitted ? ` data-entry-bucket="uncommitted"` : "";
+  const openButton = openOverride
+    ? `<button class="btn btn-tiny" data-action="${escapeAttr(openOverride.action)}">${escapeHtml(openOverride.label)}</button>`
+    : `<button class="btn btn-tiny" data-action="open">Open Source</button>`;
   const standardBtns = hasStandard
     ? `<button class="btn btn-tiny" data-action="openStandard">Open Standard</button>` +
       (hasStandardRule
@@ -1288,7 +1295,7 @@ function entryShell(
       <div class="entry-actions">
         <button class="btn btn-primary btn-tiny" data-action="send">${escapeHtml(sendLabel)}</button>
         <button class="btn btn-tiny" data-action="copy">${escapeHtml(copyLabel)}</button>
-        <button class="btn btn-tiny" data-action="open">Open Source</button>
+        ${openButton}
         ${standardBtns}
       </div>
       ${verdictBtns ? `<div class="verdict-actions-row">${verdictBtns}</div>` : ""}
@@ -1501,13 +1508,22 @@ function codeDriftRow(e: CodeDriftEntry, i: number, kbRoot: string | null, isUnc
   const more = e.codeFiles.length > 3 ? ` (+${e.codeFiles.length - 3})` : "";
   const sharedBadge = e.hasShared ? `<span class="badge shared">shared</span>` : "";
   const previewBadge = isUncommitted ? `<span class="badge preview-mode" title="Uncommitted preview — not yet published">preview</span>` : "";
+  const targetMissing = kbRoot
+    ? !fs.existsSync(path.join(kbRoot, "knowledge", e.kbTarget))
+    : false;
+  const missingBadge = targetMissing
+    ? `<span class="badge sev-warn" title="Target KB file does not exist — click Scaffold to create it">missing</span>`
+    : "";
   const summary = `
-    <div class="title">${escapeHtml(e.kbTarget)} ${sharedBadge} ${previewBadge}</div>
+    <div class="title">${escapeHtml(e.kbTarget)} ${sharedBadge} ${previewBadge} ${missingBadge}</div>
     <div class="meta">${e.codeFiles.length} file(s) — ${escapeHtml(filesPreview + more)}</div>`;
-  const sev = e.hasShared ? "warn" : "info";
+  const sev = targetMissing || e.hasShared ? "warn" : "info";
   const text = e.kbTarget + " " + e.codeFiles.map((f) => f.path).join(" ");
   const diffs = collectDiffableFromCodeDrift(e, (p) => resolveAbsFor(kbRoot, p));
-  return entryShell(ref, sev, text, summary, buildCodeDriftDetail(e), false, false, diffs, undefined, undefined, isUncommitted);
+  const openOverride = targetMissing
+    ? { label: "Scaffold KB doc", action: "scaffold" }
+    : undefined;
+  return entryShell(ref, sev, text, summary, buildCodeDriftDetail(e, targetMissing), false, false, diffs, undefined, undefined, isUncommitted, openOverride);
 }
 
 function renderKbDriftCard(
@@ -1811,7 +1827,7 @@ function patternAuditFindingRow(f: NonNullable<StatusSummary["patternAudit"]>["f
   let body = "";
   switch (f.type) {
     case "orphan_pattern":
-      title = `Orphan pattern: <code>${escapeHtml(f.kb_target)}</code>${f.intent ? ` <span class="badge sev-info">intent: ${escapeHtml(f.intent)}</span>` : ""}${f.is_submodule_pattern ? ` <span class="badge sev-info">submodule</span>` : ""}`;
+      title = `Orphan pattern: <code>${escapeHtml(formatKbTarget(f.kb_target))}</code>${f.intent ? ` <span class="badge sev-info">intent: ${escapeHtml(f.intent)}</span>` : ""}${f.is_submodule_pattern ? ` <span class="badge sev-info">submodule</span>` : ""}`;
       body = `<div class="meta">paths match no source files:</div><ul>${f.paths.map(p => `<li><code>${escapeHtml(p)}</code></li>`).join("")}</ul>`;
       break;
     case "ghost_target":
@@ -1819,7 +1835,7 @@ function patternAuditFindingRow(f: NonNullable<StatusSummary["patternAudit"]>["f
       body = `<div class="meta">kb_target points at a KB file that does not exist. Either create the KB file or fix the pattern in <code>_rules.md</code>.</div>`;
       break;
     case "convention_violation":
-      title = `Convention violation: <code>${escapeHtml(f.kb_target)}</code>`;
+      title = `Convention violation: <code>${escapeHtml(formatKbTarget(f.kb_target))}</code>`;
       body = `<div class="meta">intent <code>${escapeHtml(f.intent)}</code> conventionally targets <code>${escapeHtml(f.expected_folder)}</code> but this pattern points elsewhere.</div>`;
       break;
     case "unmapped_kb_group":
@@ -1827,7 +1843,7 @@ function patternAuditFindingRow(f: NonNullable<StatusSummary["patternAudit"]>["f
       body = `<div class="meta">No code_path_patterns entry targets these KB files. Code→KB drift detection is silent for them.</div><ul>${f.sample_files.map(s => `<li><code>${escapeHtml(s)}</code></li>`).join("")}</ul>`;
       break;
     case "fanout_with_hardcoded":
-      title = `Overbroad hardcoded pattern: <code>${escapeHtml(f.kb_target)}</code>`;
+      title = `Overbroad hardcoded pattern: <code>${escapeHtml(formatKbTarget(f.kb_target))}</code>`;
       body = `<div class="meta">${f.distinct_concepts} distinct file basenames map to this single KB file. Consider using a <code>{name}</code> template to fan out, or narrow the paths glob.</div>`;
       break;
   }
@@ -1859,7 +1875,7 @@ function buildAuditFixPrompt(f: NonNullable<StatusSummary["patternAudit"]>["find
   switch (f.type) {
     case "orphan_pattern":
       body = `Type: orphan_pattern\n`
-        + `Pattern: intent=${f.intent ?? "(none)"}, kb_target=${f.kb_target}\n`
+        + `Pattern: intent=${f.intent ?? "(none)"}, kb_target=${formatKbTarget(f.kb_target)}\n`
         + `Paths: ${JSON.stringify(f.paths)}\n`
         + `${f.is_submodule_pattern ? "Submodule pattern.\n" : ""}`
         + `\nThe paths globs above match zero files in the current repo. Decide:\n`
@@ -1877,7 +1893,7 @@ function buildAuditFixPrompt(f: NonNullable<StatusSummary["patternAudit"]>["find
       break;
     case "convention_violation":
       body = `Type: convention_violation\n`
-        + `Pattern: intent=${f.intent}, kb_target=${f.kb_target}\n`
+        + `Pattern: intent=${f.intent}, kb_target=${formatKbTarget(f.kb_target)}\n`
         + `Expected folder for intent "${f.intent}": ${f.expected_folder}\n`
         + `\nThe convention table expects intent "${f.intent}" to target ${f.expected_folder}* but this pattern targets a different folder.\n`
         + `Either fix the kb_target in knowledge/_rules.md, or change the intent label if the mapping is intentional.\n`
@@ -1897,7 +1913,7 @@ function buildAuditFixPrompt(f: NonNullable<StatusSummary["patternAudit"]>["find
       break;
     case "fanout_with_hardcoded":
       body = `Type: fanout_with_hardcoded\n`
-        + `Pattern kb_target (hardcoded): ${f.kb_target}\n`
+        + `Pattern kb_target (hardcoded): ${formatKbTarget(f.kb_target)}\n`
         + `Distinct file basenames: ${f.distinct_concepts}\n`
         + `\nThis hardcoded kb_target catches ${f.distinct_concepts} distinct file basenames — one KB file is documenting many concepts.\n`
         + `Either switch the kb_target to a {name} template (so each concept gets its own KB file), or narrow the paths glob.\n`

@@ -35,6 +35,10 @@ var require_types = __commonJS({
   "../shared/dist/types.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.formatKbTarget = formatKbTarget3;
+    function formatKbTarget3(t) {
+      return Array.isArray(t) ? t.join(" | ") : t;
+    }
   }
 });
 
@@ -89,7 +93,7 @@ var require_kb_root = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.findKbRoot = findKbRoot2;
     exports2.kbSyncPath = kbSyncPath;
-    var fs2 = __importStar(require("fs"));
+    var fs3 = __importStar(require("fs"));
     var path4 = __importStar(require("path"));
     var KB_INDICATORS = [
       ["knowledge", "_mcp", "server.js"],
@@ -99,7 +103,7 @@ var require_kb_root = __commonJS({
     ];
     function isKbRoot(dir) {
       for (const segs of KB_INDICATORS) {
-        if (fs2.existsSync(path4.join(dir, ...segs)))
+        if (fs3.existsSync(path4.join(dir, ...segs)))
           return true;
       }
       return false;
@@ -197,7 +201,7 @@ var require_code_drift = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.parseCodeDrift = parseCodeDrift;
     exports2.readCodeDrift = readCodeDrift;
-    var fs2 = __importStar(require("fs"));
+    var fs3 = __importStar(require("fs"));
     var baseline_js_1 = require_baseline();
     var kb_root_js_1 = require_kb_root();
     var FILE_LINE_RE = /^\s+-\s+`([^`]+)`(?:\s+←\s+renamed from\s+`([^`]+)`)?\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?(?:\s+—\s+by\s+@(\S+))?/;
@@ -249,9 +253,9 @@ var require_code_drift = __commonJS({
     }
     function readCodeDrift(kbRoot) {
       const file = (0, kb_root_js_1.kbSyncPath)(kbRoot, "code-drift.md");
-      if (!fs2.existsSync(file))
+      if (!fs3.existsSync(file))
         return { entries: [], baseline: { sha: null } };
-      return parseCodeDrift(fs2.readFileSync(file, "utf8"));
+      return parseCodeDrift(fs3.readFileSync(file, "utf8"));
     }
   }
 });
@@ -307,7 +311,7 @@ var require_kb_drift = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.parseKbDrift = parseKbDrift;
     exports2.readKbDrift = readKbDrift;
-    var fs2 = __importStar(require("fs"));
+    var fs3 = __importStar(require("fs"));
     var baseline_js_1 = require_baseline();
     var kb_root_js_1 = require_kb_root();
     var ACK_RE = /\*\*Acknowledged\*\*:\s*@(\S+)\s+at\s+`([^`]+)`\s+\(([^)]+)\)\s+—\s+"([^"]+)"/;
@@ -399,9 +403,9 @@ var require_kb_drift = __commonJS({
     }
     function readKbDrift(kbRoot) {
       const file = (0, kb_root_js_1.kbSyncPath)(kbRoot, "kb-drift.md");
-      if (!fs2.existsSync(file))
+      if (!fs3.existsSync(file))
         return { entries: [], baseline: { sha: null } };
-      return parseKbDrift(fs2.readFileSync(file, "utf8"));
+      return parseKbDrift(fs3.readFileSync(file, "utf8"));
     }
   }
 });
@@ -458,7 +462,7 @@ var require_standards_drift = __commonJS({
     exports2.parseStandardsDrift = parseStandardsDrift;
     exports2.readStandardsDrift = readStandardsDrift;
     exports2.readStandardsBacklog = readStandardsBacklog;
-    var fs2 = __importStar(require("fs"));
+    var fs3 = __importStar(require("fs"));
     var baseline_js_1 = require_baseline();
     var kb_root_js_1 = require_kb_root();
     var FILE_LINE_RE = /^\s+-\s+`([^`]+)`\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?(?:\s+—\s+by\s+@(\S+))?/;
@@ -539,15 +543,15 @@ var require_standards_drift = __commonJS({
     }
     function readStandardsDrift(kbRoot) {
       const file = (0, kb_root_js_1.kbSyncPath)(kbRoot, "standards-drift.md");
-      if (!fs2.existsSync(file))
+      if (!fs3.existsSync(file))
         return { entries: [], baseline: { sha: null } };
-      return parseStandardsDrift(fs2.readFileSync(file, "utf8"), "current");
+      return parseStandardsDrift(fs3.readFileSync(file, "utf8"), "current");
     }
     function readStandardsBacklog(kbRoot) {
       const file = (0, kb_root_js_1.kbSyncPath)(kbRoot, "standards-backlog.md");
-      if (!fs2.existsSync(file))
+      if (!fs3.existsSync(file))
         return { entries: [], baseline: { sha: null } };
-      return parseStandardsDrift(fs2.readFileSync(file, "utf8"), "aspirational");
+      return parseStandardsDrift(fs3.readFileSync(file, "utf8"), "aspirational");
     }
   }
 });
@@ -605,7 +609,7 @@ var require_conform_pending = __commonJS({
     exports2.readConformPending = readConformPending;
     exports2.conformPendingDir = conformPendingDir;
     exports2.resolveStandardPath = resolveStandardPath2;
-    var fs2 = __importStar(require("fs"));
+    var fs3 = __importStar(require("fs"));
     var path4 = __importStar(require("path"));
     var kb_root_js_1 = require_kb_root();
     var STANDARD_GROUPS = ["code", "contracts", "knowledge", "process"];
@@ -629,9 +633,9 @@ var require_conform_pending = __commonJS({
     }
     function readConformPending(kbRoot, mode) {
       const file = (0, kb_root_js_1.kbSyncPath)(kbRoot, ".conform-pending", `${mode}.json`);
-      if (!fs2.existsSync(file))
+      if (!fs3.existsSync(file))
         return null;
-      return parseConformPending(fs2.readFileSync(file, "utf8"));
+      return parseConformPending(fs3.readFileSync(file, "utf8"));
     }
     function conformPendingDir(kbRoot) {
       return path4.join((0, kb_root_js_1.kbSyncPath)(kbRoot, ".conform-pending"));
@@ -642,7 +646,7 @@ var require_conform_pending = __commonJS({
       const standardsDir = path4.join(kbRoot, "knowledge", "standards");
       for (const group of STANDARD_GROUPS) {
         const candidate = path4.join(standardsDir, group, `${standardId}.md`);
-        if (fs2.existsSync(candidate))
+        if (fs3.existsSync(candidate))
           return candidate;
       }
       return null;
@@ -701,7 +705,7 @@ var require_promotions = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.parsePromotions = parsePromotions;
     exports2.readPromotions = readPromotions;
-    var fs2 = __importStar(require("fs"));
+    var fs3 = __importStar(require("fs"));
     var baseline_js_1 = require_baseline();
     var kb_root_js_1 = require_kb_root();
     var FILE_LINE_RE = /^\s+-\s+`([^`]+)`\s+—\s+promoted\s+`([^`]+)`(?:,\s+note:\s+"((?:[^"\\]|\\.)*)")?/;
@@ -755,9 +759,9 @@ var require_promotions = __commonJS({
     }
     function readPromotions(kbRoot) {
       const file = (0, kb_root_js_1.kbSyncPath)(kbRoot, "standards-promotions.md");
-      if (!fs2.existsSync(file))
+      if (!fs3.existsSync(file))
         return [];
-      return parsePromotions(fs2.readFileSync(file, "utf8"));
+      return parsePromotions(fs3.readFileSync(file, "utf8"));
     }
   }
 });
@@ -814,7 +818,7 @@ var require_lint = __commonJS({
     exports2.parseLintStderr = parseLintStderr;
     exports2.runLint = runLint;
     var node_child_process_1 = require("child_process");
-    var fs2 = __importStar(require("fs"));
+    var fs3 = __importStar(require("fs"));
     var path4 = __importStar(require("path"));
     var LINE_RE = /^\[kb-lint\]\s+(WARN|ERROR)\s+(\S+):\s+(.*)$/;
     function parseLintStderr(stderr) {
@@ -836,7 +840,7 @@ var require_lint = __commonJS({
         return runShell(opts.commandOverride.trim(), kbRoot);
       }
       const script = path4.join(kbRoot, "knowledge", "_mcp", "scripts", "lint-standalone.js");
-      if (!fs2.existsSync(script)) {
+      if (!fs3.existsSync(script)) {
         return Promise.resolve({ violations: [], ran: false });
       }
       return runProcess(process.execPath, [script], kbRoot);
@@ -3804,7 +3808,7 @@ var require_standards = __commonJS({
     exports2.findRule = findRule;
     exports2.findRuleLineRange = findRuleLineRange2;
     exports2._clearStandardsCache = _clearStandardsCache;
-    var fs2 = __importStar(require("fs"));
+    var fs3 = __importStar(require("fs"));
     var yaml = __importStar(require_js_yaml());
     var conform_pending_js_1 = require_conform_pending();
     var cache = /* @__PURE__ */ new Map();
@@ -3884,7 +3888,7 @@ var require_standards = __commonJS({
         return null;
       let stat;
       try {
-        stat = fs2.statSync(filePath);
+        stat = fs3.statSync(filePath);
       } catch {
         return null;
       }
@@ -3893,7 +3897,7 @@ var require_standards = __commonJS({
         return cached.def;
       let def;
       try {
-        def = parseStandardDefinition(fs2.readFileSync(filePath, "utf8"), filePath);
+        def = parseStandardDefinition(fs3.readFileSync(filePath, "utf8"), filePath);
       } catch {
         def = null;
       }
@@ -3910,7 +3914,7 @@ var require_standards = __commonJS({
         return null;
       let text;
       try {
-        text = fs2.readFileSync(filePath, "utf8");
+        text = fs3.readFileSync(filePath, "utf8");
       } catch {
         return null;
       }
@@ -4014,7 +4018,7 @@ var require_drift_log = __commonJS({
     exports2.parseDriftLog = parseDriftLog;
     exports2.readDriftLog = readDriftLog;
     exports2.currentAndPreviousMonth = currentAndPreviousMonth;
-    var fs2 = __importStar(require("fs"));
+    var fs3 = __importStar(require("fs"));
     var baseline_js_1 = require_baseline();
     var kb_root_js_1 = require_kb_root();
     var HEADING_RE = /^##\s+(\d{4}-\d{2}-\d{2})\s+·\s+(.+)$/;
@@ -4114,9 +4118,9 @@ var require_drift_log = __commonJS({
       const all = [];
       for (const month of monthKeys) {
         const file = (0, kb_root_js_1.kbSyncPath)(kbRoot, "drift-log", `${month}.md`);
-        if (!fs2.existsSync(file))
+        if (!fs3.existsSync(file))
           continue;
-        all.push(...parseDriftLog(fs2.readFileSync(file, "utf8")));
+        all.push(...parseDriftLog(fs3.readFileSync(file, "utf8")));
       }
       all.sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
       return all;
@@ -4183,7 +4187,7 @@ var require_submodule_status = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.getSubmoduleStatus = getSubmoduleStatus;
     exports2.buildPushPlan = buildPushPlan2;
-    var fs2 = __importStar(require("fs"));
+    var fs3 = __importStar(require("fs"));
     var path4 = __importStar(require("path"));
     var node_child_process_1 = require("child_process");
     var node_util_1 = require("util");
@@ -4200,23 +4204,23 @@ var require_submodule_status = __commonJS({
       const dotGit = path4.join(absSubPath, ".git");
       let st;
       try {
-        st = fs2.statSync(dotGit);
+        st = fs3.statSync(dotGit);
       } catch {
         return null;
       }
       if (st.isDirectory()) {
         const head = path4.join(dotGit, "HEAD");
-        return fs2.existsSync(head) ? head : null;
+        return fs3.existsSync(head) ? head : null;
       }
       if (st.isFile()) {
         try {
-          const content = fs2.readFileSync(dotGit, "utf8");
+          const content = fs3.readFileSync(dotGit, "utf8");
           const m = content.match(/^gitdir:\s*(.+)\s*$/m);
           if (!m)
             return null;
           const gitdir = path4.isAbsolute(m[1]) ? m[1] : path4.resolve(absSubPath, m[1]);
           const head = path4.join(gitdir, "HEAD");
-          return fs2.existsSync(head) ? head : null;
+          return fs3.existsSync(head) ? head : null;
         } catch {
           return null;
         }
@@ -4256,11 +4260,11 @@ var require_submodule_status = __commonJS({
     async function getSubmoduleStatus(kbRoot, opts = {}) {
       const repoRoot = opts.repoRoot ?? kbRoot;
       const gitmodulesPath = path4.join(repoRoot, ".gitmodules");
-      if (!fs2.existsSync(gitmodulesPath))
+      if (!fs3.existsSync(gitmodulesPath))
         return null;
       let text;
       try {
-        text = fs2.readFileSync(gitmodulesPath, "utf8");
+        text = fs3.readFileSync(gitmodulesPath, "utf8");
       } catch {
         return null;
       }
@@ -4270,7 +4274,7 @@ var require_submodule_status = __commonJS({
       const entries = [];
       for (const p of parsed) {
         const fullPath = path4.resolve(repoRoot, p.path);
-        if (!fs2.existsSync(fullPath))
+        if (!fs3.existsSync(fullPath))
           continue;
         const type = p.isShared ? "shared" : "owned";
         const branch = await gitOut(fullPath, ["symbolic-ref", "--short", "HEAD"]);
@@ -4377,7 +4381,7 @@ var require_hooks_status = __commonJS({
     }();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.getHooksStatus = getHooksStatus;
-    var fs2 = __importStar(require("fs"));
+    var fs3 = __importStar(require("fs"));
     var path4 = __importStar(require("path"));
     var node_child_process_1 = require("child_process");
     var node_util_1 = require("util");
@@ -4404,7 +4408,7 @@ var require_hooks_status = __commonJS({
         let present = false;
         let managed = false;
         try {
-          const content = fs2.readFileSync(file, "utf8");
+          const content = fs3.readFileSync(file, "utf8");
           present = true;
           managed = content.includes(MARKER);
         } catch {
@@ -4471,7 +4475,7 @@ var require_status = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.getStatus = getStatus2;
     var node_child_process_1 = require("child_process");
-    var fs2 = __importStar(require("fs"));
+    var fs3 = __importStar(require("fs"));
     var path4 = __importStar(require("path"));
     var node_util_1 = require("util");
     var code_drift_js_1 = require_code_drift();
@@ -4588,9 +4592,9 @@ var require_status = __commonJS({
     function runLiveStatus(kbRoot, bundledRunnerPath) {
       const vendored = path4.join(kbRoot, "knowledge", "_mcp", "scripts", "live-status.js");
       let script = null;
-      if (fs2.existsSync(vendored)) {
+      if (fs3.existsSync(vendored)) {
         script = vendored;
-      } else if (bundledRunnerPath && fs2.existsSync(bundledRunnerPath)) {
+      } else if (bundledRunnerPath && fs3.existsSync(bundledRunnerPath)) {
         script = bundledRunnerPath;
       }
       if (!script)
@@ -6882,7 +6886,7 @@ function buildAuditFixPrompt(f) {
   switch (f.type) {
     case "orphan_pattern":
       body = `Type: orphan_pattern
-Pattern: intent=${f.intent ?? "(none)"}, kb_target=${f.kb_target}
+Pattern: intent=${f.intent ?? "(none)"}, kb_target=${(0, import_shared.formatKbTarget)(f.kb_target)}
 Paths: ${JSON.stringify(f.paths)}
 ${f.is_submodule_pattern ? "Submodule pattern.\n" : ""}
 The paths globs above match zero files in the current repo. Decide:
@@ -6901,19 +6905,9 @@ The pattern targets a KB file that does not exist. Either:
 3. Remove the pattern entirely (if the concept is gone).
 `;
       break;
-    case "multi_target_files":
-      body = `Type: multi_target_files
-File: ${f.file}
-Matched targets: ${JSON.stringify(f.matched_targets, null, 2)}
-
-This code file matches multiple patterns producing distinct kb_targets.
-Post-P0 fan-out: all targets receive drift entries on changes.
-Decide whether this is intentional (cross-cutting concern \u2192 keep) or accidental (overbroad pattern \u2192 narrow one of them in knowledge/_rules.md).
-`;
-      break;
     case "convention_violation":
       body = `Type: convention_violation
-Pattern: intent=${f.intent}, kb_target=${f.kb_target}
+Pattern: intent=${f.intent}, kb_target=${(0, import_shared.formatKbTarget)(f.kb_target)}
 Expected folder for intent "${f.intent}": ${f.expected_folder}
 
 The convention table expects intent "${f.intent}" to target ${f.expected_folder}* but this pattern targets a different folder.
@@ -6939,7 +6933,7 @@ Grep the repo for files related to these KB documents and choose paths globs tha
       break;
     case "fanout_with_hardcoded":
       body = `Type: fanout_with_hardcoded
-Pattern kb_target (hardcoded): ${f.kb_target}
+Pattern kb_target (hardcoded): ${(0, import_shared.formatKbTarget)(f.kb_target)}
 Distinct file basenames: ${f.distinct_concepts}
 
 This hardcoded kb_target catches ${f.distinct_concepts} distinct file basenames \u2014 one KB file is documenting many concepts.
@@ -7049,6 +7043,7 @@ var SelectModal = class extends import_obsidian.Modal {
 };
 
 // src/view.ts
+var fs2 = __toESM(require("fs"));
 var path3 = __toESM(require("path"));
 var import_node_child_process = require("child_process");
 var import_shared3 = __toESM(require_dist());
@@ -8164,7 +8159,8 @@ var InstrumentalityView = class extends import_obsidian3.ItemView {
   }
   renderCodeDriftRow(parent, e, i, isUncommitted = false) {
     const id = (0, import_shared3.stableEntryId)(e.kbTarget, i);
-    const sev = e.hasShared ? "warn" : "info";
+    const targetMissing = this.kbRoot ? !fs2.existsSync(path3.join(this.kbRoot, "knowledge", e.kbTarget)) : false;
+    const sev = targetMissing || e.hasShared ? "warn" : "info";
     const text = e.kbTarget + " " + e.codeFiles.map((f) => f.path).join(" ");
     const summary = (h2) => {
       h2.createSpan({ cls: "title", text: e.kbTarget });
@@ -8177,6 +8173,13 @@ var InstrumentalityView = class extends import_obsidian3.ItemView {
           attr: { title: "Uncommitted preview \u2014 not yet published" }
         });
       }
+      if (targetMissing) {
+        h2.createSpan({
+          cls: "badge sev-warn",
+          text: "missing",
+          attr: { title: "Target KB file does not exist \u2014 click Scaffold to create it" }
+        });
+      }
     };
     const meta = `${e.codeFiles.length} file(s) \xB7 ${e.codeFiles.slice(0, 3).map((f) => path3.basename(f.path)).join(", ")}${e.codeFiles.length > 3 ? ` (+${e.codeFiles.length - 3})` : ""}`;
     const detail = (d) => {
@@ -8185,6 +8188,16 @@ var InstrumentalityView = class extends import_obsidian3.ItemView {
       row.createSpan({ text: "KB target: " });
       row.createEl("code", { text: e.kbTarget });
       this.renderAcknowledgement(div, e.acknowledgement);
+      if (targetMissing) {
+        const note = div.createDiv({ cls: "rule-row warn-note" });
+        note.createSpan({ text: "\u26A0 Target KB file does not exist. Use " });
+        note.createEl("strong", { text: "Scaffold KB doc" });
+        note.createSpan({ text: " to copy a scaffold prompt for the agent, or add an exception to the matching " });
+        note.createEl("code", { text: "code_path_patterns" });
+        note.createSpan({ text: " entry in " });
+        note.createEl("code", { text: "_rules.md" });
+        note.createSpan({ text: " if this code should not be documented." });
+      }
       const filesBlock = div.createDiv();
       filesBlock.createEl("strong", { text: "Changed files:" });
       const ul = filesBlock.createEl("ul");
@@ -8195,6 +8208,26 @@ var InstrumentalityView = class extends import_obsidian3.ItemView {
           this.renderAuthorBadge(li, f.author);
       }
     };
+    const openOverride = targetMissing ? {
+      label: "Scaffold KB doc",
+      onClick: async () => {
+        const fileList = e.codeFiles.map((f) => `- \`${f.path}\``).join("\n");
+        const prompt = [
+          `The KB target \`${e.kbTarget}\` does not exist yet but is required by a \`code_path_patterns\` rule in \`_rules.md\`. The following code file(s) currently have no documentation:`,
+          "",
+          fileList,
+          "",
+          "Please:",
+          `1. Run \`kb_scaffold\` to create \`${e.kbTarget}\` using the appropriate template (infer type and group from the path).`,
+          "2. Read the listed code file(s) and follow the returned fill prompt to populate the new KB doc from their actual behavior \u2014 fields, endpoints, validation, etc.",
+          "3. Run `kb_autotag` on the new file so it becomes discoverable via `kb_get`.",
+          "",
+          "If the code is **not** meant to be documented (test fixture, deprecated, internal-only), propose adding an `exceptions:` entry to the matching `code_path_patterns` rule in `_rules.md` instead of scaffolding \u2014 and explain why before making the change."
+        ].join("\n");
+        await navigator.clipboard.writeText(prompt);
+        new import_obsidian3.Notice("Instrumentality: scaffold prompt copied to clipboard.");
+      }
+    } : void 0;
     this.entryShell({
       parent,
       section: "code-drift",
@@ -8208,7 +8241,8 @@ var InstrumentalityView = class extends import_obsidian3.ItemView {
       diffableFiles: e.codeFiles.filter((f) => !!f.sinceCommit).map((f) => ({ relPath: f.path, sinceCommit: f.sinceCommit, latestCommit: f.latestCommit })),
       verdictQueueKey: e.kbTarget,
       driftKind: "code-drift",
-      isUncommitted
+      isUncommitted,
+      openOverride
     });
   }
   renderKbDriftCard(parent) {
@@ -8311,7 +8345,7 @@ var InstrumentalityView = class extends import_obsidian3.ItemView {
   renderStandardsDriftRow(parent, e, i, isUncommitted = false) {
     const id = (0, import_shared3.stableEntryId)(`${e.mode}:${e.queueKey}`, i);
     const sev = e.severity ?? null;
-    const fileCount = Object.values(e.filesByParty).reduce((s, fs2) => s + fs2.length, 0);
+    const fileCount = Object.values(e.filesByParty).reduce((s, fs3) => s + fs3.length, 0);
     const firstFile = Object.values(e.filesByParty).flat()[0]?.path;
     const ruleHint = e.resolvedRule?.title ? ` \xB7 ${e.resolvedRule.title}` : "";
     const text = e.queueKey + " " + (e.standardId ?? "") + " " + (e.reason ?? "") + " " + (e.resolvedRule?.title ?? "");
@@ -8745,7 +8779,7 @@ var InstrumentalityView = class extends import_obsidian3.ItemView {
       switch (f.type) {
         case "orphan_pattern":
           h2.createSpan({ cls: "title", text: "Orphan pattern: " });
-          h2.createEl("code", { text: f.kb_target });
+          h2.createEl("code", { text: (0, import_shared3.formatKbTarget)(f.kb_target) });
           if (f.is_submodule_pattern)
             h2.createSpan({ cls: "badge sev-info", text: "submodule" });
           break;
@@ -8753,14 +8787,9 @@ var InstrumentalityView = class extends import_obsidian3.ItemView {
           h2.createSpan({ cls: "title", text: "Ghost target: " });
           h2.createEl("code", { text: f.resolved_target });
           break;
-        case "multi_target_files":
-          h2.createSpan({ cls: "title", text: "Multi-target file: " });
-          h2.createEl("code", { text: f.file });
-          h2.createSpan({ cls: "badge sev-info", text: `${f.matched_targets.length} targets` });
-          break;
         case "convention_violation":
           h2.createSpan({ cls: "title", text: "Convention violation: " });
-          h2.createEl("code", { text: f.kb_target });
+          h2.createEl("code", { text: (0, import_shared3.formatKbTarget)(f.kb_target) });
           break;
         case "unmapped_kb_group":
           h2.createSpan({ cls: "title", text: "Unmapped KB folder: " });
@@ -8769,7 +8798,7 @@ var InstrumentalityView = class extends import_obsidian3.ItemView {
           break;
         case "fanout_with_hardcoded":
           h2.createSpan({ cls: "title", text: "Overbroad hardcoded pattern: " });
-          h2.createEl("code", { text: f.kb_target });
+          h2.createEl("code", { text: (0, import_shared3.formatKbTarget)(f.kb_target) });
           break;
       }
     };
@@ -8790,16 +8819,6 @@ var InstrumentalityView = class extends import_obsidian3.ItemView {
             text: "kb_target points at a KB file that does not exist. Either create the KB file or fix the pattern in _rules.md."
           });
           break;
-        case "multi_target_files": {
-          div.createDiv({ text: `Matches ${f.matched_targets.length} patterns \u2014 fan-out drift entries:` });
-          const ul = div.createEl("ul");
-          for (const t of f.matched_targets)
-            ul.createEl("li").createEl("code", { text: t.kb_target });
-          div.createDiv({
-            text: "If unintentional, narrow one of the patterns. Post-P0 all matching targets get entries."
-          });
-          break;
-        }
         case "convention_violation":
           div.createDiv({
             text: `intent "${f.intent}" conventionally targets ${f.expected_folder} but this pattern points elsewhere.`
@@ -9164,8 +9183,8 @@ These affect all projects consuming the module.` : "";
     }
     const scriptDrift = path3.join(this.kbRoot, "knowledge", "_mcp", "tools", "drift.js");
     const scriptConform = path3.join(this.kbRoot, "knowledge", "_mcp", "tools", "conform.js");
-    const fs2 = await import("fs");
-    if (!fs2.existsSync(scriptDrift)) {
+    const fs3 = await import("fs");
+    if (!fs3.existsSync(scriptDrift)) {
       new import_obsidian3.Notice(
         "Instrumentality: publish requires knowledge/_mcp/tools/drift.js (missing in this workspace)."
       );
@@ -9180,7 +9199,7 @@ These affect all projects consuming the module.` : "";
       return;
     try {
       await this.runNodeTool(scriptDrift, this.kbRoot);
-      if (fs2.existsSync(scriptConform)) {
+      if (fs3.existsSync(scriptConform)) {
         await this.runNodeTool(scriptConform, this.kbRoot);
       }
     } catch (err) {
@@ -9194,7 +9213,7 @@ These affect all projects consuming the module.` : "";
       "knowledge/sync/kb-drift.md",
       "knowledge/sync/standards-drift.md",
       "knowledge/sync/standards-backlog.md"
-    ].filter((f) => fs2.existsSync(path3.join(this.kbRoot, f)));
+    ].filter((f) => fs3.existsSync(path3.join(this.kbRoot, f)));
     if (queueFiles.length === 0) {
       new import_obsidian3.Notice(
         "Instrumentality: nothing to publish \u2014 no queue files present."
@@ -9293,11 +9312,20 @@ These affect all projects consuming the module.` : "";
         await navigator.clipboard.writeText(indexed2.prompt);
         new import_obsidian3.Notice(`Instrumentality: ${(0, import_shared3.primaryActionLabel)(opts.section).toLowerCase()} prompt copied.`);
       });
-      const openBtn = actions.createEl("button", { text: "Open Source" });
-      openBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        void this.openSource(opts.sourceFile);
-      });
+      if (opts.openOverride) {
+        const override = opts.openOverride;
+        const overrideBtn = actions.createEl("button", { text: override.label });
+        overrideBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void override.onClick();
+        });
+      } else {
+        const openBtn = actions.createEl("button", { text: "Open Source" });
+        openBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void this.openSource(opts.sourceFile);
+        });
+      }
       if (opts.standardId) {
         const stdBtn = actions.createEl("button", { text: "Open Standard" });
         stdBtn.addEventListener("click", (e) => {

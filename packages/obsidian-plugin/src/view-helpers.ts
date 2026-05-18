@@ -2,6 +2,7 @@ import * as path from "node:path";
 import {
   getActionPrompt,
   stableEntryId,
+  formatKbTarget,
   type StatusSummary,
   type PromptInput,
   type SectionKind,
@@ -135,7 +136,7 @@ export function buildAuditFixPrompt(f: AuditFinding): string {
   switch (f.type) {
     case "orphan_pattern":
       body = `Type: orphan_pattern\n`
-        + `Pattern: intent=${f.intent ?? "(none)"}, kb_target=${f.kb_target}\n`
+        + `Pattern: intent=${f.intent ?? "(none)"}, kb_target=${formatKbTarget(f.kb_target)}\n`
         + `Paths: ${JSON.stringify(f.paths)}\n`
         + `${f.is_submodule_pattern ? "Submodule pattern.\n" : ""}`
         + `\nThe paths globs above match zero files in the current repo. Decide:\n`
@@ -153,7 +154,7 @@ export function buildAuditFixPrompt(f: AuditFinding): string {
       break;
     case "convention_violation":
       body = `Type: convention_violation\n`
-        + `Pattern: intent=${f.intent}, kb_target=${f.kb_target}\n`
+        + `Pattern: intent=${f.intent}, kb_target=${formatKbTarget(f.kb_target)}\n`
         + `Expected folder for intent "${f.intent}": ${f.expected_folder}\n`
         + `\nThe convention table expects intent "${f.intent}" to target ${f.expected_folder}* but this pattern targets a different folder.\n`
         + `Either fix the kb_target in knowledge/_rules.md, or change the intent label if the mapping is intentional.\n`;
@@ -173,7 +174,7 @@ export function buildAuditFixPrompt(f: AuditFinding): string {
       break;
     case "fanout_with_hardcoded":
       body = `Type: fanout_with_hardcoded\n`
-        + `Pattern kb_target (hardcoded): ${f.kb_target}\n`
+        + `Pattern kb_target (hardcoded): ${formatKbTarget(f.kb_target)}\n`
         + `Distinct file basenames: ${f.distinct_concepts}\n`
         + `\nThis hardcoded kb_target catches ${f.distinct_concepts} distinct file basenames — one KB file is documenting many concepts.\n`
         + `Either switch the kb_target to a {name} template (so each concept gets its own KB file), or narrow the paths glob.\n`;

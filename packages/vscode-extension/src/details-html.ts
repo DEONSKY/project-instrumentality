@@ -141,7 +141,7 @@ function renderAcknowledgementBlock(ack: { by: string; atCommit: string; atDate:
   </div>`;
 }
 
-export function buildCodeDriftDetail(e: CodeDriftEntry): string {
+export function buildCodeDriftDetail(e: CodeDriftEntry, targetMissing: boolean = false): string {
   const filesList = e.codeFiles
     .map(
       (f) =>
@@ -151,9 +151,13 @@ export function buildCodeDriftDetail(e: CodeDriftEntry): string {
   const sharedNote = e.hasShared
     ? `<div class="rule-row warn-note">Shared module touched — KB update should reflect cross-cutting impact.</div>`
     : "";
+  const missingNote = targetMissing
+    ? `<div class="rule-row warn-note">⚠ Target KB file does not exist. Use <strong>Scaffold KB doc</strong> to create it from the listed code, or add an exception to the matching <code>code_path_patterns</code> entry in <code>_rules.md</code> if this code should not be documented.</div>`
+    : "";
   return `<div class="detail-meta">
     <div><strong>KB target:</strong> <code>${escapeHtml(e.kbTarget)}</code></div>
     ${renderAcknowledgementBlock(e.acknowledgement)}
+    ${missingNote}
     ${sharedNote}
     <div><strong>Changed files:</strong><ul>${filesList}</ul></div>
   </div>`;

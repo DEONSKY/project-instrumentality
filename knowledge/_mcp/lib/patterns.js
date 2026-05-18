@@ -1,5 +1,6 @@
 const fs = require('fs')
 const path = require('path')
+const { KB_ROOT } = require('./kb-constants')
 
 // Directories pruned during disk walks. Cheap guards against wandering into
 // build output, dependency caches, or test artifacts that would inflate the
@@ -87,13 +88,39 @@ function pickBestMatch(codeFile, patterns) {
   return best
 }
 
-/** Resolve a KB target path, replacing {name} with extracted name from code file */
+/**
+ * Resolve a KB target path, replacing {name} with extracted name from code file.
+ *
+ * `pattern.kb_target` may be either a single string or an array of strings.
+ * For arrays, each candidate has `{name}` substituted, then we prefer the first
+ * candidate whose resolved path exists under `KB_ROOT`. If no candidate exists,
+ * the first one is returned — that becomes the canonical "to-be-scaffolded"
+ * target, matching the single-string behavior.
+ *
+ * Why this exists: depth_policy permits nested feature folders but a single
+ * literal `kb_target` template can only target one fixed depth. Lists let
+ * authors express aliases (plural vs singular) and depth alternatives
+ * (depth-1 literal vs recursive glob form) without engine magic.
+ */
 function resolveKbTarget(pattern, codeFile) {
-  let target = pattern.kb_target
-  if (target.includes('{name}')) {
-    target = target.replace('{name}', extractName(codeFile, pattern.name_extraction || {}))
+  const raw = pattern.kb_target
+  const templates = Array.isArray(raw) ? raw : [raw]
+  const name = extractName(codeFile, pattern.name_extraction || {})
+  const candidates = templates.map(t => t.includes('{name}') ? t.replace('{name}', name) : t)
+  for (const c of candidates) {
+    // Glob candidates: walk the KB tree and accept the first matching file.
+    if (c.includes('*')) {
+      const { files } = expandGlob(c, { rootDir: KB_ROOT })
+      if (files.length > 0) return files[0]
+      continue
+    }
+    if (fs.existsSync(path.join(KB_ROOT, c))) return c
   }
-  return target
+  // No candidate exists yet: return the first literal (non-glob) entry as the
+  // canonical scaffold target. If the author only listed globs, fall back to
+  // the first one so callers still get a string.
+  const firstLiteral = candidates.find(c => !c.includes('*'))
+  return firstLiteral ?? candidates[0]
 }
 
 /**
