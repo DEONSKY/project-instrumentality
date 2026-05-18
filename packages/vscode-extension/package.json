@@ -33,25 +33,20 @@
           "type": "webview",
           "icon": "media/mcp-logo-small.svg",
           "contextualTitle": "Instrumentality"
-        },
-        {
-          "id": "instrumentality.help",
-          "name": "Capabilities",
-          "type": "webview",
-          "icon": "media/mcp-logo-small.svg",
-          "contextualTitle": "Instrumentality"
         }
       ]
     },
     "commands": [
       { "command": "instrumentality.refresh", "title": "Instrumentality: Refresh", "icon": "$(refresh)" },
       { "command": "instrumentality.openDashboard", "title": "Instrumentality: Open Dashboard", "icon": "$(dashboard)" },
+      { "command": "instrumentality.openCapabilities", "title": "Instrumentality: Show Capabilities (MCP tools & prompts)", "icon": "$(question)" },
       { "command": "instrumentality.publishDrift", "title": "Instrumentality: Publish Drift Queue", "icon": "$(cloud-upload)" }
     ],
     "menus": {
       "view/title": [
         { "command": "instrumentality.refresh", "when": "view == instrumentality.tree", "group": "navigation@1" },
-        { "command": "instrumentality.openDashboard", "when": "view == instrumentality.tree", "group": "navigation@2" }
+        { "command": "instrumentality.openDashboard", "when": "view == instrumentality.tree", "group": "navigation@2" },
+        { "command": "instrumentality.openCapabilities", "when": "view == instrumentality.tree", "group": "navigation@3" }
       ]
     },
     "configuration": {

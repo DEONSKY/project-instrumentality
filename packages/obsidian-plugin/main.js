@@ -7660,14 +7660,16 @@ var InstrumentalityView = class extends import_obsidian3.ItemView {
       return;
     }
     this.renderHeader(root);
+    if (this.viewMode === "info") {
+      renderInfoBody(root, this.kbRoot);
+      return;
+    }
     this.renderSubmodulesPinned(root);
     this.renderPipelineStrip(root);
     this.renderViewModeTabs(root);
     if (this.viewMode === "activity") {
       this.renderActivityFilterBar(root);
       this.renderActivityBody(root);
-    } else if (this.viewMode === "info") {
-      renderInfoBody(root, this.kbRoot);
     } else {
       this.renderFilterBar(root);
       this.renderSections(root);
@@ -7689,7 +7691,6 @@ var InstrumentalityView = class extends import_obsidian3.ItemView {
     };
     make("pending", "Pending");
     make("activity", "Activity");
-    make("info", "Info");
   }
   renderActivityFilterBar(parent) {
     const bar = parent.createDiv({
@@ -7759,6 +7760,15 @@ var InstrumentalityView = class extends import_obsidian3.ItemView {
     publish.addEventListener("click", () => void this.handlePublishDrift());
     const refresh = tools.createEl("button", { text: "Refresh", cls: "mod-cta" });
     refresh.addEventListener("click", () => void this.refresh());
+    const help = tools.createEl("button", {
+      text: this.viewMode === "info" ? "\u2715" : "?",
+      cls: "instrumentality-help-btn" + (this.viewMode === "info" ? " on" : "")
+    });
+    help.title = this.viewMode === "info" ? "Close capabilities" : "Show MCP capabilities \u2014 what the server exposes and how to invoke it";
+    help.addEventListener("click", () => {
+      this.viewMode = this.viewMode === "info" ? "pending" : "info";
+      this.render();
+    });
   }
   renderHooksBadge(parent) {
     const h = this.status?.hooks;

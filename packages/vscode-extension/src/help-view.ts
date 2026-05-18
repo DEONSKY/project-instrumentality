@@ -15,35 +15,48 @@ export interface HelpCallbacks {
   copyToClipboard: (text: string, label?: string) => Promise<void>;
 }
 
-export class HelpViewProvider implements vscode.WebviewViewProvider {
-  private view: vscode.WebviewView | null = null;
+let panel: vscode.WebviewPanel | null = null;
+let cb: HelpCallbacks | null = null;
 
-  constructor(private readonly cb: HelpCallbacks) {}
-
-  resolveWebviewView(view: vscode.WebviewView): void {
-    this.view = view;
-    view.webview.options = { enableScripts: true };
-    view.webview.onDidReceiveMessage((msg) => void this.handleMessage(msg));
-    view.onDidDispose(() => {
-      this.view = null;
-    });
-    this.rerender();
+/**
+ * Open (or reveal) the Capabilities help panel. It documents every MCP tool
+ * the kb-mcp server exposes plus copy-pasteable AI-agent client configs.
+ * Triggered on-demand from the sidebar's "?" header button — the panel is
+ * intentionally not pinned to the sidebar so it stays out of the way until
+ * the user asks for it.
+ */
+export function openCapabilities(callbacks: HelpCallbacks): void {
+  cb = callbacks;
+  if (panel) {
+    panel.reveal();
+    rerender();
+    return;
   }
 
-  refresh(): void {
-    if (this.view) this.rerender();
-  }
+  panel = vscode.window.createWebviewPanel(
+    "instrumentality.help",
+    "Instrumentality Capabilities",
+    vscode.ViewColumn.One,
+    { enableScripts: true, retainContextWhenHidden: true }
+  );
 
-  private rerender(): void {
-    if (!this.view) return;
-    this.view.webview.html = renderHelpHtml(this.cb.getKbRoot());
-  }
+  panel.webview.onDidReceiveMessage((msg) => void handleMessage(msg));
+  panel.onDidDispose(() => {
+    panel = null;
+  });
 
-  private async handleMessage(msg: any): Promise<void> {
-    if (!msg) return;
-    if (msg.command === "copy" && typeof msg.text === "string") {
-      await this.cb.copyToClipboard(msg.text, msg.label);
-    }
+  rerender();
+}
+
+function rerender(): void {
+  if (!panel || !cb) return;
+  panel.webview.html = renderHelpHtml(cb.getKbRoot());
+}
+
+async function handleMessage(msg: any): Promise<void> {
+  if (!cb || !msg) return;
+  if (msg.command === "copy" && typeof msg.text === "string") {
+    await cb.copyToClipboard(msg.text, msg.label);
   }
 }
 
@@ -111,7 +124,7 @@ function renderCategorySection(cat: ToolCategoryMeta): string {
   const tools = toolsByCategory(cat.id);
   if (tools.length === 0) return "";
   return `
-  <details class="category-card">
+  <details class="category-card" open>
     <summary>
       <span class="cat-label">${escapeHtml(cat.label)}</span>
       <span class="cat-count">${tools.length}</span>
@@ -151,15 +164,17 @@ const HELP_CSS = `
 .help-intro {
   color: var(--muted);
   margin: 0 0 16px;
+  max-width: 900px;
 }
 .surfaces-note {
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 10px 12px;
-  margin: 0 0 16px;
+  margin: 0 0 20px;
   font-size: 0.92em;
   color: var(--muted);
+  max-width: 900px;
 }
 .surfaces-note strong { color: var(--fg); }
 
@@ -183,8 +198,9 @@ details[open] > summary::before { content: "▾"; }
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--card-bg);
-  padding: 10px 12px;
+  padding: 10px 14px;
   margin-bottom: 10px;
+  max-width: 900px;
 }
 .category-card > summary {
   display: flex;
@@ -295,18 +311,10 @@ details[open] > summary::before { content: "▾"; }
 `;
 
 export function renderHelpHtml(kbRoot: string | null): string {
-  const intro = `
-    <h1>Capabilities</h1>
-    <p class="help-intro">All MCP tools the kb-mcp server exposes — and the natural-language prompts that route to each. Click a category to expand.</p>
-    <div class="surfaces-note">
-      <strong>Two surfaces, one set of tools.</strong> This extension already invokes the read-only tools directly via subprocess for the dashboard. The MCP server (registered in the configs below) is what lets AI agents in Claude Code, Claude Desktop, and Cursor call the same tools by name.
-    </div>
-  `;
   const categories = TOOL_CATEGORIES.map(renderCategorySection).join("");
   const agents = renderAgentSetup(kbRoot);
 
   const total = TOOL_CATALOG.length;
-  const totalsLine = `<p class="help-intro">${total} tools across ${TOOL_CATEGORIES.length} categories.</p>`;
 
   return `<!DOCTYPE html>
 <html>
@@ -315,15 +323,13 @@ export function renderHelpHtml(kbRoot: string | null): string {
   <style>${CSS}${HELP_CSS}</style>
 </head>
 <body>
-  <details id="root-expand">
-    <summary><strong>Show capabilities</strong> — ${total} MCP tools</summary>
-    <div class="root-body">
-      ${intro}
-      ${totalsLine}
-      ${categories}
-      ${agents}
-    </div>
-  </details>
+  <h1>Capabilities</h1>
+  <p class="help-intro">All MCP tools the kb-mcp server exposes — and the natural-language prompts that route to each. ${total} tools across ${TOOL_CATEGORIES.length} categories.</p>
+  <div class="surfaces-note">
+    <strong>Two surfaces, one set of tools.</strong> This extension already invokes the read-only tools directly via subprocess for the dashboard. The MCP server (registered in the configs at the bottom) is what lets AI agents in Claude Code, Claude Desktop, and Cursor call the same tools by name.
+  </div>
+  ${categories}
+  ${agents}
   <script>
     const vscode = acquireVsCodeApi();
     document.addEventListener('click', (e) => {

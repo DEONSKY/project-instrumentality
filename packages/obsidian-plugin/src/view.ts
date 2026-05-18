@@ -317,14 +317,16 @@ export class InstrumentalityView extends ItemView {
     }
 
     this.renderHeader(root);
+    if (this.viewMode === "info") {
+      renderInfoBody(root, this.kbRoot);
+      return;
+    }
     this.renderSubmodulesPinned(root);
     this.renderPipelineStrip(root);
     this.renderViewModeTabs(root);
     if (this.viewMode === "activity") {
       this.renderActivityFilterBar(root);
       this.renderActivityBody(root);
-    } else if (this.viewMode === "info") {
-      renderInfoBody(root, this.kbRoot);
     } else {
       this.renderFilterBar(root);
       this.renderSections(root);
@@ -346,7 +348,6 @@ export class InstrumentalityView extends ItemView {
     };
     make("pending", "Pending");
     make("activity", "Activity");
-    make("info", "Info");
   }
 
   private renderActivityFilterBar(parent: HTMLElement): void {
@@ -420,6 +421,18 @@ export class InstrumentalityView extends ItemView {
     publish.addEventListener("click", () => void this.handlePublishDrift());
     const refresh = tools.createEl("button", { text: "Refresh", cls: "mod-cta" });
     refresh.addEventListener("click", () => void this.refresh());
+    const help = tools.createEl("button", {
+      text: this.viewMode === "info" ? "✕" : "?",
+      cls: "instrumentality-help-btn" + (this.viewMode === "info" ? " on" : ""),
+    });
+    help.title =
+      this.viewMode === "info"
+        ? "Close capabilities"
+        : "Show MCP capabilities — what the server exposes and how to invoke it";
+    help.addEventListener("click", () => {
+      this.viewMode = this.viewMode === "info" ? "pending" : "info";
+      this.render();
+    });
   }
 
   private renderHooksBadge(parent: HTMLElement): void {

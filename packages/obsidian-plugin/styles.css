@@ -1139,3 +1139,16 @@
   color: var(--text-normal);
   overflow-x: auto;
 }
+
+.instrumentality-help-btn {
+  cursor: pointer;
+  width: 28px;
+  padding: 0;
+  font: inherit;
+  font-size: 1em;
+  line-height: 1.6;
+}
+.instrumentality-help-btn.on {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
