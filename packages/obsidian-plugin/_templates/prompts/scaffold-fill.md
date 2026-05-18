@@ -9,7 +9,7 @@
 #   {{template_type}}     — feature | flow | schema | validation | etc
 #   {{template_content}}  — the raw template with {{placeholders}}
 #   {{description}}       — what the developer told kb_scaffold
-#   {{kb_context}}        — foundation files + relevant schema/validation
+#   {{kb_context}}        — standards files + relevant schema/validation
 
 ---
 

@@ -54,6 +54,7 @@ import {
   type SubmoduleEntry,
 } from "@instrumentality/shared";
 import { SyncWatcher } from "./watcher";
+import { renderInfoBody } from "./view-info";
 
 export interface InstrumentalityViewCallbacks {
   getKbRoot: () => string | null;
@@ -193,7 +194,7 @@ export class InstrumentalityView extends ItemView {
   // Phase-4-equivalent state. View-mode + activity controls are kept
   // in-memory only — they reset on view reopen, which matches the rest
   // of the plugin's "no config dialog" feel.
-  private viewMode: "pending" | "activity" = "pending";
+  private viewMode: "pending" | "activity" | "info" = "pending";
   private activityGroupBy: "date" | "queueKey" | "eventType" = "date";
   private showSystemEvents = true;
   private openSection: string | undefined;
@@ -322,6 +323,8 @@ export class InstrumentalityView extends ItemView {
     if (this.viewMode === "activity") {
       this.renderActivityFilterBar(root);
       this.renderActivityBody(root);
+    } else if (this.viewMode === "info") {
+      renderInfoBody(root, this.kbRoot);
     } else {
       this.renderFilterBar(root);
       this.renderSections(root);
@@ -330,7 +333,7 @@ export class InstrumentalityView extends ItemView {
 
   private renderViewModeTabs(parent: HTMLElement): void {
     const tabs = parent.createDiv({ cls: "instrumentality-view-mode-tabs" });
-    const make = (mode: "pending" | "activity", label: string) => {
+    const make = (mode: "pending" | "activity" | "info", label: string) => {
       const tab = tabs.createEl("button", {
         cls: "instrumentality-view-mode-tab" + (this.viewMode === mode ? " on" : ""),
         text: label,
@@ -343,6 +346,7 @@ export class InstrumentalityView extends ItemView {
     };
     make("pending", "Pending");
     make("activity", "Activity");
+    make("info", "Info");
   }
 
   private renderActivityFilterBar(parent: HTMLElement): void {

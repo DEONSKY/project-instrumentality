@@ -1,0 +1,186 @@
+{
+  "$schema": "Hand-authored prose layer for the MCP tool catalog. For each kb_* tool the MCP server registers, declare a category, a one-line human 'when to use' summary, and 2-3 natural-language prompts an AI agent recognises as a request for that tool. The descriptions and inputSchemas are pulled from knowledge/_mcp/tools/*.js at build time; only these fields live here.",
+  "tools": {
+    "kb_get": {
+      "category": "authoring",
+      "whenToUse": "Load the right KB slices into the agent's context before it writes or reviews code — token-budgeted, scope-aware retrieval.",
+      "examplePrompts": [
+        "Pull the KB context relevant to the auth flow before I edit it.",
+        "What standards apply to files under src/api/? (working_paths)",
+        "Export everything in scope 'frontend' for an offline review."
+      ]
+    },
+    "kb_write": {
+      "category": "authoring",
+      "whenToUse": "Persist a new or updated KB file and let the indexer regenerate metadata in one step.",
+      "examplePrompts": [
+        "Save this drafted standard to knowledge/standards/code/api-errors.md.",
+        "Write the new feature note we just discussed into the KB."
+      ]
+    },
+    "kb_drift": {
+      "category": "sync",
+      "whenToUse": "Detect code↔KB misalignment after recent edits and queue any findings for human review.",
+      "examplePrompts": [
+        "Check my KB for drift since the last release.",
+        "Did the controller refactor touch anything the KB describes?",
+        "Run a readonly drift scan and just tell me what would be added."
+      ]
+    },
+    "kb_conform": {
+      "category": "governance",
+      "whenToUse": "Sweep code against standards rules; the LLM judge classifies each finding and the verdict step closes it out.",
+      "examplePrompts": [
+        "Run conform on the auth standard against src/auth/.",
+        "Resolve the pending conform queue — read each triple and judge it.",
+        "Conform every aspirational rule against the codebase."
+      ]
+    },
+    "kb_inventory": {
+      "category": "introspection",
+      "whenToUse": "Get a read-only health snapshot of the KB — stale rules, uncovered code paths, pending promotions — before a senior review.",
+      "examplePrompts": [
+        "Give me a KB inventory for the senior review tomorrow.",
+        "Which rules look stale and which files are uncovered?"
+      ]
+    },
+    "kb_scaffold": {
+      "category": "authoring",
+      "whenToUse": "Spin up a new KB file from the right template and (optionally) get a fill prompt so the agent can populate it.",
+      "examplePrompts": [
+        "Scaffold a new feature note for billing webhooks.",
+        "Create an empty standard for testing conventions and give me the fill prompt."
+      ]
+    },
+    "kb_impact": {
+      "category": "introspection",
+      "whenToUse": "Trace which KB files (and code paths) a proposed change would ripple into — a dry-run dependency analysis with no writes.",
+      "examplePrompts": [
+        "What's the blast radius if I rename the order model?",
+        "Show me what KB files depend on the api-errors standard."
+      ]
+    },
+    "kb_ask": {
+      "category": "introspection",
+      "whenToUse": "Ask free-form questions of the KB — query, brainstorm, challenge, sync-check, onboard, or generate from it.",
+      "examplePrompts": [
+        "Ask the KB: how do we handle idempotency keys?",
+        "Onboard me to the payments domain using the KB.",
+        "Challenge the assumptions in the api-errors standard."
+      ]
+    },
+    "kb_init": {
+      "category": "governance",
+      "whenToUse": "Bootstrap a fresh KB layout in a repo — templates, rules, agent-rules files (CLAUDE.md / .cursorrules / copilot-instructions).",
+      "examplePrompts": [
+        "Initialise a kb-mcp knowledge base in this repo.",
+        "Re-generate the agent rules files from the current KB."
+      ]
+    },
+    "kb_migrate": {
+      "category": "governance",
+      "whenToUse": "After _rules.md changes, migrate existing KB files to match the new conventions and emit review prompts for the agent.",
+      "examplePrompts": [
+        "Migrate the KB — I just updated _rules.md.",
+        "What review prompts come out of the latest rules change?"
+      ]
+    },
+    "kb_import": {
+      "category": "authoring",
+      "whenToUse": "Bring outside docs into the KB — classic extract+classify, or paginated auto-classify with an approval gate.",
+      "examplePrompts": [
+        "Import this Notion export into the KB (auto-classify mode).",
+        "Extract standards from these legacy markdown docs and ask me before writing."
+      ]
+    },
+    "kb_export": {
+      "category": "introspection",
+      "whenToUse": "Render the KB out to PDF, DOCX, Confluence, Notion, or static HTML for sharing or archive.",
+      "examplePrompts": [
+        "Export the security standards as a PDF for the audit.",
+        "Render the full KB to static HTML for the wiki."
+      ]
+    },
+    "kb_analyze": {
+      "category": "authoring",
+      "whenToUse": "Scan source files and group them into KB targets using code_path_patterns — a starting point for fresh documentation runs.",
+      "examplePrompts": [
+        "Analyse src/payments/ and propose KB targets.",
+        "Group these files by their KB target and draft KB files where missing."
+      ]
+    },
+    "kb_extract": {
+      "category": "authoring",
+      "whenToUse": "Sample code or existing KB content and get back a prompt for deriving a standards doc from the pattern.",
+      "examplePrompts": [
+        "Extract a standard from how we write controllers under src/api/.",
+        "Sample the test files in tests/integration and propose a testing standard."
+      ]
+    },
+    "kb_issue": {
+      "category": "governance",
+      "whenToUse": "Bridge issue trackers and the KB — triage an issue against existing rules, plan from KB context, or consult before filing.",
+      "examplePrompts": [
+        "Triage this GitHub issue against the KB.",
+        "Plan tasks for this Linear ticket using the KB context.",
+        "Should we even file this? Consult the KB first."
+      ]
+    },
+    "kb_sub": {
+      "category": "sync",
+      "whenToUse": "Coordinate git submodules safely — status, ordered push plan, and feature→main merge planning.",
+      "examplePrompts": [
+        "What's the safe push order for my submodules right now?",
+        "Plan the merge from feature into main across the submodules."
+      ]
+    },
+    "kb_autotag": {
+      "category": "authoring",
+      "whenToUse": "Manage tags across KB files — fast regex auto-apply, scored review candidates, or LLM-validated apply.",
+      "examplePrompts": [
+        "Auto-tag the KB — fast pass, just apply the obvious ones.",
+        "Give me a review queue of tag candidates I should look at."
+      ]
+    },
+    "kb_autorelate": {
+      "category": "authoring",
+      "whenToUse": "Discover related KB files via keyword overlap and propose depends_on links (dry-run by default).",
+      "examplePrompts": [
+        "Suggest depends_on links across the KB — don't write yet.",
+        "Find KB files semantically related to the order-state standard."
+      ]
+    },
+    "kb_schema": {
+      "category": "introspection",
+      "whenToUse": "Query DBML schema files in the KB — list or extract tables and enums by keyword or exact name.",
+      "examplePrompts": [
+        "Show me the orders table from the DBML.",
+        "List every table that mentions 'invoice'."
+      ]
+    },
+    "kb_upgrade": {
+      "category": "governance",
+      "whenToUse": "After upgrading the kb-mcp package, patch templates and _rules.md so this repo picks up the new keys safely.",
+      "examplePrompts": [
+        "Upgrade my KB to the latest kb-mcp conventions.",
+        "Patch _rules.md with whatever new keys this version added."
+      ]
+    },
+    "kb_history": {
+      "category": "introspection",
+      "whenToUse": "Pull the change history of a KB file — git commits and drift-log references, optionally with patch bodies.",
+      "examplePrompts": [
+        "Show me the history of the api-errors standard.",
+        "What drift events have touched knowledge/features/billing.md?"
+      ]
+    },
+    "kb_status": {
+      "category": "sync",
+      "whenToUse": "Aggregate sync state in one readonly call — drifts, conform-pending, promotions, lint, HEAD SHA. This is what the dashboards read.",
+      "examplePrompts": [
+        "Give me the current KB sync status.",
+        "Just the totals — how many drifts and lint errors are open?"
+      ]
+    }
+  }
+}

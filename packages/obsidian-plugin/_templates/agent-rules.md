@@ -81,20 +81,25 @@ This mixed style is correct by design. Attempting to convert flow arrays to bloc
 
 ## KB Tool Reference
 
-| Tool | Purpose |
-|------|---------|
-| `kb_ask` | Ask questions about the project — always try this first |
-| `kb_get` | Load relevant KB files for context before coding |
-| `kb_write` | Create or update KB documentation |
-| `kb_drift` | Detect functional divergence between code and KB |
-| `kb_conform` | Check code against standards rules; three phases (detect / submit / resolve) |
-| `kb_scaffold` | Create new KB files from templates |
-| `kb_reindex` | Rebuild the KB index after manual edits |
-| `kb_autotag` | Auto-extract tags from KB content for better search |
-| `kb_autorelate` | Discover relations between KB files |
-| `kb_impact` | Analyze impact of a change across the KB |
-| `kb_export` | Export KB content to various formats |
-| `kb_lint` | Internal helper, not an MCP tool. Runs automatically inside `kb_reindex` and via the pre-commit hook (`scripts/lint-standalone.js`). Do not call as a tool. |
+| Tool | Purpose | When to reach for this |
+|------|---------|------------------------|
+| `kb_ask` | Ask questions about the project | User asks anything about project behavior, architecture, or history — try this first |
+| `kb_get` | Load relevant KB files for context | Before writing or modifying code (always); also when an answer needs grounding in specific KB files |
+| `kb_write` | Create or update KB documentation | After code changes that affect documented behavior; never for auto-generated files (`_index.yaml`, drift queues) |
+| `kb_drift` | Detect functional divergence between code and KB | After code edits to surface stale KB; when user asks "what changed and what needs updating" |
+| `kb_conform` | Check code against standards rules; three phases (detect / submit / resolve) | After code edits that touch standards-governed files; when user asks "does this follow our rules" |
+| `kb_scaffold` | Create new KB files from templates | When creating a new feature, flow, schema, standard, or other documented unit |
+| `kb_reindex` | Rebuild the KB index | After manual KB edits outside `kb_write`; usually runs automatically |
+| `kb_autotag` | Auto-extract tags from KB content | After creating a KB file with empty `tags` frontmatter — required for `kb_get` discoverability |
+| `kb_autorelate` | Discover relations between KB files | When user asks "what's related to X" or before drafting a feature that may overlap existing docs |
+| `kb_impact` | Analyze impact of a change across the KB | Before a significant code or KB change, to find downstream files that may need review |
+| `kb_export` | Export KB content to various formats | When user asks for a doc, PDF, markdown bundle, or stakeholder summary |
+| `kb_analyze` | Scan source files, group by KB target, report uncovered groups | When user asks "what code isn't documented yet" or wants a coverage map; useful for bootstrapping KB on legacy projects |
+| `kb_status` | Read-only aggregate of all sync queues + lint state + git HEAD | At session start to orient; before opening a PR; when user asks "what's drifting right now" |
+| `kb_migrate` | Generate per-file migration prompts after `_rules.md` changes | After editing `_rules.md` patterns, folder conventions, or depth policy — surfaces KB files that may need rewrites |
+| `kb_import` | Import legacy documents into the KB with classification | When user has existing prose docs (markdown, Confluence, Word) to fold into the KB |
+| `kb_history` | Get the change history of a KB file (git + drift-log) | When a decision depends on *why* or *when* something changed — not for routine reads |
+| `kb_lint` | Internal helper, not an MCP tool | Runs automatically inside `kb_reindex` and via the pre-commit hook (`scripts/lint-standalone.js`). Do not call as a tool. |
 
 ## Tool output policy
 

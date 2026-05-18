@@ -5480,6 +5480,1092 @@ var require_submodule_actions = __commonJS({
   }
 });
 
+// ../shared/dist/tool-catalog.generated.js
+var require_tool_catalog_generated = __commonJS({
+  "../shared/dist/tool-catalog.generated.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.GENERATED_TOOL_CATALOG = void 0;
+    exports2.GENERATED_TOOL_CATALOG = [
+      {
+        "name": "kb_get",
+        "category": "authoring",
+        "shortDescription": "Load relevant KB files for a task. Respects token budget and app_scope filtering. When working_paths is provided, returns a separate rules_in_scope field listing standards rules that apply to those files (capped, descriptions trimmed) plus any open backlog entries as advisory items.",
+        "whenToUse": "Load the right KB slices into the agent's context before it writes or reviews code \u2014 token-budgeted, scope-aware retrieval.",
+        "examplePrompts": [
+          "Pull the KB context relevant to the auth flow before I edit it.",
+          "What standards apply to files under src/api/? (working_paths)",
+          "Export everything in scope 'frontend' for an offline review."
+        ],
+        "keyParams": [
+          {
+            "name": "task_type",
+            "type": "string",
+            "required": false,
+            "hint": "Type of task (e.g. generate, review, export)"
+          },
+          {
+            "name": "keywords",
+            "type": "union",
+            "required": false,
+            "hint": "Keywords to match KB files"
+          },
+          {
+            "name": "app_scope",
+            "type": "string",
+            "required": false,
+            "hint": "Filter by app scope (e.g. frontend, backend). When working_paths is also set, this overrides path-based app_scope inference."
+          },
+          {
+            "name": "scope",
+            "type": "string",
+            "required": false,
+            "hint": 'Export scope: domain name, feature id, or "all"'
+          },
+          {
+            "name": "max_tokens",
+            "type": "number",
+            "required": false,
+            "hint": "Override token budget (default: 8000, or token_budget from _rules.md)"
+          },
+          {
+            "name": "task_context",
+            "type": "enum(creating|fixing|reviewing)",
+            "required": false,
+            "hint": "Adjusts relevance scoring: creating boosts same-type files, fixing boosts code standards, reviewing includes drift targets"
+          },
+          {
+            "name": "working_paths",
+            "type": "string[]",
+            "required": false,
+            "hint": "File paths the agent is about to edit. Triggers rules_in_scope injection \u2014 relevant standards rules (capped at working_paths_cap, default 10) are returned in a separate field. Independent of task_context and keywords."
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_write",
+        "category": "authoring",
+        "shortDescription": "Write a KB file and automatically reindex. Never write _index.yaml directly.",
+        "whenToUse": "Persist a new or updated KB file and let the indexer regenerate metadata in one step.",
+        "examplePrompts": [
+          "Save this drafted standard to knowledge/standards/code/api-errors.md.",
+          "Write the new feature note we just discussed into the KB."
+        ],
+        "keyParams": [
+          {
+            "name": "file_path",
+            "type": "string",
+            "required": true,
+            "hint": "Path to the KB file (e.g. knowledge/features/my-feature.md)"
+          },
+          {
+            "name": "content",
+            "type": "string",
+            "required": true,
+            "hint": "Full file content including YAML front-matter"
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_drift",
+        "category": "sync",
+        "shortDescription": "Bidirectional drift detection. Phase 1: writes entries to sync/code-drift.md (keyed by KB target, tracks all code files + since-commit) and sync/kb-drift.md (keyed by KB file). Multiple commits accumulate automatically. The response includes `_diffs` with pre-fetched unified diffs, stats, and commit subjects for every open entry \u2014 read those directly before resolving. Phase 2: summaries=KB updated (closes code-drift.md), reverted=code file reverted (closes code-drift.md), kb_confirmed=kb\u2192code reviewed (closes kb-drift.md), dismiss=close a structurally-broken ghost entry whose kb_target/kb_file will never exist (logged separately as DISMISSED in the audit trail \u2014 use this when an upstream code_path_patterns rule produced a garbage name rather than hand-editing the queue file). Phase 2 responses include `closed` (what was actually removed) and `not_found` (inputs that matched no open entry, with a `hint` when the input matches the *other* queue \u2014 i.e. you called the wrong phase). When anything lands in `not_found`, an `error` field is set; trust `closed`, not the top-level count, to know what was written.",
+        "whenToUse": "Detect code\u2194KB misalignment after recent edits and queue any findings for human review.",
+        "examplePrompts": [
+          "Check my KB for drift since the last release.",
+          "Did the controller refactor touch anything the KB describes?",
+          "Run a readonly drift scan and just tell me what would be added."
+        ],
+        "keyParams": [
+          {
+            "name": "since",
+            "type": "string",
+            "required": false,
+            "hint": 'Commit SHA or "last-sync"'
+          },
+          {
+            "name": "summaries",
+            "type": "object[]",
+            "required": false,
+            "hint": "Phase 2a: code correct \u2014 write KB notes and close code-drift.md entries"
+          },
+          {
+            "name": "reverted",
+            "type": "object[]",
+            "required": false,
+            "hint": "Phase 2b: code reverted \u2014 close code-drift.md entries without writing KB notes"
+          },
+          {
+            "name": "kb_confirmed",
+            "type": "object[]",
+            "required": false,
+            "hint": "Phase 2c: kb\u2192code reviewed \u2014 close kb-drift.md entries"
+          },
+          {
+            "name": "dismiss",
+            "type": "object[]",
+            "required": false,
+            "hint": "Phase 2d: close a structurally-broken ghost entry (kb_target/kb_file that points at a file that will never exist, typically because an upstream code_path_patterns rule captured a versioned/timestamped basename). Use the exact entry heading as `queue_key` and a human-readable `reason`. Logged as DISMISSED separately from RESOLVED so dismissals remain visible as a signal that upstream rules need attention."
+          },
+          {
+            "name": "acknowledge",
+            "type": "object[]",
+            "required": false,
+            "hint": 'Phase 2e: stamp an entry as author-vetted ("real change, doesn\'t affect KB") without removing it. Renders as an `**Acknowledged**: @author at SHA \u2014 "reason"` badge on the entry block. The entry stays in the queue; a later resolving verdict (summaries / reverted / kb_confirmed / dismiss) overrides.'
+          },
+          {
+            "name": "force_baseline",
+            "type": "string",
+            "required": false,
+            "hint": 'Admin escape hatch: reset both queue baselines to this SHA (or "HEAD"). Use when the queue has gone stale and needs a manual reset.'
+          },
+          {
+            "name": "purge",
+            "type": "boolean",
+            "required": false,
+            "hint": "With force_baseline: also clear all queue entries. Default: false."
+          },
+          {
+            "name": "include_diffs",
+            "type": "boolean",
+            "required": false,
+            "hint": "Include `_diffs` with pre-fetched git diffs, stats, and commit subjects for every open entry. Default: true. Set false for quick status scans."
+          },
+          {
+            "name": "readonly",
+            "type": "boolean",
+            "required": false,
+            "hint": "Compute results in memory but skip every fs write (queue files, drift-log, baseline advance). Returned `_state` carries the would-have-written entries. Used by the live watcher in the extension and the soft-mode CI check."
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_conform",
+        "category": "governance",
+        "shortDescription": "Three-phase non-functional conformance check. Phase 1 (no resolution args): MCP runs cheap pre-filters and returns requested_evaluations + a prompt for the agent to evaluate. Phase 1.5 (submit_judgments): agent submits per-rule judgments \u2014 must cover every requested triple in a single call (partial submissions return gaps[] and are not persisted across calls). Phase 2 (applied/exempted/promoted/dismissed): close queue entries. Promoted (file, rule) pairs are suppressed from re-detection until the standard is updated (auto-close on rule fingerprint change) or a senior reviewer calls closed_promotion. Aspirational mode (mode: aspirational, scope: <standard-file>): retroactive sweep into a separate backlog queue; pass path_filter to chunk a large sweep by subtree.",
+        "whenToUse": "Sweep code against standards rules; the LLM judge classifies each finding and the verdict step closes it out.",
+        "examplePrompts": [
+          "Run conform on the auth standard against src/auth/.",
+          "Resolve the pending conform queue \u2014 read each triple and judge it.",
+          "Conform every aspirational rule against the codebase."
+        ],
+        "keyParams": [
+          {
+            "name": "since",
+            "type": "string",
+            "required": false,
+            "hint": "Override baseline SHA (default: read from queue header)"
+          },
+          {
+            "name": "mode",
+            "type": "enum(current|aspirational)",
+            "required": false,
+            "hint": "Detection mode (default: current)"
+          },
+          {
+            "name": "scope",
+            "type": "string",
+            "required": false,
+            "hint": "Glob filter on Phase 1 file set (current mode); or standard file path in aspirational mode"
+          },
+          {
+            "name": "path_filter",
+            "type": "string|array",
+            "required": false,
+            "hint": `Aspirational mode only: chunk a large sweep by intersecting with one or more path globs (e.g. "src/admin" or ["src/admin", "src/customer"]). Bare directory inputs auto-expand to "<dir>/**". Errors if used in current mode, or if the intersection with the standard's applies_to.paths is empty.`
+          },
+          {
+            "name": "submit_judgments",
+            "type": "object[]",
+            "required": false,
+            "hint": "Phase 1.5: per-(file, standard, rule) judgments. Must include every triple from the pending session in one call \u2014 partial submissions return gaps[] and are not persisted across calls."
+          },
+          {
+            "name": "applied",
+            "type": "object[]",
+            "required": false,
+            "hint": "Phase 2: code was fixed"
+          },
+          {
+            "name": "exempted",
+            "type": "object[]",
+            "required": false,
+            "hint": "Phase 2: justified exception, written into rule.exceptions[]"
+          },
+          {
+            "name": "promoted",
+            "type": "object[]",
+            "required": false,
+            "hint": "Phase 2: standard should change (logged; no automatic edit)"
+          },
+          {
+            "name": "dismissed",
+            "type": "object[]",
+            "required": false,
+            "hint": "Phase 2: false positive"
+          },
+          {
+            "name": "closed_promotion",
+            "type": "object[]",
+            "required": false,
+            "hint": "Senior reviewer close-out: removes a previously-promoted (file, rule) from the suppression ledger AND writes an exception into the rule (so the file is permanently fine). Use when reviewer decided NOT to update the standard. If the reviewer DID update the standard, no call is needed \u2014 the next sweep auto-closes via fingerprint change."
+          },
+          {
+            "name": "acknowledge",
+            "type": "object[]",
+            "required": false,
+            "hint": 'Non-resolving annotation: stamps the entry with `**Acknowledged**: @author at SHA \u2014 "reason"` and leaves it in the queue. CI still treats acked entries as pending; a later resolving verdict overrides.'
+          },
+          {
+            "name": "force_baseline",
+            "type": "string",
+            "required": false,
+            "hint": 'Admin: reset baseline to a SHA or "HEAD"'
+          },
+          {
+            "name": "purge",
+            "type": "boolean",
+            "required": false,
+            "hint": "Admin: with force_baseline, also clear all entries"
+          },
+          {
+            "name": "include_diffs",
+            "type": "boolean",
+            "required": false,
+            "hint": "Phase 1: pre-fetch diffs into result._diffs (default: true)"
+          },
+          {
+            "name": "readonly",
+            "type": "boolean",
+            "required": false,
+            "hint": "Compute results in memory but skip every fs write. Used by the live watcher in the extension and the soft-mode CI check."
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_inventory",
+        "category": "introspection",
+        "shortDescription": "Read-only signal report for senior devs. Surfaces stale_rules (standards rules matching no source files), uncovered_files (source files matching no rule), and pending_promotions (open entries from the suppression ledger awaiting senior review). Never writes. Use to inform manual kb_extract / kb_write decisions, or to close promotions via kb_conform.",
+        "whenToUse": "Get a read-only health snapshot of the KB \u2014 stale rules, uncovered code paths, pending promotions \u2014 before a senior review.",
+        "examplePrompts": [
+          "Give me a KB inventory for the senior review tomorrow.",
+          "Which rules look stale and which files are uncovered?"
+        ],
+        "keyParams": [
+          {
+            "name": "depth",
+            "type": "number",
+            "required": false,
+            "hint": "Directory depth for source-file walk (default 6)"
+          },
+          {
+            "name": "scope",
+            "type": "string",
+            "required": false,
+            "hint": 'Optional glob to restrict the source-file walk (e.g. "ms-fe-web/**")'
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_scaffold",
+        "category": "authoring",
+        "shortDescription": "Create a new KB file from a template. With description: returns a fill prompt for the agent. With content: writes agent-filled content. Without either: writes template with placeholders.",
+        "whenToUse": "Spin up a new KB file from the right template and (optionally) get a fill prompt so the agent can populate it.",
+        "examplePrompts": [
+          "Scaffold a new feature note for billing webhooks.",
+          "Create an empty standard for testing conventions and give me the fill prompt."
+        ],
+        "keyParams": [
+          {
+            "name": "type",
+            "type": "string",
+            "required": true,
+            "hint": "Template type: feature|flow|schema|validation|integration|decision|standard|group|component"
+          },
+          {
+            "name": "id",
+            "type": "string",
+            "required": false,
+            "hint": "File identifier (kebab-case)"
+          },
+          {
+            "name": "group",
+            "type": "string",
+            "required": false,
+            "hint": "Group/subfolder for standards: code|contracts|knowledge|process"
+          },
+          {
+            "name": "description",
+            "type": "string",
+            "required": false,
+            "hint": "Description \u2014 tool returns a fill prompt for the agent to process"
+          },
+          {
+            "name": "content",
+            "type": "string",
+            "required": false,
+            "hint": "Agent-filled content to write (use after processing the fill prompt)"
+          },
+          {
+            "name": "app_scope",
+            "type": "string",
+            "required": false,
+            "hint": "App scope for this standard (e.g. frontend, backend). Default: all"
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_impact",
+        "category": "introspection",
+        "shortDescription": "Analyze impact of a change across the KB dependency graph. Returns proposals \u2014 does not write.",
+        "whenToUse": "Trace which KB files (and code paths) a proposed change would ripple into \u2014 a dry-run dependency analysis with no writes.",
+        "examplePrompts": [
+          "What's the blast radius if I rename the order model?",
+          "Show me what KB files depend on the api-errors standard."
+        ],
+        "keyParams": [
+          {
+            "name": "change_description",
+            "type": "string",
+            "required": true,
+            "hint": "Description of the change to analyze"
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_ask",
+        "category": "introspection",
+        "shortDescription": "Ask a question about the KB. Supports query, brainstorm, challenge, sync, onboard, and generate intents.",
+        "whenToUse": "Ask free-form questions of the KB \u2014 query, brainstorm, challenge, sync-check, onboard, or generate from it.",
+        "examplePrompts": [
+          "Ask the KB: how do we handle idempotency keys?",
+          "Onboard me to the payments domain using the KB.",
+          "Challenge the assumptions in the api-errors standard."
+        ],
+        "keyParams": [
+          {
+            "name": "question",
+            "type": "string",
+            "required": true,
+            "hint": 'Your question. Prefix with "sync [feature] [note-id]" to resolve a sync note.'
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_init",
+        "category": "governance",
+        "shortDescription": "Bootstrap a new KB structure in the current monorepo. Pass regenerate_agent_rules: true to (re)generate CLAUDE.md/.cursorrules/.windsurfrules/.github/copilot-instructions.md in the project root.",
+        "whenToUse": "Bootstrap a fresh KB layout in a repo \u2014 templates, rules, agent-rules files (CLAUDE.md / .cursorrules / copilot-instructions).",
+        "examplePrompts": [
+          "Initialise a kb-mcp knowledge base in this repo.",
+          "Re-generate the agent rules files from the current KB."
+        ],
+        "keyParams": [
+          {
+            "name": "interactive",
+            "type": "boolean",
+            "required": false,
+            "hint": "Run interactive setup prompts"
+          },
+          {
+            "name": "config",
+            "type": "object",
+            "required": false,
+            "hint": "Config object (skips interactive prompts)"
+          },
+          {
+            "name": "regenerate_agent_rules",
+            "type": "boolean",
+            "required": false,
+            "hint": "Only regenerate CLAUDE.md/.cursorrules/.windsurfrules/.github/copilot-instructions.md; skip the full bootstrap."
+          },
+          {
+            "name": "force",
+            "type": "boolean",
+            "required": false,
+            "hint": "With regenerate_agent_rules: overwrite existing files. Default: false (preserves customizations)."
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_migrate",
+        "category": "governance",
+        "shortDescription": "Migrate KB files after _rules.md changes. Manual trigger only.",
+        "whenToUse": "After _rules.md changes, migrate existing KB files to match the new conventions and emit review prompts for the agent.",
+        "examplePrompts": [
+          "Migrate the KB \u2014 I just updated _rules.md.",
+          "What review prompts come out of the latest rules change?"
+        ],
+        "keyParams": [
+          {
+            "name": "since",
+            "type": "string",
+            "required": false,
+            "hint": "Commit SHA to diff _rules.md from. Auto-detected if omitted."
+          },
+          {
+            "name": "dry_run",
+            "type": "boolean",
+            "required": false,
+            "hint": "Preview migration prompts without writing files"
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_import",
+        "category": "authoring",
+        "shortDescription": "Import a document into the KB. Auto-classify mode (recommended): Phase 1 extracts and classifies in batches (multi-label). Phase 2 returns an import plan with proposed files and cross-references. Phase 3 (approve: true) writes files. Classic mode: Phase 1 returns chunks, Phase 2 writes agent-generated files.",
+        "whenToUse": "Bring outside docs into the KB \u2014 classic extract+classify, or paginated auto-classify with an approval gate.",
+        "examplePrompts": [
+          "Import this Notion export into the KB (auto-classify mode).",
+          "Extract standards from these legacy markdown docs and ask me before writing."
+        ],
+        "keyParams": [
+          {
+            "name": "source",
+            "type": "string",
+            "required": false,
+            "hint": "Path to the source document (PDF, DOCX, MD, TXT, HTML)"
+          },
+          {
+            "name": "dry_run",
+            "type": "boolean",
+            "required": false,
+            "hint": "Preview without writing"
+          },
+          {
+            "name": "auto_classify",
+            "type": "boolean",
+            "required": false,
+            "hint": "Paginated classification mode \u2014 returns chunks in batches for agent to classify, then returns import plan for approval"
+          },
+          {
+            "name": "approve",
+            "type": "boolean",
+            "required": false,
+            "hint": "Execute a previously generated import plan (requires auto_classify)"
+          },
+          {
+            "name": "classifications",
+            "type": "object[]",
+            "required": false,
+            "hint": "Agent multi-label classification results from previous batch"
+          },
+          {
+            "name": "cursor",
+            "type": "number",
+            "required": false,
+            "hint": "Current position in chunk list (returned by previous auto_classify call)"
+          },
+          {
+            "name": "files_to_write",
+            "type": "object[]",
+            "required": false,
+            "hint": "Classic Phase 2: agent-generated files to write"
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_export",
+        "category": "introspection",
+        "shortDescription": 'Export KB content. Supports optional purpose to guide tone/structure, type filter (e.g. "flow"), and multi-scope (array of ids/domains). Phase 1: Gathers KB content and returns an export prompt for the agent (or writes json directly). Large KBs are paginated automatically. Phase 2: Call with rendered_content to write agent-rendered output to disk.',
+        "whenToUse": "Render the KB out to PDF, DOCX, Confluence, Notion, or static HTML for sharing or archive.",
+        "examplePrompts": [
+          "Export the security standards as a PDF for the audit.",
+          "Render the full KB to static HTML for the wiki."
+        ],
+        "keyParams": [
+          {
+            "name": "scope",
+            "type": "union",
+            "required": false,
+            "hint": 'Domain name, feature/flow id, or "all". Accepts an array for multi-scope export.'
+          },
+          {
+            "name": "format",
+            "type": "string",
+            "required": false,
+            "hint": "Output format: pdf|docx|markdown|confluence|notion|html|json"
+          },
+          {
+            "name": "type",
+            "type": "string",
+            "required": false,
+            "hint": "Filter by KB type: feature, flow, schema, validation, integration, decision, component"
+          },
+          {
+            "name": "purpose",
+            "type": "string",
+            "required": false,
+            "hint": 'Optional: describe the purpose and desired style of the export (e.g. "client-facing API overview", "onboarding guide for new backend engineers")'
+          },
+          {
+            "name": "app_scope",
+            "type": "string",
+            "required": false,
+            "hint": "Filter by app scope"
+          },
+          {
+            "name": "page",
+            "type": "number",
+            "required": false,
+            "hint": "Page number for paginated exports of large KBs (returned by previous call)"
+          },
+          {
+            "name": "dry_run",
+            "type": "boolean",
+            "required": false,
+            "hint": "Preview without writing"
+          },
+          {
+            "name": "rendered_content",
+            "type": "string",
+            "required": false,
+            "hint": "Phase 2: agent-rendered content to write to disk"
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_analyze",
+        "category": "authoring",
+        "shortDescription": "Analyze project source files and generate a KB coverage inventory. Groups source files by their KB target (using code_path_patterns from _rules.md) and optionally writes draft KB files for uncovered groups. Useful for bootstrapping KB on legacy projects.",
+        "whenToUse": "Scan source files and group them into KB targets using code_path_patterns \u2014 a starting point for fresh documentation runs.",
+        "examplePrompts": [
+          "Analyse src/payments/ and propose KB targets.",
+          "Group these files by their KB target and draft KB files where missing."
+        ],
+        "keyParams": [
+          {
+            "name": "depth",
+            "type": "number",
+            "required": false,
+            "hint": "Max directory depth to scan (default: 4)"
+          },
+          {
+            "name": "write_drafts",
+            "type": "boolean",
+            "required": false,
+            "hint": "Write draft KB files for uncovered groups"
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_extract",
+        "category": "authoring",
+        "shortDescription": "Sample existing code or KB files and return a prompt to derive a standards document from observed patterns. Phase 1 (no content): returns prompt + sampled file contents. Phase 2 (content provided): writes the filled standard to disk.",
+        "whenToUse": "Sample code or existing KB content and get back a prompt for deriving a standards doc from the pattern.",
+        "examplePrompts": [
+          "Extract a standard from how we write controllers under src/api/.",
+          "Sample the test files in tests/integration and propose a testing standard."
+        ],
+        "keyParams": [
+          {
+            "name": "source",
+            "type": "enum(code|knowledge)",
+            "required": true,
+            "hint": 'What to sample: "code" for source files, "knowledge" for KB docs'
+          },
+          {
+            "name": "target_id",
+            "type": "string",
+            "required": true,
+            "hint": "ID for the output standards file (kebab-case)"
+          },
+          {
+            "name": "target_group",
+            "type": "enum(code|contracts|knowledge|process)",
+            "required": true,
+            "hint": "Standards subfolder to write into"
+          },
+          {
+            "name": "paths",
+            "type": "union",
+            "required": false,
+            "hint": 'Glob patterns to filter source files (source=code), or KB subfolder name (source=knowledge, e.g. "features")'
+          },
+          {
+            "name": "app_scope",
+            "type": "string",
+            "required": false,
+            "hint": "App scope for the generated standard (default: all)"
+          },
+          {
+            "name": "content",
+            "type": "string",
+            "required": false,
+            "hint": "(Phase 2) Filled content to write to disk"
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_issue",
+        "category": "governance",
+        "shortDescription": 'Issue \u2194 KB bridge. command: "triage" (two-phase; writes to sync/inbound/), "plan" (two-phase; writes to sync/outbound/), "consult" (single-phase; no write).',
+        "whenToUse": "Bridge issue trackers and the KB \u2014 triage an issue against existing rules, plan from KB context, or consult before filing.",
+        "examplePrompts": [
+          "Triage this GitHub issue against the KB.",
+          "Plan tasks for this Linear ticket using the KB context.",
+          "Should we even file this? Consult the KB first."
+        ],
+        "keyParams": [
+          {
+            "name": "command",
+            "type": "enum(triage|plan|consult)",
+            "required": true,
+            "hint": "triage: analyze an existing issue against the KB. plan: generate work items from KB docs. consult: advise before filing an issue."
+          },
+          {
+            "name": "title",
+            "type": "string",
+            "required": false,
+            "hint": "Issue title (triage, consult)"
+          },
+          {
+            "name": "body",
+            "type": "string",
+            "required": false,
+            "hint": "Issue description/body (triage, consult)"
+          },
+          {
+            "name": "issue_id",
+            "type": "string",
+            "required": false,
+            "hint": "External issue ID, e.g. PROJ-123 (triage)"
+          },
+          {
+            "name": "source",
+            "type": "string",
+            "required": false,
+            "hint": "PM tool name: jira, github, linear (triage)"
+          },
+          {
+            "name": "labels",
+            "type": "string[]",
+            "required": false,
+            "hint": "Issue labels/tags (triage)"
+          },
+          {
+            "name": "priority",
+            "type": "string",
+            "required": false,
+            "hint": "Issue priority (triage)"
+          },
+          {
+            "name": "scope",
+            "type": "string",
+            "required": false,
+            "hint": 'Scope filter \u2014 folder name or "all" (plan)'
+          },
+          {
+            "name": "type",
+            "type": "string",
+            "required": false,
+            "hint": "KB doc type filter: feature, flow, decision (plan)"
+          },
+          {
+            "name": "keywords",
+            "type": "union",
+            "required": false,
+            "hint": "Keyword filter (plan)"
+          },
+          {
+            "name": "target",
+            "type": "string",
+            "required": false,
+            "hint": "Target PM tool: jira, github, linear (plan)"
+          },
+          {
+            "name": "project_key",
+            "type": "string",
+            "required": false,
+            "hint": "PM tool project key, e.g. PROJ (plan)"
+          },
+          {
+            "name": "app_scope",
+            "type": "string",
+            "required": false,
+            "hint": "Filter KB search to specific app scope"
+          },
+          {
+            "name": "content",
+            "type": "string",
+            "required": false,
+            "hint": "Phase 2: filled triage report (triage) or task breakdown YAML (plan) to write"
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_sub",
+        "category": "sync",
+        "shortDescription": "Submodule coordination. status: shows parent + submodule branches, pointer changes, owned/shared types. push: pushes submodules first (correct order), then parent. merge_plan: returns correct merge sequence for feature-to-main.",
+        "whenToUse": "Coordinate git submodules safely \u2014 status, ordered push plan, and feature\u2192main merge planning.",
+        "examplePrompts": [
+          "What's the safe push order for my submodules right now?",
+          "Plan the merge from feature into main across the submodules."
+        ],
+        "keyParams": [
+          {
+            "name": "command",
+            "type": "enum(status|push|merge_plan)",
+            "required": true,
+            "hint": "Command to run"
+          },
+          {
+            "name": "dry_run",
+            "type": "boolean",
+            "required": false,
+            "hint": "For push: show plan without executing"
+          },
+          {
+            "name": "target_branch",
+            "type": "string",
+            "required": false,
+            "hint": "For merge_plan: target branch name"
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_autotag",
+        "category": "authoring",
+        "shortDescription": 'Auto-extract and manage tags for KB files. Tags are system-owned and overwritten on each run. Modes: "fast" (regex extraction, auto-applied), "review" (returns scored candidates for LLM validation), "apply" (writes LLM-reviewed tags to frontmatter).',
+        "whenToUse": "Manage tags across KB files \u2014 fast regex auto-apply, scored review candidates, or LLM-validated apply.",
+        "examplePrompts": [
+          "Auto-tag the KB \u2014 fast pass, just apply the obvious ones.",
+          "Give me a review queue of tag candidates I should look at."
+        ],
+        "keyParams": [
+          {
+            "name": "file_path",
+            "type": "string",
+            "required": false,
+            "hint": 'Path to a single KB file (e.g. knowledge/features/auth.md), or "all" to tag the entire KB. Default: all. Used by fast and review modes.'
+          },
+          {
+            "name": "mode",
+            "type": "enum(fast|review|apply)",
+            "required": false,
+            "hint": "fast: regex-extract and overwrite tags (default). review: return scored candidates grouped by confidence for LLM validation. apply: write LLM-reviewed tags from the tags parameter."
+          },
+          {
+            "name": "tags",
+            "type": "object",
+            "required": false,
+            "hint": 'For mode=apply only. Map of file_path to tag array, e.g. { "features/auth.md": ["auth", "session", "jwt"] }.'
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_autorelate",
+        "category": "authoring",
+        "shortDescription": "Discover semantic relations between KB files using keyword overlap and propose depends_on links. Use dry_run: true to preview before writing.",
+        "whenToUse": "Discover related KB files via keyword overlap and propose depends_on links (dry-run by default).",
+        "examplePrompts": [
+          "Suggest depends_on links across the KB \u2014 don't write yet.",
+          "Find KB files semantically related to the order-state standard."
+        ],
+        "keyParams": [
+          {
+            "name": "file_path",
+            "type": "string",
+            "required": false,
+            "hint": "Analyze relations for a single file, or omit for all files."
+          },
+          {
+            "name": "dry_run",
+            "type": "boolean",
+            "required": false,
+            "hint": "Preview proposed relations without writing."
+          },
+          {
+            "name": "threshold",
+            "type": "number",
+            "required": false,
+            "hint": "Minimum overlap score to propose a relation (0\u20131). Default: 0.25"
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_schema",
+        "category": "introspection",
+        "shortDescription": "Query database schema files (DBML format) with table-level extraction. Returns only relevant table/enum definitions.",
+        "whenToUse": "Query DBML schema files in the KB \u2014 list or extract tables and enums by keyword or exact name.",
+        "examplePrompts": [
+          "Show me the orders table from the DBML.",
+          "List every table that mentions 'invoice'."
+        ],
+        "keyParams": [
+          {
+            "name": "command",
+            "type": "enum(query|list)",
+            "required": true,
+            "hint": "query: extract table definitions. list: list all tables and enums."
+          },
+          {
+            "name": "file",
+            "type": "string",
+            "required": false,
+            "hint": 'Schema file path or bare name (e.g. "postgres" or "data/schema/postgres.md")'
+          },
+          {
+            "name": "entities",
+            "type": "string[]",
+            "required": false,
+            "hint": "Table names to extract (exact match)"
+          },
+          {
+            "name": "keywords",
+            "type": "union",
+            "required": false,
+            "hint": "Keywords for relevance-scored table extraction"
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_upgrade",
+        "category": "governance",
+        "shortDescription": "Upgrade project KB templates and config after MCP server update. Auto-updates unmodified templates, returns merge prompts for customized ones, patches _rules.md with new keys.",
+        "whenToUse": "After upgrading the kb-mcp package, patch templates and _rules.md so this repo picks up the new keys safely.",
+        "examplePrompts": [
+          "Upgrade my KB to the latest kb-mcp conventions.",
+          "Patch _rules.md with whatever new keys this version added."
+        ],
+        "keyParams": [
+          {
+            "name": "dry_run",
+            "type": "boolean",
+            "required": false,
+            "hint": "Preview changes without writing"
+          },
+          {
+            "name": "force",
+            "type": "boolean",
+            "required": false,
+            "hint": "Overwrite all templates including customized ones"
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_history",
+        "category": "introspection",
+        "shortDescription": "Get the change history of a KB file: git commits that touched it + any drift-log entries that reference it. Call this when a decision depends on why or when something changed \u2014 not for routine reads.",
+        "whenToUse": "Pull the change history of a KB file \u2014 git commits and drift-log references, optionally with patch bodies.",
+        "examplePrompts": [
+          "Show me the history of the api-errors standard.",
+          "What drift events have touched knowledge/features/billing.md?"
+        ],
+        "keyParams": [
+          {
+            "name": "file",
+            "type": "string",
+            "required": true,
+            "hint": "KB file path (e.g. knowledge/decisions/auth.md or decisions/auth.md)"
+          },
+          {
+            "name": "limit",
+            "type": "number",
+            "required": false,
+            "hint": "Max number of commits (default: 20, max 200)"
+          },
+          {
+            "name": "since",
+            "type": "string",
+            "required": false,
+            "hint": 'ISO date filter, e.g. "2026-01-01"'
+          },
+          {
+            "name": "include_diff",
+            "type": "boolean",
+            "required": false,
+            "hint": "Include patch bodies. Off by default to save tokens."
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      },
+      {
+        "name": "kb_status",
+        "category": "sync",
+        "shortDescription": 'Read-only sync-state aggregate. Returns counts and entries for code-drift, kb-drift, standards-drift, conform-pending (current + aspirational), pending promotions, and lint issues, plus the current git HEAD short SHA. Same data the KB Sync VSCode extension renders. Never writes. Use at session start, before opening a PR, or whenever the user asks "what is drifting?".',
+        "whenToUse": "Aggregate sync state in one readonly call \u2014 drifts, conform-pending, promotions, lint, HEAD SHA. This is what the dashboards read.",
+        "examplePrompts": [
+          "Give me the current KB sync status.",
+          "Just the totals \u2014 how many drifts and lint errors are open?"
+        ],
+        "keyParams": [
+          {
+            "name": "skip_lint",
+            "type": "boolean",
+            "required": false,
+            "hint": "Skip the lint subprocess (faster; default false)."
+          }
+        ],
+        "surfaces": [
+          "mcp"
+        ]
+      }
+    ];
+  }
+});
+
+// ../shared/dist/tool-catalog.js
+var require_tool_catalog = __commonJS({
+  "../shared/dist/tool-catalog.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.TOOL_CATALOG = exports2.TOOL_CATEGORIES = void 0;
+    exports2.toolsByCategory = toolsByCategory2;
+    exports2.findTool = findTool;
+    var tool_catalog_generated_js_1 = require_tool_catalog_generated();
+    exports2.TOOL_CATEGORIES = [
+      {
+        id: "sync",
+        label: "Sync",
+        blurb: "Detect code\u2194KB misalignment and coordinate the sync state surfaced in this dashboard."
+      },
+      {
+        id: "authoring",
+        label: "Authoring",
+        blurb: "Write, scaffold, import, and tag KB content."
+      },
+      {
+        id: "governance",
+        label: "Governance",
+        blurb: "Conform code to standards, bootstrap, migrate, and upgrade the KB."
+      },
+      {
+        id: "introspection",
+        label: "Introspection",
+        blurb: "Read-only queries over the KB and its history."
+      }
+    ];
+    exports2.TOOL_CATALOG = tool_catalog_generated_js_1.GENERATED_TOOL_CATALOG;
+    function toolsByCategory2(category) {
+      return exports2.TOOL_CATALOG.filter((t) => t.category === category);
+    }
+    function findTool(name) {
+      return exports2.TOOL_CATALOG.find((t) => t.name === name);
+    }
+  }
+});
+
+// ../shared/dist/agent-setup.js
+var require_agent_setup = __commonJS({
+  "../shared/dist/agent-setup.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.AGENT_SETUP_SNIPPETS = void 0;
+    exports2.renderSnippet = renderSnippet2;
+    exports2.AGENT_SETUP_SNIPPETS = [
+      {
+        id: "claude-code",
+        label: "Claude Code",
+        configFile: "~/.claude.json",
+        instructions: 'Add this entry under "mcpServers" in your ~/.claude.json (create the key if absent), then restart Claude Code.',
+        snippet: `{
+  "mcpServers": {
+    "kb-mcp": {
+      "command": "node",
+      "args": ["\${KB_ROOT}/knowledge/_mcp/server.js"]
+    }
+  }
+}`
+      },
+      {
+        id: "claude-desktop",
+        label: "Claude Desktop",
+        configFile: "~/Library/Application Support/Claude/claude_desktop_config.json (macOS) \xB7 %APPDATA%/Claude/claude_desktop_config.json (Windows)",
+        instructions: 'Add this entry under "mcpServers", then fully quit and relaunch Claude Desktop.',
+        snippet: `{
+  "mcpServers": {
+    "kb-mcp": {
+      "command": "node",
+      "args": ["\${KB_ROOT}/knowledge/_mcp/server.js"]
+    }
+  }
+}`
+      },
+      {
+        id: "cursor",
+        label: "Cursor",
+        configFile: "${KB_ROOT}/.cursor/mcp.json",
+        instructions: "Create .cursor/mcp.json in this project (or merge with the existing file) and reload Cursor.",
+        snippet: `{
+  "mcpServers": {
+    "kb-mcp": {
+      "command": "node",
+      "args": ["\${KB_ROOT}/knowledge/_mcp/server.js"]
+    }
+  }
+}`
+      }
+    ];
+    function renderSnippet2(template, kbRoot) {
+      return template.split("${KB_ROOT}").join(kbRoot ?? "<path-to-your-kb-root>");
+    }
+  }
+});
+
 // ../shared/dist/index.js
 var require_dist = __commonJS({
   "../shared/dist/index.js"(exports2) {
@@ -5505,7 +6591,8 @@ var require_dist = __commonJS({
           __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.getHooksStatus = exports2.detectPushRemote = exports2.listRemotes = exports2.hasUpstream = exports2.runPushPlan = exports2.syncSubmoduleBranch = exports2.buildPushPlan = exports2.getSubmoduleStatus = exports2.pipelineSegments = exports2.groupEntries = exports2.buildEntryHandles = exports2.UNCOMMITTED_HINT = exports2.WORKING_TREE_LATEST = exports2.PUBLISHED_LABEL = exports2.UNCOMMITTED_LABEL = exports2.splitBySource = exports2.copyActionLabel = exports2.primaryActionLabel = exports2.SECTION_GUIDE = exports2.rerunPhase1Prompt = exports2.closedPromotionPrompt = exports2.acknowledgedPrompt = exports2.dismissedPrompt = exports2.promotedPrompt = exports2.exemptedPrompt = exports2.appliedPrompt = exports2.getActionPrompt = exports2.findRuleLineRange = exports2.findRule = exports2.readStandardDefinition = exports2.parseStandardDefinition = exports2.currentAndPreviousMonth = exports2.readDriftLog = exports2.parseDriftLog = exports2.runLint = exports2.parseLintStderr = exports2.readPromotions = exports2.parsePromotions = exports2.resolveStandardPath = exports2.readConformPending = exports2.parseConformPending = exports2.readStandardsBacklog = exports2.readStandardsDrift = exports2.parseStandardsDrift = exports2.readKbDrift = exports2.parseKbDrift = exports2.readCodeDrift = exports2.parseCodeDrift = exports2.stableEntryId = void 0;
+    exports2.TOOL_CATALOG = exports2.getHooksStatus = exports2.detectPushRemote = exports2.listRemotes = exports2.hasUpstream = exports2.runPushPlan = exports2.syncSubmoduleBranch = exports2.buildPushPlan = exports2.getSubmoduleStatus = exports2.pipelineSegments = exports2.groupEntries = exports2.buildEntryHandles = exports2.UNCOMMITTED_HINT = exports2.WORKING_TREE_LATEST = exports2.PUBLISHED_LABEL = exports2.UNCOMMITTED_LABEL = exports2.splitBySource = exports2.copyActionLabel = exports2.primaryActionLabel = exports2.SECTION_GUIDE = exports2.rerunPhase1Prompt = exports2.closedPromotionPrompt = exports2.acknowledgedPrompt = exports2.dismissedPrompt = exports2.promotedPrompt = exports2.exemptedPrompt = exports2.appliedPrompt = exports2.getActionPrompt = exports2.findRuleLineRange = exports2.findRule = exports2.readStandardDefinition = exports2.parseStandardDefinition = exports2.currentAndPreviousMonth = exports2.readDriftLog = exports2.parseDriftLog = exports2.runLint = exports2.parseLintStderr = exports2.readPromotions = exports2.parsePromotions = exports2.resolveStandardPath = exports2.readConformPending = exports2.parseConformPending = exports2.readStandardsBacklog = exports2.readStandardsDrift = exports2.parseStandardsDrift = exports2.readKbDrift = exports2.parseKbDrift = exports2.readCodeDrift = exports2.parseCodeDrift = exports2.stableEntryId = void 0;
+    exports2.renderSnippet = exports2.AGENT_SETUP_SNIPPETS = exports2.findTool = exports2.toolsByCategory = exports2.TOOL_CATEGORIES = void 0;
     __exportStar(require_types(), exports2);
     __exportStar(require_kb_root(), exports2);
     __exportStar(require_status(), exports2);
@@ -5674,6 +6761,26 @@ var require_dist = __commonJS({
     Object.defineProperty(exports2, "getHooksStatus", { enumerable: true, get: function() {
       return hooks_status_js_1.getHooksStatus;
     } });
+    var tool_catalog_js_1 = require_tool_catalog();
+    Object.defineProperty(exports2, "TOOL_CATALOG", { enumerable: true, get: function() {
+      return tool_catalog_js_1.TOOL_CATALOG;
+    } });
+    Object.defineProperty(exports2, "TOOL_CATEGORIES", { enumerable: true, get: function() {
+      return tool_catalog_js_1.TOOL_CATEGORIES;
+    } });
+    Object.defineProperty(exports2, "toolsByCategory", { enumerable: true, get: function() {
+      return tool_catalog_js_1.toolsByCategory;
+    } });
+    Object.defineProperty(exports2, "findTool", { enumerable: true, get: function() {
+      return tool_catalog_js_1.findTool;
+    } });
+    var agent_setup_js_1 = require_agent_setup();
+    Object.defineProperty(exports2, "AGENT_SETUP_SNIPPETS", { enumerable: true, get: function() {
+      return agent_setup_js_1.AGENT_SETUP_SNIPPETS;
+    } });
+    Object.defineProperty(exports2, "renderSnippet", { enumerable: true, get: function() {
+      return agent_setup_js_1.renderSnippet;
+    } });
   }
 });
 
@@ -5683,11 +6790,11 @@ __export(main_exports, {
   default: () => InstrumentalityPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian3 = require("obsidian");
-var import_shared3 = __toESM(require_dist());
+var import_obsidian4 = require("obsidian");
+var import_shared4 = __toESM(require_dist());
 
 // src/view.ts
-var import_obsidian2 = require("obsidian");
+var import_obsidian3 = require("obsidian");
 
 // src/view-helpers.ts
 var path = __toESM(require("path"));
@@ -5944,7 +7051,7 @@ var SelectModal = class extends import_obsidian.Modal {
 // src/view.ts
 var path3 = __toESM(require("path"));
 var import_node_child_process = require("child_process");
-var import_shared2 = __toESM(require_dist());
+var import_shared3 = __toESM(require_dist());
 
 // src/watcher.ts
 var fs = __toESM(require("fs"));
@@ -6192,6 +7299,163 @@ var SyncWatcher = class {
   }
 };
 
+// src/view-info.ts
+var import_obsidian2 = require("obsidian");
+var import_shared2 = __toESM(require_dist());
+function renderInfoBody(parent, kbRoot) {
+  const wrap = parent.createDiv({ cls: "instrumentality-info" });
+  wrap.createEl("p", {
+    cls: "instrumentality-info-intro",
+    text: "All MCP tools the kb-mcp server exposes \u2014 and the natural-language prompts that route to each."
+  });
+  const note = wrap.createDiv({ cls: "instrumentality-info-note" });
+  note.createEl("strong", { text: "Two surfaces, one set of tools. " });
+  note.createSpan({
+    text: "This plugin already invokes the read-only tools directly via subprocess for the dashboard. The MCP server (registered via the configs below) is what lets AI agents in Claude Code, Claude Desktop, and Cursor call the same tools by name."
+  });
+  const root = wrap.createEl("details", { cls: "instrumentality-info-root" });
+  const rootSummary = root.createEl("summary");
+  rootSummary.createEl("strong", { text: "Show capabilities" });
+  rootSummary.createSpan({
+    cls: "instrumentality-info-count",
+    text: ` \u2014 ${import_shared2.TOOL_CATALOG.length} MCP tools`
+  });
+  const body = root.createDiv({ cls: "instrumentality-info-body" });
+  for (const cat of import_shared2.TOOL_CATEGORIES) {
+    renderCategory(body, cat);
+  }
+  renderAgentSetup(body, kbRoot);
+}
+function renderCategory(parent, cat) {
+  const tools = (0, import_shared2.toolsByCategory)(cat.id);
+  if (tools.length === 0)
+    return;
+  const card = parent.createEl("details", { cls: "instrumentality-info-category" });
+  const summary = card.createEl("summary");
+  summary.createSpan({ cls: "instrumentality-info-cat-label", text: cat.label });
+  summary.createSpan({
+    cls: "instrumentality-info-cat-count",
+    text: ` (${tools.length})`
+  });
+  card.createEl("p", { cls: "instrumentality-info-cat-blurb", text: cat.blurb });
+  for (const tool of tools) {
+    renderTool(card, tool);
+  }
+}
+function renderTool(parent, tool) {
+  const card = parent.createEl("details", { cls: "instrumentality-info-tool" });
+  const summary = card.createEl("summary");
+  summary.createEl("code", {
+    cls: "instrumentality-info-tool-name",
+    text: tool.name
+  });
+  summary.createSpan({
+    cls: "instrumentality-info-tool-summary",
+    text: tool.whenToUse
+  });
+  const body = card.createDiv({ cls: "instrumentality-info-tool-body" });
+  body.createEl("p", {
+    cls: "instrumentality-info-tool-desc",
+    text: tool.shortDescription
+  });
+  if (tool.examplePrompts.length > 0) {
+    body.createDiv({
+      cls: "instrumentality-info-section-label",
+      text: "Example prompts"
+    });
+    const list = body.createEl("ul", { cls: "instrumentality-info-prompt-list" });
+    for (const prompt of tool.examplePrompts) {
+      const row = list.createEl("li", { cls: "instrumentality-info-prompt-row" });
+      row.createSpan({
+        cls: "instrumentality-info-prompt-text",
+        text: prompt
+      });
+      const btn = row.createEl("button", {
+        cls: "instrumentality-info-copy",
+        text: "Copy"
+      });
+      btn.addEventListener("click", () => {
+        void copyToClipboard(prompt, `prompt for ${tool.name}`);
+      });
+    }
+  }
+  const required = tool.keyParams.filter((p) => p.required);
+  const optional = tool.keyParams.filter((p) => !p.required);
+  if (required.length > 0) {
+    body.createDiv({
+      cls: "instrumentality-info-section-label",
+      text: "Required params"
+    });
+    renderParamList(body, required);
+  }
+  if (optional.length > 0) {
+    const opt = body.createEl("details", {
+      cls: "instrumentality-info-optional"
+    });
+    opt.createEl("summary", { text: `Optional params (${optional.length})` });
+    renderParamList(opt, optional);
+  }
+}
+function renderParamList(parent, params) {
+  const list = parent.createEl("ul", { cls: "instrumentality-info-param-list" });
+  for (const p of params) {
+    const li = list.createEl("li");
+    li.createEl("code", { text: p.name });
+    li.createSpan({ cls: "instrumentality-info-param-type", text: ` ${p.type}` });
+    if (p.hint) {
+      li.createDiv({ cls: "instrumentality-info-param-hint", text: p.hint });
+    }
+  }
+}
+function renderAgentSetup(parent, kbRoot) {
+  const card = parent.createEl("details", {
+    cls: "instrumentality-info-category instrumentality-info-agents"
+  });
+  const summary = card.createEl("summary");
+  summary.createSpan({
+    cls: "instrumentality-info-cat-label",
+    text: "Connect an AI agent"
+  });
+  summary.createSpan({
+    cls: "instrumentality-info-cat-count",
+    text: ` (${import_shared2.AGENT_SETUP_SNIPPETS.length})`
+  });
+  card.createEl("p", {
+    cls: "instrumentality-info-cat-blurb",
+    text: "Register kb-mcp with your AI client so its agent can invoke these tools."
+  });
+  for (const s of import_shared2.AGENT_SETUP_SNIPPETS) {
+    const text = (0, import_shared2.renderSnippet)(s.snippet, kbRoot);
+    const block = card.createEl("details", { cls: "instrumentality-info-agent" });
+    const sum = block.createEl("summary");
+    sum.createSpan({ cls: "instrumentality-info-cat-label", text: s.label });
+    const body = block.createDiv({ cls: "instrumentality-info-tool-body" });
+    const cfg = body.createDiv({ cls: "instrumentality-info-param-hint" });
+    cfg.appendText("Config: ");
+    cfg.createEl("code", { text: s.configFile });
+    body.createDiv({
+      cls: "instrumentality-info-param-hint",
+      text: s.instructions
+    });
+    body.createEl("pre", { cls: "instrumentality-info-snippet", text });
+    const btn = body.createEl("button", {
+      cls: "instrumentality-info-copy",
+      text: "Copy snippet"
+    });
+    btn.addEventListener("click", () => {
+      void copyToClipboard(text, `${s.label} config`);
+    });
+  }
+}
+async function copyToClipboard(text, label) {
+  try {
+    await navigator.clipboard.writeText(text);
+    new import_obsidian2.Notice(`Copied ${label} to clipboard.`);
+  } catch (err) {
+    new import_obsidian2.Notice(`Copy failed: ${err?.message ?? err}`);
+  }
+}
+
 // src/view.ts
 function activityEventLabel(t) {
   switch (t) {
@@ -6285,7 +7549,7 @@ var VERDICTS_BY_SECTION = {
 };
 var VIEW_TYPE_INSTRUMENTALITY = "instrumentality-view";
 var ICON_ID = "instrumentality-icon";
-var InstrumentalityView = class extends import_obsidian2.ItemView {
+var InstrumentalityView = class extends import_obsidian3.ItemView {
   status = null;
   kbRoot = null;
   watcher = null;
@@ -6354,7 +7618,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     }
     try {
       const bundledRunnerPath = path3.join(__dirname, "runner", "scripts", "live-status.js");
-      this.status = await (0, import_shared2.getStatus)(root, {
+      this.status = await (0, import_shared3.getStatus)(root, {
         skipLint: true,
         live: true,
         bundledRunnerPath
@@ -6402,6 +7666,8 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     if (this.viewMode === "activity") {
       this.renderActivityFilterBar(root);
       this.renderActivityBody(root);
+    } else if (this.viewMode === "info") {
+      renderInfoBody(root, this.kbRoot);
     } else {
       this.renderFilterBar(root);
       this.renderSections(root);
@@ -6423,6 +7689,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     };
     make("pending", "Pending");
     make("activity", "Activity");
+    make("info", "Info");
   }
   renderActivityFilterBar(parent) {
     const bar = parent.createDiv({
@@ -6465,7 +7732,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     if (!this.status)
       return;
     const strip = parent.createDiv({ cls: "instrumentality-pipeline-strip" });
-    const segs = (0, import_shared2.pipelineSegments)(this.status);
+    const segs = (0, import_shared3.pipelineSegments)(this.status);
     segs.forEach((s, i) => {
       const cell = strip.createDiv({
         cls: `instrumentality-pipeline-cell ${s.count > 0 ? "active" : "dim"}`,
@@ -6675,8 +7942,8 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
    * surface keeps its own row formatting.
    */
   renderGenericGroups(parent) {
-    const handles = (0, import_shared2.buildEntryHandles)(this.status);
-    const groups = (0, import_shared2.groupEntries)(handles, this.groupBy);
+    const handles = (0, import_shared3.buildEntryHandles)(this.status);
+    const groups = (0, import_shared3.groupEntries)(handles, this.groupBy);
     for (const g of groups) {
       const card = parent.createDiv({
         cls: "instrumentality-section-card",
@@ -6703,7 +7970,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     const s = this.status;
     switch (h.section) {
       case "code-drift": {
-        const i = s.codeDrift.entries.findIndex((e, idx) => (0, import_shared2.stableEntryId)(e.kbTarget, idx) === h.id);
+        const i = s.codeDrift.entries.findIndex((e, idx) => (0, import_shared3.stableEntryId)(e.kbTarget, idx) === h.id);
         if (i >= 0) {
           const e = s.codeDrift.entries[i];
           this.renderCodeDriftRow(parent, e, i, e.source === "working-tree");
@@ -6711,7 +7978,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
         return;
       }
       case "kb-drift": {
-        const i = s.kbDrift.entries.findIndex((e, idx) => (0, import_shared2.stableEntryId)(e.kbFile, idx) === h.id);
+        const i = s.kbDrift.entries.findIndex((e, idx) => (0, import_shared3.stableEntryId)(e.kbFile, idx) === h.id);
         if (i >= 0) {
           const e = s.kbDrift.entries[i];
           this.renderKbDriftRow(parent, e, i, e.source === "working-tree");
@@ -6720,7 +7987,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
       }
       case "standards-drift": {
         const i = s.standardsDrift.entries.findIndex(
-          (e, idx) => (0, import_shared2.stableEntryId)(`${e.mode}:${e.queueKey}`, idx) === h.id
+          (e, idx) => (0, import_shared3.stableEntryId)(`${e.mode}:${e.queueKey}`, idx) === h.id
         );
         if (i >= 0) {
           const e = s.standardsDrift.entries[i];
@@ -6732,7 +7999,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
         for (const p of [s.conformPending.current, s.conformPending.aspirational]) {
           if (!p)
             continue;
-          const idx = p.requested.findIndex((r, j) => (0, import_shared2.stableEntryId)(`${p.mode}:${r.file}:${r.standard_id}`, j) === h.id);
+          const idx = p.requested.findIndex((r, j) => (0, import_shared3.stableEntryId)(`${p.mode}:${r.file}:${r.standard_id}`, j) === h.id);
           if (idx >= 0) {
             this.renderConformRow(parent, p, p.requested[idx], idx);
             return;
@@ -6741,14 +8008,14 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
         return;
       }
       case "promotions": {
-        const i = s.promotions.findIndex((e, idx) => (0, import_shared2.stableEntryId)(e.queueKey, idx) === h.id);
+        const i = s.promotions.findIndex((e, idx) => (0, import_shared3.stableEntryId)(e.queueKey, idx) === h.id);
         if (i >= 0)
           this.renderPromotionRow(parent, s.promotions[i], i);
         return;
       }
       case "lint": {
         const i = s.lint.violations.findIndex(
-          (v, idx) => (0, import_shared2.stableEntryId)(`${v.file}:${v.message.slice(0, 40)}`, idx) === h.id
+          (v, idx) => (0, import_shared3.stableEntryId)(`${v.file}:${v.message.slice(0, 40)}`, idx) === h.id
         );
         if (i >= 0)
           this.renderLintRow(parent, s.lint.violations[i], i);
@@ -6771,7 +8038,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
       const help = h2.createEl("button", {
         cls: "instrumentality-banner-question",
         text: "?",
-        attr: { title: `Show ${import_shared2.SECTION_GUIDE[kind].label} lifecycle` }
+        attr: { title: `Show ${import_shared3.SECTION_GUIDE[kind].label} lifecycle` }
       });
       help.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -6789,7 +8056,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     return card.createDiv({ cls: "body" });
   }
   renderEducationBanner(parent, kind, dismissed) {
-    const guide = import_shared2.SECTION_GUIDE[kind];
+    const guide = import_shared3.SECTION_GUIDE[kind];
     const banner = parent.createDiv({
       cls: "instrumentality-banner education" + (dismissed ? " hidden" : ""),
       attr: { "data-banner-kind": kind }
@@ -6834,7 +8101,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
       this.placeholder(parent, emptyMessage);
       return;
     }
-    const { uncommitted, published } = (0, import_shared2.splitBySource)(entries);
+    const { uncommitted, published } = (0, import_shared3.splitBySource)(entries);
     if (uncommitted.length === 0) {
       published.forEach((e, i) => rowFn(parent, e, i, false));
       return;
@@ -6842,21 +8109,21 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     if (published.length === 0) {
       this.renderBucketHeader(
         parent,
-        import_shared2.UNCOMMITTED_LABEL,
+        import_shared3.UNCOMMITTED_LABEL,
         uncommitted.length,
-        import_shared2.SECTION_GUIDE[sectionKind].uncommittedHint
+        import_shared3.SECTION_GUIDE[sectionKind].uncommittedHint
       );
       uncommitted.forEach((e, i) => rowFn(parent, e, i, true));
       return;
     }
     this.renderBucketHeader(
       parent,
-      import_shared2.UNCOMMITTED_LABEL,
+      import_shared3.UNCOMMITTED_LABEL,
       uncommitted.length,
-      import_shared2.SECTION_GUIDE[sectionKind].uncommittedHint
+      import_shared3.SECTION_GUIDE[sectionKind].uncommittedHint
     );
     uncommitted.forEach((e, i) => rowFn(parent, e, i, true));
-    this.renderBucketHeader(parent, import_shared2.PUBLISHED_LABEL, published.length);
+    this.renderBucketHeader(parent, import_shared3.PUBLISHED_LABEL, published.length);
     published.forEach((e, i) => rowFn(parent, e, i, false));
   }
   renderBucketHeader(parent, label, count, hint) {
@@ -6872,10 +8139,10 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     const body = this.sectionShell(
       parent,
       "code-drift",
-      import_shared2.SECTION_GUIDE["code-drift"].label + "s",
+      import_shared3.SECTION_GUIDE["code-drift"].label + "s",
       entries.length,
       baseline ? baseline.slice(0, 7) : void 0,
-      import_shared2.SECTION_GUIDE["code-drift"].what
+      import_shared3.SECTION_GUIDE["code-drift"].what
     );
     this.renderBucketedBody(
       body,
@@ -6886,7 +8153,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     );
   }
   renderCodeDriftRow(parent, e, i, isUncommitted = false) {
-    const id = (0, import_shared2.stableEntryId)(e.kbTarget, i);
+    const id = (0, import_shared3.stableEntryId)(e.kbTarget, i);
     const sev = e.hasShared ? "warn" : "info";
     const text = e.kbTarget + " " + e.codeFiles.map((f) => f.path).join(" ");
     const summary = (h2) => {
@@ -6939,10 +8206,10 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     const body = this.sectionShell(
       parent,
       "kb-drift",
-      import_shared2.SECTION_GUIDE["kb-drift"].label + "s",
+      import_shared3.SECTION_GUIDE["kb-drift"].label + "s",
       entries.length,
       void 0,
-      import_shared2.SECTION_GUIDE["kb-drift"].what
+      import_shared3.SECTION_GUIDE["kb-drift"].what
     );
     this.renderBucketedBody(
       body,
@@ -6953,7 +8220,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     );
   }
   renderKbDriftRow(parent, e, i, isUncommitted = false) {
-    const id = (0, import_shared2.stableEntryId)(e.kbFile, i);
+    const id = (0, import_shared3.stableEntryId)(e.kbFile, i);
     const sev = e.unmapped ? "warn" : "info";
     const text = e.kbFile + " " + e.codeAreas.join(" ");
     const summary = (h2) => {
@@ -7018,10 +8285,10 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     const body = this.sectionShell(
       parent,
       "standards-drift",
-      import_shared2.SECTION_GUIDE["standards-drift"].label,
+      import_shared3.SECTION_GUIDE["standards-drift"].label,
       entries.length,
       void 0,
-      import_shared2.SECTION_GUIDE["standards-drift"].what
+      import_shared3.SECTION_GUIDE["standards-drift"].what
     );
     this.renderBucketedBody(
       body,
@@ -7032,7 +8299,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     );
   }
   renderStandardsDriftRow(parent, e, i, isUncommitted = false) {
-    const id = (0, import_shared2.stableEntryId)(`${e.mode}:${e.queueKey}`, i);
+    const id = (0, import_shared3.stableEntryId)(`${e.mode}:${e.queueKey}`, i);
     const sev = e.severity ?? null;
     const fileCount = Object.values(e.filesByParty).reduce((s, fs2) => s + fs2.length, 0);
     const firstFile = Object.values(e.filesByParty).flat()[0]?.path;
@@ -7210,17 +8477,17 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
       const btn = banner.createEl("button", { text: "Re-run Phase 1" });
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
-        await navigator.clipboard.writeText((0, import_shared2.rerunPhase1Prompt)(staleMode));
-        new import_obsidian2.Notice("Instrumentality: Re-run Phase 1 prompt copied.");
+        await navigator.clipboard.writeText((0, import_shared3.rerunPhase1Prompt)(staleMode));
+        new import_obsidian3.Notice("Instrumentality: Re-run Phase 1 prompt copied.");
       });
     } : void 0;
     const body = this.sectionShell(
       parent,
       "conform-pending",
-      import_shared2.SECTION_GUIDE["conform-pending"].label,
+      import_shared3.SECTION_GUIDE["conform-pending"].label,
       total,
       stale ? "baseline stale" : void 0,
-      import_shared2.SECTION_GUIDE["conform-pending"].what,
+      import_shared3.SECTION_GUIDE["conform-pending"].what,
       renderStaleBanner
     );
     if (total === 0)
@@ -7232,7 +8499,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     }
   }
   renderConformRow(parent, p, r, i) {
-    const id = (0, import_shared2.stableEntryId)(`${p.mode}:${r.file}:${r.standard_id}`, i);
+    const id = (0, import_shared3.stableEntryId)(`${p.mode}:${r.file}:${r.standard_id}`, i);
     const sev = p.staleAgainstHead ? "warn" : "info";
     const ruleHint = r.resolvedRules && r.resolvedRules.length > 0 ? ` \xB7 ${r.resolvedRules.map((rr) => rr.title ?? rr.id).join(", ")}` : "";
     const text = r.file + " " + r.standard_id + " " + r.rule_ids.join(" ") + " " + (r.resolvedRules?.map((rr) => rr.title ?? "").join(" ") ?? "");
@@ -7288,17 +8555,17 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     const body = this.sectionShell(
       parent,
       "promotions",
-      import_shared2.SECTION_GUIDE.promotions.label,
+      import_shared3.SECTION_GUIDE.promotions.label,
       entries.length,
       void 0,
-      import_shared2.SECTION_GUIDE.promotions.what
+      import_shared3.SECTION_GUIDE.promotions.what
     );
     if (entries.length === 0)
       return this.placeholder(body, "No pending promotions");
     entries.forEach((e, i) => this.renderPromotionRow(body, e, i));
   }
   renderPromotionRow(parent, e, i) {
-    const id = (0, import_shared2.stableEntryId)(e.queueKey, i);
+    const id = (0, import_shared3.stableEntryId)(e.queueKey, i);
     const sev = e.severity ?? "info";
     const ruleHint = e.resolvedRule?.title ? ` \xB7 ${e.resolvedRule.title}` : "";
     const text = e.queueKey + " " + (e.standardId ?? "") + " " + e.files.map((f) => f.path).join(" ") + " " + (e.resolvedRule?.title ?? "");
@@ -7379,7 +8646,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     openLedger.addEventListener("click", async (ev) => {
       ev.stopPropagation();
       if (!this.kbRoot) {
-        new import_obsidian2.Notice("Instrumentality: knowledge base not detected.");
+        new import_obsidian3.Notice("Instrumentality: knowledge base not detected.");
         return;
       }
       const abs = path3.join(
@@ -7397,10 +8664,10 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     const body = this.sectionShell(
       parent,
       "lint",
-      import_shared2.SECTION_GUIDE.lint.label,
+      import_shared3.SECTION_GUIDE.lint.label,
       v.length,
       ran ? void 0 : "unavailable",
-      import_shared2.SECTION_GUIDE.lint.what
+      import_shared3.SECTION_GUIDE.lint.what
     );
     if (!ran) {
       return this.placeholder(
@@ -7413,7 +8680,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     v.forEach((violation, i) => this.renderLintRow(body, violation, i));
   }
   renderLintRow(parent, v, i) {
-    const id = (0, import_shared2.stableEntryId)(`${v.file}:${v.message.slice(0, 40)}`, i);
+    const id = (0, import_shared3.stableEntryId)(`${v.file}:${v.message.slice(0, 40)}`, i);
     const text = v.file + " " + v.message;
     const summary = (h2) => {
       h2.createSpan({ cls: "title", text: path3.basename(v.file) });
@@ -7451,10 +8718,10 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     const body = this.sectionShell(
       parent,
       "mapping-diagnostics",
-      import_shared2.SECTION_GUIDE["mapping-diagnostics"].label,
+      import_shared3.SECTION_GUIDE["mapping-diagnostics"].label,
       findings.length,
       void 0,
-      import_shared2.SECTION_GUIDE["mapping-diagnostics"].what
+      import_shared3.SECTION_GUIDE["mapping-diagnostics"].what
     );
     if (findings.length === 0) {
       return this.placeholder(body, "No mapping diagnostics \u2014 patterns are consistent with the current filesystem.");
@@ -7462,7 +8729,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     findings.forEach((f, i) => this.renderMappingDiagnosticsRow(body, f, i));
   }
   renderMappingDiagnosticsRow(parent, f, i) {
-    const id = (0, import_shared2.stableEntryId)(`audit:${f.type}`, i);
+    const id = (0, import_shared3.stableEntryId)(`audit:${f.type}`, i);
     const text = JSON.stringify(f);
     const summary = (h2) => {
       switch (f.type) {
@@ -7564,7 +8831,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
           const prompt = buildAuditFixPrompt(f);
           try {
             await navigator.clipboard.writeText(prompt);
-            new import_obsidian2.Notice("Audit fix prompt copied to clipboard.");
+            new import_obsidian3.Notice("Audit fix prompt copied to clipboard.");
           } catch {
             const ta = document.createElement("textarea");
             ta.value = prompt;
@@ -7572,9 +8839,9 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
             ta.select();
             try {
               document.execCommand("copy");
-              new import_obsidian2.Notice("Audit fix prompt copied to clipboard.");
+              new import_obsidian3.Notice("Audit fix prompt copied to clipboard.");
             } catch {
-              new import_obsidian2.Notice("Could not copy \u2014 clipboard API unavailable.");
+              new import_obsidian3.Notice("Could not copy \u2014 clipboard API unavailable.");
             } finally {
               document.body.removeChild(ta);
             }
@@ -7755,7 +9022,7 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
   // ── Submodule actions ──────────────────────────────────────────────────
   async handleSubmoduleSync(subPath, parentBranch) {
     if (!this.kbRoot) {
-      new import_obsidian2.Notice("Instrumentality: knowledge base not detected.");
+      new import_obsidian3.Notice("Instrumentality: knowledge base not detected.");
       return;
     }
     const ok = await confirmModal(this.app, {
@@ -7765,26 +9032,26 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
     });
     if (!ok)
       return;
-    const result = await (0, import_shared2.syncSubmoduleBranch)(this.kbRoot, subPath, parentBranch);
+    const result = await (0, import_shared3.syncSubmoduleBranch)(this.kbRoot, subPath, parentBranch);
     if (result.success) {
-      new import_obsidian2.Notice(
+      new import_obsidian3.Notice(
         `Instrumentality: synced ${subPath} \u2192 ${parentBranch}.`
       );
       void this.refresh();
     } else {
-      new import_obsidian2.Notice(
+      new import_obsidian3.Notice(
         `Instrumentality: sync failed: ${result.output || "unknown error"}`
       );
     }
   }
   async handleSubmodulePush() {
     if (!this.kbRoot) {
-      new import_obsidian2.Notice("Instrumentality: knowledge base not detected.");
+      new import_obsidian3.Notice("Instrumentality: knowledge base not detected.");
       return;
     }
     const sub = this.status?.submodules;
     if (!sub) {
-      new import_obsidian2.Notice("Instrumentality: no submodule data \u2014 refresh first.");
+      new import_obsidian3.Notice("Instrumentality: no submodule data \u2014 refresh first.");
       return;
     }
     if (sub.wouldBlock) {
@@ -7805,18 +9072,18 @@ var InstrumentalityView = class extends import_obsidian2.ItemView {
       });
       return;
     }
-    const plan = (0, import_shared2.buildPushPlan)(this.kbRoot, sub);
+    const plan = (0, import_shared3.buildPushPlan)(this.kbRoot, sub);
     let parentRemote;
     const parentStep = plan.find((s) => s.type === "parent");
-    if (parentStep?.branch && !await (0, import_shared2.hasUpstream)(parentStep.fullPath)) {
-      const remotes = await (0, import_shared2.listRemotes)(parentStep.fullPath);
+    if (parentStep?.branch && !await (0, import_shared3.hasUpstream)(parentStep.fullPath)) {
+      const remotes = await (0, import_shared3.listRemotes)(parentStep.fullPath);
       if (remotes.length === 0) {
-        new import_obsidian2.Notice(
+        new import_obsidian3.Notice(
           "Instrumentality: parent repo has no git remote configured."
         );
         return;
       }
-      const defaultRemote = await (0, import_shared2.detectPushRemote)(
+      const defaultRemote = await (0, import_shared3.detectPushRemote)(
         parentStep.fullPath,
         parentStep.branch,
         remotes
@@ -7861,16 +9128,16 @@ These affect all projects consuming the module.` : "";
     });
     if (!ok)
       return;
-    const result = await (0, import_shared2.runPushPlan)(plan, { parentRemote });
+    const result = await (0, import_shared3.runPushPlan)(plan, { parentRemote });
     void this.refresh();
     if (result.allSuccess) {
-      new import_obsidian2.Notice(
+      new import_obsidian3.Notice(
         `Instrumentality: pushed ${result.steps.length} step(s) successfully.`
       );
       return;
     }
     const failed = result.steps.find((s) => !s.success);
-    new import_obsidian2.Notice(
+    new import_obsidian3.Notice(
       `Instrumentality: push failed at ${failed?.step.path}: ${failed?.output?.slice(0, 200) ?? "unknown error"}`
     );
   }
@@ -7882,14 +9149,14 @@ These affect all projects consuming the module.` : "";
   // handlePublishDrift exactly.
   async handlePublishDrift() {
     if (!this.kbRoot) {
-      new import_obsidian2.Notice("Instrumentality: knowledge base not detected.");
+      new import_obsidian3.Notice("Instrumentality: knowledge base not detected.");
       return;
     }
     const scriptDrift = path3.join(this.kbRoot, "knowledge", "_mcp", "tools", "drift.js");
     const scriptConform = path3.join(this.kbRoot, "knowledge", "_mcp", "tools", "conform.js");
     const fs2 = await import("fs");
     if (!fs2.existsSync(scriptDrift)) {
-      new import_obsidian2.Notice(
+      new import_obsidian3.Notice(
         "Instrumentality: publish requires knowledge/_mcp/tools/drift.js (missing in this workspace)."
       );
       return;
@@ -7907,7 +9174,7 @@ These affect all projects consuming the module.` : "";
         await this.runNodeTool(scriptConform, this.kbRoot);
       }
     } catch (err) {
-      new import_obsidian2.Notice(
+      new import_obsidian3.Notice(
         `Instrumentality: drift detection failed: ${err?.message ?? err}`
       );
       return;
@@ -7919,7 +9186,7 @@ These affect all projects consuming the module.` : "";
       "knowledge/sync/standards-backlog.md"
     ].filter((f) => fs2.existsSync(path3.join(this.kbRoot, f)));
     if (queueFiles.length === 0) {
-      new import_obsidian2.Notice(
+      new import_obsidian3.Notice(
         "Instrumentality: nothing to publish \u2014 no queue files present."
       );
       return;
@@ -7927,7 +9194,7 @@ These affect all projects consuming the module.` : "";
     try {
       await this.runGit(["add", "--", ...queueFiles], this.kbRoot);
     } catch (err) {
-      new import_obsidian2.Notice(`Instrumentality: git add failed: ${err?.message ?? err}`);
+      new import_obsidian3.Notice(`Instrumentality: git add failed: ${err?.message ?? err}`);
       return;
     }
     let stagedNames = "";
@@ -7939,7 +9206,7 @@ These affect all projects consuming the module.` : "";
     } catch {
     }
     if (!stagedNames) {
-      new import_obsidian2.Notice(
+      new import_obsidian3.Notice(
         "Instrumentality: nothing to publish \u2014 drift queue is already up to date."
       );
       void this.refresh();
@@ -7951,10 +9218,10 @@ These affect all projects consuming the module.` : "";
         this.kbRoot
       );
     } catch (err) {
-      new import_obsidian2.Notice(`Instrumentality: git commit failed: ${err?.message ?? err}`);
+      new import_obsidian3.Notice(`Instrumentality: git commit failed: ${err?.message ?? err}`);
       return;
     }
-    new import_obsidian2.Notice(
+    new import_obsidian3.Notice(
       `Instrumentality: published drift queue (${stagedNames.split("\n").length} file(s)). Push when ready.`
     );
     void this.refresh();
@@ -8007,14 +9274,14 @@ These affect all projects consuming the module.` : "";
     const skipDefaultActions = opts.section === "mapping-diagnostics";
     if (!skipDefaultActions) {
       const actions = detail.createDiv({ cls: "entry-actions" });
-      const sendBtn = actions.createEl("button", { text: (0, import_shared2.copyActionLabel)(opts.section), cls: "mod-cta" });
+      const sendBtn = actions.createEl("button", { text: (0, import_shared3.copyActionLabel)(opts.section), cls: "mod-cta" });
       sendBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
         const indexed2 = this.entryIndex.get(`${opts.section}:${opts.id}`);
         if (!indexed2)
           return;
         await navigator.clipboard.writeText(indexed2.prompt);
-        new import_obsidian2.Notice(`Instrumentality: ${(0, import_shared2.primaryActionLabel)(opts.section).toLowerCase()} prompt copied.`);
+        new import_obsidian3.Notice(`Instrumentality: ${(0, import_shared3.primaryActionLabel)(opts.section).toLowerCase()} prompt copied.`);
       });
       const openBtn = actions.createEl("button", { text: "Open Source" });
       openBtn.addEventListener("click", (e) => {
@@ -8038,13 +9305,13 @@ These affect all projects consuming the module.` : "";
           const refineBtn = actions.createEl("button", { text: "Refine with Agent" });
           refineBtn.addEventListener("click", async (e) => {
             e.stopPropagation();
-            const prompt = (0, import_shared2.getActionPrompt)({
+            const prompt = (0, import_shared3.getActionPrompt)({
               kind: "standard-author",
               entry: opts.authorEntry,
               mode: "refine"
             });
             await navigator.clipboard.writeText(prompt);
-            new import_obsidian2.Notice("Instrumentality: refine prompt copied to clipboard.");
+            new import_obsidian3.Notice("Instrumentality: refine prompt copied to clipboard.");
           });
         }
       }
@@ -8247,7 +9514,7 @@ These affect all projects consuming the module.` : "";
             throw new Error("Acknowledge requires a drift kind.");
           if (!draft.reason || !draft.reason.trim())
             throw new Error("Acknowledge requires a reason.");
-          prompt = (0, import_shared2.acknowledgedPrompt)({
+          prompt = (0, import_shared3.acknowledgedPrompt)({
             verdict: "acknowledged",
             kind: driftKind,
             entryKey: queueKey,
@@ -8256,14 +9523,14 @@ These affect all projects consuming the module.` : "";
           break;
         }
         case "applied":
-          prompt = (0, import_shared2.appliedPrompt)({ verdict: "applied", queueKey });
+          prompt = (0, import_shared3.appliedPrompt)({ verdict: "applied", queueKey });
           break;
         case "exempted":
           if (!draft.filePaths || draft.filePaths.length === 0)
             throw new Error("Exempt requires at least one file.");
           if (!draft.reason || !draft.reason.trim())
             throw new Error("Exempt requires a reason.");
-          prompt = (0, import_shared2.exemptedPrompt)({
+          prompt = (0, import_shared3.exemptedPrompt)({
             verdict: "exempted",
             queueKey,
             filePaths: draft.filePaths,
@@ -8273,7 +9540,7 @@ These affect all projects consuming the module.` : "";
         case "promoted":
           if (!draft.filePaths || draft.filePaths.length === 0)
             throw new Error("Promote requires at least one originating file.");
-          prompt = (0, import_shared2.promotedPrompt)({
+          prompt = (0, import_shared3.promotedPrompt)({
             verdict: "promoted",
             queueKey,
             originatingFiles: draft.filePaths,
@@ -8283,7 +9550,7 @@ These affect all projects consuming the module.` : "";
         case "dismissed":
           if (!draft.reason || !draft.reason.trim())
             throw new Error("Dismiss requires a reason.");
-          prompt = (0, import_shared2.dismissedPrompt)({
+          prompt = (0, import_shared3.dismissedPrompt)({
             verdict: "dismissed",
             queueKey,
             reason: draft.reason.trim()
@@ -8294,7 +9561,7 @@ These affect all projects consuming the module.` : "";
             throw new Error("Close promotion requires at least one file.");
           if (!draft.reason || !draft.reason.trim())
             throw new Error("Close promotion requires a reason.");
-          prompt = (0, import_shared2.closedPromotionPrompt)({
+          prompt = (0, import_shared3.closedPromotionPrompt)({
             verdict: "closed_promotion",
             queueKey,
             filePaths: draft.filePaths,
@@ -8305,11 +9572,11 @@ These affect all projects consuming the module.` : "";
           throw new Error(`Unknown verdict: ${def.verdict}`);
       }
     } catch (err) {
-      new import_obsidian2.Notice(`Instrumentality: ${err?.message ?? err}`);
+      new import_obsidian3.Notice(`Instrumentality: ${err?.message ?? err}`);
       return;
     }
     await navigator.clipboard.writeText(prompt);
-    new import_obsidian2.Notice(`Instrumentality: ${def.verdict.replace(/_/g, " ")} prompt copied.`);
+    new import_obsidian3.Notice(`Instrumentality: ${def.verdict.replace(/_/g, " ")} prompt copied.`);
   }
   /**
    * Lazy git-diff disclosure. We don't run git on render — only when the
@@ -8395,7 +9662,7 @@ These affect all projects consuming the module.` : "";
   }
   async openSource(sourceFile) {
     if (!sourceFile || !this.kbRoot) {
-      new import_obsidian2.Notice("Instrumentality: no source file for this entry.");
+      new import_obsidian3.Notice("Instrumentality: no source file for this entry.");
       return;
     }
     const abs = path3.isAbsolute(sourceFile) ? sourceFile : path3.join(this.kbRoot, sourceFile);
@@ -8404,9 +9671,9 @@ These affect all projects consuming the module.` : "";
   async openStandard(standardId) {
     if (!this.kbRoot)
       return;
-    const filePath = (0, import_shared2.resolveStandardPath)(this.kbRoot, standardId);
+    const filePath = (0, import_shared3.resolveStandardPath)(this.kbRoot, standardId);
     if (!filePath) {
-      new import_obsidian2.Notice(`Instrumentality: standard '${standardId}' not found.`);
+      new import_obsidian3.Notice(`Instrumentality: standard '${standardId}' not found.`);
       return;
     }
     await this.openPath(filePath);
@@ -8414,12 +9681,12 @@ These affect all projects consuming the module.` : "";
   async editRule(standardId, ruleId) {
     if (!this.kbRoot)
       return;
-    const filePath = (0, import_shared2.resolveStandardPath)(this.kbRoot, standardId);
+    const filePath = (0, import_shared3.resolveStandardPath)(this.kbRoot, standardId);
     if (!filePath) {
-      new import_obsidian2.Notice(`Instrumentality: standard '${standardId}' not found.`);
+      new import_obsidian3.Notice(`Instrumentality: standard '${standardId}' not found.`);
       return;
     }
-    const range = (0, import_shared2.findRuleLineRange)(filePath, ruleId);
+    const range = (0, import_shared3.findRuleLineRange)(filePath, ruleId);
     await this.openPath(filePath, range?.start);
   }
   /**
@@ -8437,7 +9704,7 @@ These affect all projects consuming the module.` : "";
     if (basePath && absPath.startsWith(basePath + path3.sep)) {
       const rel = absPath.slice(basePath.length + 1);
       const file = vault.getAbstractFileByPath(rel);
-      if (file instanceof import_obsidian2.TFile) {
+      if (file instanceof import_obsidian3.TFile) {
         const leaf = this.app.workspace.getLeaf(false);
         await leaf.openFile(file);
         if (typeof line === "number" && line >= 0) {
@@ -8456,12 +9723,12 @@ These affect all projects consuming the module.` : "";
       if (electron?.shell?.openPath) {
         const result = await electron.shell.openPath(absPath);
         if (result)
-          new import_obsidian2.Notice(`Instrumentality: cannot open ${absPath}: ${result}`);
+          new import_obsidian3.Notice(`Instrumentality: cannot open ${absPath}: ${result}`);
         return;
       }
     } catch {
     }
-    new import_obsidian2.Notice(`Instrumentality: cannot open ${absPath} (not inside vault).`);
+    new import_obsidian3.Notice(`Instrumentality: cannot open ${absPath} (not inside vault).`);
   }
   // ── Filter (DOM-only, no re-render) ─────────────────────────────────────
   applyFilterDom() {
@@ -8628,12 +9895,12 @@ var ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill
   <circle cx="17.5" cy="15.5" r="1.7"/>
   <circle cx="12" cy="12" r="1.6"/>
 </svg>`;
-var InstrumentalityPlugin = class extends import_obsidian3.Plugin {
+var InstrumentalityPlugin = class extends import_obsidian4.Plugin {
   dismissedBanners = /* @__PURE__ */ new Set();
   openSection = void 0;
   submodulesCollapsed = false;
   async onload() {
-    (0, import_obsidian3.addIcon)(ICON_ID, ICON_SVG);
+    (0, import_obsidian4.addIcon)(ICON_ID, ICON_SVG);
     const data = await this.loadData();
     if (data && Array.isArray(data.dismissedBanners)) {
       this.dismissedBanners = new Set(data.dismissedBanners);
@@ -8673,7 +9940,7 @@ var InstrumentalityPlugin = class extends import_obsidian3.Plugin {
       }
     });
     const handleVaultEvent = (file) => {
-      if (!(file instanceof import_obsidian3.TFile))
+      if (!(file instanceof import_obsidian4.TFile))
         return;
       if (file.extension !== "md")
         return;
@@ -8733,7 +10000,7 @@ var InstrumentalityPlugin = class extends import_obsidian3.Plugin {
     const basePath = adapter.basePath ?? adapter.getBasePath?.();
     if (!basePath)
       return null;
-    return (0, import_shared3.findKbRoot)([basePath]);
+    return (0, import_shared4.findKbRoot)([basePath]);
   }
 };
 //# sourceMappingURL=main.js.map

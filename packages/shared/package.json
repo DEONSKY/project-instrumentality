@@ -7,8 +7,9 @@
   "types": "dist/index.d.ts",
   "files": ["dist"],
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc --watch",
+    "build:catalog": "node scripts/build-tool-catalog.cjs",
+    "build": "npm run build:catalog && tsc",
+    "watch": "npm run build:catalog && tsc --watch",
     "test": "node --test --import tsx test/contract.test.ts test/prompts.test.ts test/standards-parser.test.ts test/grouping.test.ts",
     "clean": "rm -rf dist"
   },

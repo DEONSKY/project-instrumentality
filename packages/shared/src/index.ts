@@ -72,6 +72,21 @@ export type {
   RunPushPlanOptions,
 } from "./submodule-actions.js";
 export { getHooksStatus } from "./hooks-status.js";
+export {
+  TOOL_CATALOG,
+  TOOL_CATEGORIES,
+  toolsByCategory,
+  findTool,
+} from "./tool-catalog.js";
+export type {
+  ToolCatalogEntry,
+  ToolCategory,
+  ToolCategoryMeta,
+  ToolKeyParam,
+  ToolSurface,
+} from "./tool-catalog.js";
+export { AGENT_SETUP_SNIPPETS, renderSnippet } from "./agent-setup.js";
+export type { AgentClientSnippet } from "./agent-setup.js";
 export type {
   GroupBy,
   LifecycleStage,

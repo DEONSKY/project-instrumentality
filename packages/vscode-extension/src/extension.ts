@@ -40,6 +40,7 @@ import {
 } from "./dashboard";
 import { buildEntryIndex } from "./webview-render";
 import { SidebarViewProvider } from "./sidebar-view";
+import { HelpViewProvider } from "./help-view";
 import { KbDiagnostics } from "./diagnostics";
 import { sendPrompt, maybeSuggestAgentBackend } from "./agent-backend";
 import { registerWelcome } from "./welcome";
@@ -61,6 +62,7 @@ const actionCtx: ActionContext = {
 };
 
 let sidebarProvider: SidebarViewProvider;
+let helpProvider: HelpViewProvider;
 let statusBar: vscode.StatusBarItem;
 let diagnostics: KbDiagnostics;
 let extContext: vscode.ExtensionContext | null = null;
@@ -126,6 +128,21 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider("instrumentality.tree", sidebarProvider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    })
+  );
+
+  helpProvider = new HelpViewProvider({
+    getKbRoot: () => kbRoot,
+    copyToClipboard: async (text, label) => {
+      await vscode.env.clipboard.writeText(text);
+      void vscode.window.showInformationMessage(
+        `Instrumentality: ${label ?? "text"} copied to clipboard.`
+      );
+    },
+  });
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider("instrumentality.help", helpProvider, {
       webviewOptions: { retainContextWhenHidden: true },
     })
   );
@@ -250,11 +267,13 @@ function detectAndWatch(context: vscode.ExtensionContext): void {
   if (!kbRoot) {
     lastStatus = null;
     sidebarProvider.refresh();
+    helpProvider?.refresh();
     statusBar.hide();
     diagnostics.clear();
     return;
   }
 
+  helpProvider?.refresh();
   statusBar.show();
 
   const syncGlob = new vscode.RelativePattern(

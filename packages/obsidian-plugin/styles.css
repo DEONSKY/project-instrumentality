@@ -977,3 +977,165 @@
   font-size: 0.88em;
   color: var(--text-muted);
 }
+
+/* Info tab — MCP capabilities catalog */
+.instrumentality-info {
+  margin-top: 12px;
+}
+.instrumentality-info-intro {
+  margin: 0 0 12px;
+  color: var(--text-muted);
+}
+.instrumentality-info-note {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin: 0 0 14px;
+  font-size: 0.9em;
+  color: var(--text-muted);
+}
+.instrumentality-info-note strong { color: var(--text-normal); }
+
+.instrumentality-info details > summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+.instrumentality-info details > summary::-webkit-details-marker { display: none; }
+.instrumentality-info details > summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 1em;
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+.instrumentality-info details[open] > summary::before { content: "▾"; }
+
+.instrumentality-info-root {
+  margin-bottom: 8px;
+}
+.instrumentality-info-count {
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+.instrumentality-info-body {
+  margin-top: 10px;
+}
+
+.instrumentality-info-category {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-secondary);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.instrumentality-info-cat-label {
+  font-weight: 600;
+  margin-left: 4px;
+}
+.instrumentality-info-cat-count {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+.instrumentality-info-cat-blurb {
+  color: var(--text-muted);
+  margin: 4px 0 10px 1.2em;
+  font-size: 0.9em;
+}
+
+.instrumentality-info-tool,
+.instrumentality-info-agent {
+  border-top: 1px solid var(--background-modifier-border);
+  padding: 8px 0;
+  margin-left: 1em;
+}
+.instrumentality-info-tool > summary,
+.instrumentality-info-agent > summary {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+}
+.instrumentality-info-tool-name {
+  font-weight: 600;
+  color: var(--text-accent);
+  font-family: var(--font-monospace);
+  background: var(--code-background);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.instrumentality-info-tool-summary {
+  color: var(--text-normal);
+  font-size: 0.95em;
+}
+.instrumentality-info-tool-body {
+  margin: 6px 0 0 1.5em;
+}
+.instrumentality-info-tool-desc {
+  color: var(--text-muted);
+  margin: 6px 0 10px;
+  font-size: 0.9em;
+}
+.instrumentality-info-section-label {
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 10px 0 4px;
+}
+.instrumentality-info-prompt-list,
+.instrumentality-info-param-list {
+  margin: 0;
+  padding-left: 18px;
+}
+.instrumentality-info-prompt-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.instrumentality-info-prompt-text {
+  flex: 1;
+  font-style: italic;
+}
+.instrumentality-info-copy {
+  background: transparent;
+  color: var(--text-accent);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85em;
+}
+.instrumentality-info-copy:hover {
+  background: var(--background-modifier-hover);
+}
+.instrumentality-info-param-type {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+.instrumentality-info-param-hint {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  margin-top: 1px;
+}
+.instrumentality-info-optional {
+  margin-top: 8px;
+}
+.instrumentality-info-optional > summary {
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+.instrumentality-info-snippet {
+  background: var(--code-background);
+  padding: 10px 12px;
+  border-radius: 4px;
+  margin: 6px 0;
+  white-space: pre-wrap;
+  font-family: var(--font-monospace);
+  font-size: 0.88em;
+  color: var(--text-normal);
+  overflow-x: auto;
+}

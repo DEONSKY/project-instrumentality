@@ -33,6 +33,13 @@
           "type": "webview",
           "icon": "media/mcp-logo-small.svg",
           "contextualTitle": "Instrumentality"
+        },
+        {
+          "id": "instrumentality.help",
+          "name": "Capabilities",
+          "type": "webview",
+          "icon": "media/mcp-logo-small.svg",
+          "contextualTitle": "Instrumentality"
         }
       ]
     },
