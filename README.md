@@ -14,43 +14,67 @@ A structured knowledge base for monorepos, managed through MCP tools. Works with
 
 Instrumentality-MCP creates a `knowledge/` folder in your project and keeps it synchronized with your codebase — in both directions. Code changes are detected and surfaced for KB review (code→KB); KB spec changes are flagged for developers to verify the implementation still matches (KB→code). Instead of scattering product context across Notion, Confluence, and README files, everything lives as structured Markdown beside your code — versioned in git, loaded automatically into your agent's context when relevant.
 
+The shape `kb_init` creates and the example repo ships with:
+
 ```
 your-project/
-  src/                   ← your code
+  src/                       ← your code
   knowledge/
-    features/            ← product features
-    flows/               ← user flows and sequences
-    data/schema/         ← data models (DBML format, one file per database)
-    ui/                  ← component specs and copy
-    validation/          ← validation rules
-    integrations/        ← third-party integrations
-    decisions/           ← architectural decisions
+    glossary.md              ← canonical project terminology (single file)
+    specs/
+      features/              ← product features (business rules, fields)
+      flows/                 ← user flows and sequences
+    data/
+      schema/                ← data models (DBML format, one file per database)
+      validation/            ← validation rules
+    integrations/            ← third-party integrations and external contracts
+    decisions/               ← architectural decision records (ADRs)
+    standards/               ← how to work on this project (contextually loaded)
+      code/                  ← loaded when writing/reviewing code
+      contracts/             ← API / event / protocol shape rules
+      knowledge/             ← loaded when writing/reviewing KB files
+      process/               ← task workflows and checklists
     assets/
-      design/            ← design files and diagrams
-      screenshots/       ← UI screenshots referenced in KB docs
-    standards/           ← how to work on this project (contextually loaded)
-      code/              ← loaded when writing/reviewing code
-      knowledge/         ← loaded when writing/reviewing KB files
-      process/           ← task workflows and checklists
+      design/                ← design files and diagrams
+      screenshots/           ← UI screenshots referenced in KB docs
     sync/
-      code-drift.md      ← code changed, KB may be stale (PM reviews)
-      kb-drift.md        ← KB changed, code may be stale (dev reviews)
-      review-queue.md    ← git merge conflicts on KB files
-      import-review.md   ← unclassified import chunks
-      drift-log/         ← resolved drift audit trail (one file per month)
-      inbound/           ← issue triage reports (written by kb_issue command=triage)
-      outbound/          ← task breakdowns for PM tools (written by kb_issue command=plan)
-    _index.yaml          ← auto-generated dependency graph
-    _rules.md            ← KB configuration (depth policy, token_budget, code path patterns, secrets)
-    exports/             ← kb_export output files
-    _prompt-overrides/   ← project-specific prompt overrides (takes priority over _templates/prompts/)
-    _mcp/                ← MCP server (do not edit)
-    _templates/          ← KB and prompt templates (customizable)
-      data/              ← schema and enum templates
-      ui/                ← UI component templates
-      standards/         ← standards templates
-      prompts/           ← prompt templates (overridable via _prompt-overrides/)
+      code-drift.md          ← code changed, KB may be stale (PM reviews)
+      kb-drift.md            ← KB changed, code may be stale (dev reviews)
+      standards-drift.md     ← current-diff conformance findings (kb_conform)
+      standards-backlog.md   ← aspirational sweep findings (advisory)
+      review-queue.md        ← git merge conflicts on KB files
+      import-review.md       ← unclassified import chunks
+      drift-log/             ← resolved drift audit trail (one file per month)
+      inbound/               ← issue triage reports (created on demand by `kb_issue command=triage`)
+      outbound/              ← task breakdowns for PM tools (created on demand by `kb_issue command=plan`)
+    exports/                 ← kb_export output files (created on demand)
+    _index.yaml              ← auto-generated dependency graph (do not edit)
+    _rules.md                ← KB configuration (depth policy, token_budget, code path patterns, secrets)
+    _prompt-overrides/       ← project-specific prompt overrides (takes priority over _templates/prompts/)
+    _templates/              ← KB and prompt templates (customizable)
+      standards/             ← standards templates
+      prompts/               ← prompt templates (overridable via _prompt-overrides/)
+    _mcp/                    ← MCP server (do not edit)
 ```
+
+> [!note] What changed from earlier versions
+> - **No top-level `ui/` folder.** UI component specs are written with `kb_scaffold type: component` and live alongside the feature they belong to. The `component` template still ships under `_templates/`.
+> - **`features/`, `flows/`** are nested under **`specs/`**.
+> - **`validation/`** is nested under **`data/`**.
+> - **`standards/contracts/`** is a 4th standards group (alongside `code`, `knowledge`, `process`) for API and protocol-shape rules.
+> - **`glossary.md`** at the root holds canonical terminology — link to it with `[[glossary#term-name]]` from any file.
+>
+> The knowledge folder is designed to open directly as an Obsidian vault — every top-level content folder ships with at least one exemplar so the vault is navigable on first open. See the [Obsidian vault compatibility](#obsidian-vault-compatibility) section.
+
+> [!important] Note on this repo
+> This is the **source distribution of KB-MCP**, not a project that consumes KB-MCP. The MCP server, the indexer, drift detection, and conformance tools are intentionally **not run against this repo** — doing so would create a self-referential dependency loop (every change to the MCP server would surface as drift against the KB files describing the MCP server, and vice versa).
+>
+> Consequences a contributor should be aware of:
+>
+> - `knowledge/_index.yaml` is intentionally left as the empty AUTO-GENERATED placeholder. **Do not run `kb_reindex` here.** The empty `groups` / `files` maps are correct, not stale.
+> - `knowledge/_rules.md` keeps generic placeholders (`project_name: "My Project"`, `_detected_stack: "unknown"`). These are template values, not bugs. A consuming project fills them via `kb_init`.
+> - The KB files under `knowledge/` exist as **human-readable documentation of KB-MCP** — worked examples of features, flows, schemas, decisions, integrations, and standards. They are deliberately self-referential (e.g. [specs/features/bidirectional-drift-detection.md](knowledge/specs/features/bidirectional-drift-detection.md), [decisions/two-phase-mcp-tools.md](knowledge/decisions/two-phase-mcp-tools.md)). Browse them as a reference when authoring your own KB.
+> - When you fork or `kb_init` into a real project, your `_index.yaml`, `_rules.md`, and KB content are generated and maintained against *your* codebase — none of this repo's content propagates.
 
 ### Lifecycle at a glance
 
