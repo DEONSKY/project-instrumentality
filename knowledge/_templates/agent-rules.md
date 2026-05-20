@@ -7,6 +7,7 @@ This project uses a structured Knowledge Base (KB) managed by the KB-MCP server.
 - **Always** call `kb_ask` with the user's question before providing an answer
 - Do not answer from memory or general knowledge when KB documents exist
 - If `kb_ask` returns no context, inform the user and offer to search with different keywords
+- **`kb_ask` vs `kb_get`:** prefer `kb_ask` when starting from a natural-language question — it extracts keywords and classifies intent before retrieval. Reach for `kb_get` directly only when you already have explicit `keywords` or `working_paths` (typically right before a code edit)
 
 ## Before writing or modifying code
 
