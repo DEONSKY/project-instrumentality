@@ -2,7 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const { resolvePrompt } = require('../lib/prompts')
 const { runTool: reindex } = require('./reindex')
-const { CLASSIFY_TYPE_TO_SCAFFOLD, resolveFilePath, isSingletonType } = require('../lib/kb-paths')
+const { CLASSIFY_TYPE_TO_SCAFFOLD, resolveFilePath } = require('../lib/kb-paths')
 const { fillTemplate, buildReviewEntry } = require('../lib/template-filler')
 const { createSessionCache } = require('../lib/session-cache')
 const { extractText, chunkDocument } = require('./import/extract')
@@ -468,16 +468,7 @@ async function applyImportFiles(files_to_write, dry_run) {
     }
 
     if (fs.existsSync(filePath)) {
-      if (isSingletonType(getTypeFromPath(filePath))) {
-        if (!dry_run) {
-          fs.appendFileSync(filePath, '\n' + content, 'utf8')
-          written.push(filePath)
-        } else {
-          written.push(filePath + ' (dry_run, append)')
-        }
-      } else {
-        skipped.push({ path: filePath, reason: 'already exists' })
-      }
+      skipped.push({ path: filePath, reason: 'already exists' })
       continue
     }
 
@@ -505,16 +496,6 @@ async function applyImportFiles(files_to_write, dry_run) {
     dry_run
   }
 }
-
-function getTypeFromPath(filePath) {
-  const rel = path.relative('knowledge', filePath)
-  const singletons = {
-    'standards/code/tech-stack.md': 'tech-stack',
-    'standards/code/conventions.md': 'conventions'
-  }
-  return singletons[rel.replace(/\\/g, '/')] || null
-}
-
 
 module.exports = {
   runTool,

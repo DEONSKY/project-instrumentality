@@ -29,6 +29,7 @@ your-project/
       validation/            ← validation rules
     integrations/            ← third-party integrations and external contracts
     decisions/               ← architectural decision records (ADRs)
+    components/              ← UI component specs (kb_scaffold type: component)
     standards/               ← how to work on this project (contextually loaded)
       code/                  ← loaded when writing/reviewing code
       contracts/             ← API / event / protocol shape rules
@@ -58,7 +59,7 @@ your-project/
 ```
 
 > [!note] What changed from earlier versions
-> - **No top-level `ui/` folder.** UI component specs are written with `kb_scaffold type: component` and live alongside the feature they belong to. The `component` template still ships under `_templates/`.
+> - **No top-level `ui/` folder.** UI component specs are written with `kb_scaffold type: component` and land under a top-level `components/` folder (`components/<id>.md`). The `component` template ships under `_templates/`.
 > - **`features/`, `flows/`** are nested under **`specs/`**.
 > - **`validation/`** is nested under **`data/`**.
 > - **`standards/contracts/`** is a 4th standards group (alongside `code`, `knowledge`, `process`) for API and protocol-shape rules.
@@ -188,7 +189,7 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | `kb_init` | Bootstrap `knowledge/` folder, git hooks, merge drivers, MCP config, and agent rule files (`CLAUDE.md`, `.cursorrules`, `.windsurfrules`). Re-run to update `code_path_patterns` when stack changes. Pass `regenerate_agent_rules: true` (with optional `force: true`) to (re)generate the agent rule files only |
 | `kb_get` | Load relevant KB files into agent context (keyword + scope filtering, token budget aware). `max_tokens` overrides the budget; default reads `token_budget` from `_rules.md`. Optional `task_context` (`creating`, `fixing`, `reviewing`) adjusts relevance scoring — `creating` boosts same-type files, `fixing` boosts code standards, `reviewing` includes drift targets. **Pass `working_paths: [...]`** with the file paths you're about to edit and the response includes a separate `rules_in_scope` field listing applicable standards rules (capped at `working_paths_cap`, descriptions trimmed to first paragraph or 300 chars). Aspirational backlog entries surface in the same field as `advisory: true`. |
 | `kb_write` | Write a KB file and auto-reindex. Rejects paths outside `knowledge/`. Response includes the full reindex + lint result (up to 20 lint violations). Lint and reindex run automatically on every write and via git hooks — they're not exposed as separate tools. **Writes to `knowledge/standards/<group>/<id>.md` synchronously trigger an aspirational `kb_conform` sweep** (skipped on lint errors); the result lands under `aspirational_sweep` in the response, queue entries in `sync/standards-backlog.md`. |
-| `kb_scaffold` | Create a new KB file from template (types: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `group`, `component`). Two-phase when `description` is given: loads related KB context, checks for overlapping entries, returns a fill prompt → agent fills → writes. For `type: standard`, `group` must be one of `code | contracts | knowledge | process`. Legacy types `tech-stack` and `conventions` were removed; the tool returns a migration hint pointing at `foundation/<id>.md` for inventory or `standards/code/<id>.md` for rules. |
+| `kb_scaffold` | Create a new KB file from template (types: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `group`, `component`). Two-phase when `description` is given: loads related KB context, checks for overlapping entries, returns a fill prompt → agent fills → writes. For `type: standard`, `group` must be one of `code | contracts | knowledge | process`. Legacy types `tech-stack` and `conventions` were removed; the tool returns a migration hint pointing at `standards/code/<id>.md`. |
 | `kb_ask` | Ask a question about the KB. Classifies intent (query / sync / brainstorm / challenge / onboard / generate) and returns relevant context. Short tech terms (api, jwt, sql, etc.) are preserved in keyword extraction |
 | `kb_drift` | Bidirectional **functional** drift detection. Phase 1: code→kb (code changed, KB stale) and kb→code (KB changed, code may be stale). Writes to queue files in `sync/`. Handles file/folder renames as single linked operations — code renames annotate the entry with `← renamed from`, KB renames surface broken `[[wikilink]]` references with a count and file list. Stale `_rules.md` patterns (old path matched, new path doesn't) are returned as `stale_patterns[]` warnings. Phase 2: three resolution types — `summaries` (KB updated), `reverted` (code was wrong), `kb_confirmed` (kb→code reviewed). The pre-push hook passes the remote name automatically; sync baseline is resolved via graduated fallback: upstream tracking ref → `<remote>/<branch>` → closest parent branch (merge-base across all remote branches, so `main→dev→feature` correctly finds `dev`) → skip with warning. Submodules with a different remote name than the parent are detected and warned about explicitly (with a fix command), not silently skipped or compared against the wrong remote |
 | `kb_conform` | **Non-functional** conformance — does code follow the architectural decisions in standards? Three phases. **Phase 1** (no resolution args): MCP runs cheap pre-filters (path glob, exceptions, min_lines, regex, ast-grep) and returns `requested_evaluations: [{file, standard_id, rule_ids[]}]` plus a prompt for the agent to evaluate. Deterministic regex/ast-grep failures are queued without an LLM round-trip. **Phase 1.5** (`submit_judgments: [{file, standard_id, rule_id, status, reason}]`): MCP verifies completeness against the requested set and returns `gaps[]` if any triple is missing. The queue is not advanced until every requested triple has a judgment. **Phase 2** (`applied`/`exempted`/`promoted`/`dismissed`): close queue entries. `exempted` writes a per-rule `exceptions: [{paths, reason}]` entry into the standard so future runs skip those files; `promoted` records intent in the audit log without modifying the standard (senior-dev review via `kb_inventory.pending_promotions`). Queue files: `sync/standards-drift.md` (current diff) and `sync/standards-backlog.md` (aspirational sweeps). |
@@ -269,8 +270,8 @@ Drift entries are written automatically by two hooks:
 git push
 → pre-push hook writes entry to knowledge/sync/code-drift.md:
 
-  ## features/user-auth.md
-  - KB target: features/user-auth.md
+  ## specs/features/user-auth.md
+  - KB target: specs/features/user-auth.md
   - Code files:
     - src/auth/tokenService.ts — since a1b2c3d (2026-03-20)
   - Status: pending-review
@@ -281,7 +282,7 @@ PM opens Claude: "review code-drift.md"
 → PM decides
 
 "The change is correct, update the KB"
-→ kb_drift({ summaries: [{ kb_target: "features/user-auth.md", summary: "Token expiry reduced to 24h, refresh tokens now rotate" }] })
+→ kb_drift({ summaries: [{ kb_target: "specs/features/user-auth.md", summary: "Token expiry reduced to 24h, refresh tokens now rotate" }] })
 → Entry removed from code-drift.md, KB note written, resolution logged to sync/drift-log/
 ```
 
@@ -297,11 +298,11 @@ PM: "That change was a mistake, it will be reverted"
 **kb→code** (KB spec changed, code may be stale):
 
 ```
-PM updates knowledge/features/checkout.md and pushes
+PM updates knowledge/specs/features/checkout.md and pushes
 → pre-push hook writes entry to knowledge/sync/kb-drift.md:
 
-  ## features/checkout.md
-  - KB file: features/checkout.md
+  ## specs/features/checkout.md
+  - KB file: specs/features/checkout.md
   - Code areas to review:
     - src/app/api/checkout/**
     - src/components/**Form*
@@ -309,12 +310,12 @@ PM updates knowledge/features/checkout.md and pushes
   - Status: pending-review
 
 Developer opens Claude: "review kb-drift.md"
-→ Claude fetches: git diff c3d4e5f..HEAD -- knowledge/features/checkout.md
+→ Claude fetches: git diff c3d4e5f..HEAD -- knowledge/specs/features/checkout.md
 → Explains what spec changed in plain English
 → Developer checks the listed code areas
 
 "Code already matches the updated spec"
-→ kb_drift({ kb_confirmed: [{ kb_file: "features/checkout.md" }] })
+→ kb_drift({ kb_confirmed: [{ kb_file: "specs/features/checkout.md" }] })
 → Entry closed, resolution logged to sync/drift-log/
 ```
 
@@ -480,7 +481,7 @@ rules:
       broken into nested routes rather than conditional rendering trees.
     why: |
       Tab-state mega-screens (2023) caused testing surface to explode.
-    examples: ["[[features/checkout]]"]
+    examples: ["[[specs/features/checkout]]"]
     exceptions: []          # filled by kb_conform exempted resolution
 ---
 ```
@@ -712,10 +713,10 @@ These two singleton types were removed. Their content folds into the new model:
 
 | Legacy | New home |
 |---|---|
-| `standards/code/tech-stack.md` (inventory of what we use) | `foundation/<id>.md` — normal reference doc, no rules |
-| `standards/code/conventions.md` (rules about naming, structure) | One or more `standards/code/<id>.md` documents with structured `rules:` arrays |
+| `kb_scaffold type: tech-stack` | `kb_scaffold type: standard id: tech-stack group: code` → `standards/code/tech-stack.md` |
+| `kb_scaffold type: conventions` | One or more `kb_scaffold type: standard id: <id> group: code` calls → `standards/code/<id>.md` documents with structured `rules:` arrays |
 
-`kb_scaffold type: tech-stack` and `kb_scaffold type: conventions` now return a hint pointing at the new locations.
+Both removed types now return a hint from `kb_scaffold` pointing at `standards/code/<id>.md`.
 
 #### How standards trigger in normal usage
 
@@ -767,11 +768,11 @@ After importing documents or creating KB files in bulk, tags are often empty —
 ```
 "Tag all KB files automatically"
 → kb_autotag()
-→ Returns: { tagged: 40, tags_added: 333, sample: { "features/auth.md": ["auth", "jwt", ...] } }
+→ Returns: { tagged: 40, tags_added: 333, sample: { "specs/features/auth.md": ["auth", "jwt", ...] } }
 
 "Discover missing depends_on relations"
 → kb_autorelate({ dry_run: true })
-→ Returns proposals: [{ source: "features/checkout.md", target: "features/auth.md", score: 0.64, shared_terms: [...] }]
+→ Returns proposals: [{ source: "specs/features/checkout.md", target: "specs/features/auth.md", score: 0.64, shared_terms: [...] }]
 
 "Looks good, apply them"
 → kb_autorelate()
@@ -779,7 +780,7 @@ After importing documents or creating KB files in bulk, tags are often empty —
 
 Now kb_ask finds files reliably:
 → kb_ask({ question: "how does authentication work?" })
-→ context_files: ["features/auth.md", "flows/auth-flow.md", "validation/auth-rules.md"]
+→ context_files: ["specs/features/auth.md", "specs/flows/auth-flow.md", "data/validation/auth-rules.md"]
 ```
 
 Both tools are safe to re-run — `kb_autotag` merges with existing tags, `kb_autorelate` skips already-present relations and prevents cycles.
@@ -832,7 +833,7 @@ Two developers work in parallel. Neither causes a git conflict, but together the
 
 ```
 Dev A (branch: feature/new-auth):
-→ Updates knowledge/features/user-auth.md
+→ Updates knowledge/specs/features/user-auth.md
   "Session tokens now expire after 24h, refresh tokens rotate on every use"
 
 Dev B (branch: fix/auth-service):
@@ -851,7 +852,7 @@ Developer opens Claude: "review kb-drift.md"
 
 PM opens Claude: "review code-drift.md"
 → Claude fetches git diff, explains what changed in tokenService.ts
-→ PM approves: kb_drift({ summaries: [{ kb_target: "features/user-auth.md", summary: "..." }] })
+→ PM approves: kb_drift({ summaries: [{ kb_target: "specs/features/user-auth.md", summary: "..." }] })
 ```
 
 ---
@@ -867,7 +868,7 @@ PM: "I want to file a bug about login failing with expired tokens"
 → kb_issue({ command: "consult",
              title: "Login fails with expired token",
              body: "Users get 500 error instead of redirect..." })
-  → Returns related KB docs (features/auth.md, flows/login.md)
+  → Returns related KB docs (specs/features/auth.md, specs/flows/login.md)
   → Agent advises: "This relates to the session handling flow, step 4.
      The KB notes 24h token expiry. Suggest labels: auth, session.
      Priority: high (affects all users with expired tokens)."
@@ -906,7 +907,7 @@ PM Tool (Jira, Linear, GitHub Issues)
     ↕  adapter scripts (outside MCP)
 Staging files (knowledge/sync/inbound/, sync/outbound/)
     ↕  kb_issue (triage, plan)
-KB documents (knowledge/features/, flows/, standards/)
+KB documents (knowledge/specs/, data/, integrations/, decisions/, standards/, components/)
 ```
 
 ---
@@ -927,11 +928,11 @@ Six features that turn previously-invisible drift problems into machine-readable
                      _rules.md
       ┌──────────────────────────────────────┐
       │ - intent: form                       │
-      │   kb_target: validation/common.md    │  ← pattern A
+      │   kb_target: data/validation/common.md │ ← pattern A
       │   paths: [src/**Form.tsx]            │
       │                                      │
       │ - intent: auth                       │
-      │   kb_target: features/auth.md        │  ← pattern B
+      │   kb_target: specs/features/auth.md  │  ← pattern B
       │   paths: [src/auth/**]               │
       └──────────────────────────────────────┘
                         │
@@ -941,10 +942,10 @@ Six features that turn previously-invisible drift problems into machine-readable
       ┌──────────────────────────────────────┐
       │            code-drift.md             │
       │                                      │
-      │  ## validation/common.md             │  entry 1
+      │  ## data/validation/common.md        │  entry 1
       │     - src/auth/LoginForm.tsx         │  fingerprint X
       │                                      │
-      │  ## features/auth.md                 │  entry 2
+      │  ## specs/features/auth.md           │  entry 2
       │     - src/auth/LoginForm.tsx         │  fingerprint Y
       └──────────────────────────────────────┘
 
@@ -991,7 +992,7 @@ AFTER:  one entry per kb_target → both KB docs flagged
 - **`orphan_pattern`** — pattern's `paths` glob matches zero real files (typo, deleted directory, dead module).
 - **`ghost_target`** — pattern's `kb_target` points at a KB file that doesn't exist.
 - **`multi_target_files`** — the fan-out twin: tells you which files are being fanned out to multiple targets (useful when one is intentional, the other is a mistake).
-- **`convention_violation`** — pattern's `kb_target` is in the "wrong" folder per project convention (e.g. `standards/code/tech-stack.md` should live in `foundation/`).
+- **`convention_violation`** — pattern's `kb_target` is in the "wrong" folder per project convention (e.g. a pattern with `intent: data-model` pointing at `standards/code/foo.md` should live in `data/schema/`).
 - **`unmapped_kb_group`** — KB folders that have files but no patterns pointing to them (drift can't track their code).
 
 **Why it matters.** This is the diagnostic layer for `_rules.md` itself. Without it, broken patterns fail silently.
@@ -1011,12 +1012,13 @@ AFTER:  one entry per kb_target → both KB docs flagged
                                     (fan-out  folder)       files but
                                      map)                   no patterns)
 
-     paths:           kb_target:    file:    kb_target:    folder:
-      src/dead/**      foo.md       Auth     standards/    decisions/
-                       ⚠            Form     code/tech-    count: 4
-                       doesn't       ↓        stack.md     no patterns
-                       exist        2 kb     should be
-                                    targets  foundation/
+     paths:           kb_target:    file:    intent:       folder:
+      src/dead/**      foo.md       Auth     data-model    decisions/
+                       ⚠            Form     kb_target:    count: 4
+                       doesn't       ↓       standards/    no patterns
+                       exist        2 kb     code/foo.md
+                                    targets  should live
+                                             in data/schema/
 ```
 
 ### 4. UI mapping diagnostics (P1/P2)
@@ -1028,11 +1030,11 @@ The same `pattern_audit.findings` get rendered as a "Mapping Diagnostics" card i
   │                                                │
   │  📋 Mapping Diagnostics              [  7  ]   │  ← count badge
   │  ─────────────────────────────────────────     │
-  │  ▼ orphan_pattern · validation/common.md       │  ← expand
+  │  ▼ orphan_pattern · data/validation/common.md  │  ← expand
   │      paths: src/dead/**                        │
   │      [ Copy fix prompt ]   ←─ clipboard        │
   │                                                │
-  │  ▶ ghost_target · features/missing.md          │  ← collapsed
+  │  ▶ ghost_target · specs/features/missing.md    │  ← collapsed
   │  ▶ multi_target · AuthForm.tsx                 │
   │  ▶ convention · standards/code/...             │
   │                                                │
@@ -1060,7 +1062,7 @@ The same `pattern_audit.findings` get rendered as a "Mapping Diagnostics" card i
   Pattern in _rules.md:
   ┌──────────────────────────────┐
   │ intent: validation           │
-  │ kb_target: validation/x.md   │ ──► fingerprint = sha256(intent + target + SORTED paths)
+  │ kb_target: data/validation/x.md   │ ──► fingerprint = sha256(intent + target + SORTED paths)
   │ paths: [a.java, b.java]      │     = de538367...
   └──────────────────────────────┘
 
@@ -1077,7 +1079,7 @@ The same `pattern_audit.findings` get rendered as a "Mapping Diagnostics" card i
         ╚═══════════════════════════╝
 
   ──── SEMANTIC EDIT (rename kb_target) ──────────────────────
-        kb_target: validation/x-v2.md   ← actually different
+        kb_target: data/validation/x-v2.md   ← actually different
                        │
                        ▼ fingerprint = a91f2c...  CHANGED
                        │
@@ -1086,7 +1088,7 @@ The same `pattern_audit.findings` get rendered as a "Mapping Diagnostics" card i
         ║  queue entry: AUTO-CLOSED                     ║
         ║  drift-log/2026-05.md:                        ║
         ║   ## AUTO-CLOSED-PATTERN-CHANGED              ║
-        ║   Queue key: validation/x.md                  ║
+        ║   Queue key: data/validation/x.md                  ║
         ║   Old fingerprint: de538367...                ║
         ║   New fingerprint: (pattern removed)          ║
         ║   Reason: pattern removed from _rules.md      ║
@@ -1100,28 +1102,28 @@ The same `pattern_audit.findings` get rendered as a "Mapping Diagnostics" card i
 **Why it matters.** `[[wikilinks]]` and `depends_on:` are how KB files cross-reference each other. Broken refs used to fail silently — now `_index.yaml` has an explicit punch list.
 
 ```
-   features/buffer-definitions.md
-   ┌──────────────────────────────────────┐
-   │ ---                                  │
-   │ depends_on:                          │
-   │   - line-definitions       ◄─ exists │
-   │   - features/missing-file  ◄─ ghost! │
-   │ ---                                  │
-   └──────────────────────────────────────┘
+   specs/features/buffer-definitions.md
+   ┌──────────────────────────────────────────┐
+   │ ---                                      │
+   │ depends_on:                              │
+   │   - line-definitions           ◄─ exists │
+   │   - specs/features/missing-file  ◄─ ghost! │
+   │ ---                                      │
+   └──────────────────────────────────────────┘
                     │
                     ▼  kb_write → reindex
                     │  (walks every file's depends_on)
                     ▼
    knowledge/_index.yaml
-   ┌──────────────────────────────────────┐
-   │ orphan_dependencies:                 │
-   │   - source: features/buffer-def...   │
-   │     missing_dep: features/missing... │
-   │   - source: …                        │
-   │     missing_dep: …                   │
-   │                                      │
-   │ files: …                             │
-   └──────────────────────────────────────┘
+   ┌──────────────────────────────────────────┐
+   │ orphan_dependencies:                     │
+   │   - source: specs/features/buffer-def... │
+   │     missing_dep: specs/features/missing… │
+   │   - source: …                            │
+   │     missing_dep: …                       │
+   │                                          │
+   │ files: …                                 │
+   └──────────────────────────────────────────┘
                     │
                     ▼
             agent/human sees the list
@@ -1213,7 +1215,7 @@ The pre-commit hook warns if any of these are staged. `_index.yaml` has a `# AUT
 | `_rules.md` | Project config — depth policy, code path patterns, secrets, `token_budget` |
 | `_templates/` | Customize KB file templates |
 | `_prompt-overrides/` | Override bundled prompts for your project |
-| `features/*.md`, `flows/*.md`, etc. | KB content — developers and PMs edit directly; agent can too |
+| `specs/features/*.md`, `specs/flows/*.md`, etc. | KB content — developers and PMs edit directly; agent can too |
 
 ### Tier 3 — Shared / hybrid
 
@@ -1311,7 +1313,7 @@ Drift uses a per-submodule comparison ref (not the parent's ref), so it correctl
 ```yaml
 code_path_patterns:
   - intent: service-logic
-    kb_target: "features/{name}.md"
+    kb_target: "specs/flows/{name}.md"
     paths:
       - "src/services/**"           # direct parent code
       - "backend/src/services/**"   # submodule code
@@ -1342,7 +1344,7 @@ created: 2026-03-20
 
 ## Description
 ...
-See [[features/checkout]] for the checkout flow.
+See [[specs/features/checkout]] for the checkout flow.
 Uses [[integrations/stripe]] for payment processing.
 ![[assets/design/stripe-flow.png]]
 
@@ -1360,7 +1362,7 @@ Uses [[integrations/stripe]] for payment processing.
 Cross-references use Obsidian-compatible `[[wikilinks]]` in content. These are automatically extracted during `kb_reindex` and stored as `depends_on` in `_index.yaml`, which `kb_impact` uses for blast-radius analysis.
 
 Supported wikilink formats:
-- Whole file: `[[schema/user]]`
+- Whole file: `[[data/schema/user]]`
 - Specific section: `[[data/schema/postgres#users]]` — the `#section` part is preserved in `depends_on` entries, enabling table-level cross-references for schema files
 - With display text: `[[data/schema/postgres#users|Users Table]]`
 - Embedded file: `![[assets/design/flow.png]]`
@@ -1373,7 +1375,7 @@ The `knowledge/` folder is designed to open directly as an Obsidian vault. All g
 - **`aliases`** — Obsidian quick-switcher (Cmd+O) and link-autocomplete aliases. Each template seeds a sensible default (`id` or a readable label).
 - **`cssclasses`** — per-type CSS class for theming (`kb-feature`, `kb-flow`, `kb-schema`, `kb-validation`, `kb-integration`, `kb-decision`, `kb-standard`, `kb-ui`, `kb-data`, `kb-group`). Add a `.obsidian/snippets/kb.css` to activate visual differentiation in the graph view.
 - **Callouts** — edge cases, guards, and open questions use Obsidian callout syntax (`> [!warning]`, `> [!important]`, `> [!question]`, `> [!info]`, `> [!caution]`) so they render as styled blocks rather than plain bullet lists.
-- **Folder notes** — group files are named after their parent folder (`features/billing/billing.md` instead of `features/billing/_group.md`), matching the Obsidian Folder Notes plugin convention. Legacy `_group.md` files are still detected for backward compatibility.
+- **Folder notes** — group files are named after their parent folder (`specs/features/billing/billing.md` instead of `specs/features/billing/_group.md`), matching the Obsidian Folder Notes plugin convention. Legacy `_group.md` files are still detected for backward compatibility.
 
 ---
 

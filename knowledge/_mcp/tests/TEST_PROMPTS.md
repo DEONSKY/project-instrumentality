@@ -95,30 +95,30 @@ git add -A && git commit -m "initial project setup"
 > Create the standards files for this project. The project name is "TaskFlow". We use React 18 + Vite + TypeScript + TanStack Query + Zod for validation. Conventions: all components are functional, API calls go through TanStack Query hooks, validation uses Zod schemas.
 
 **Expected:** Agent calls `kb_scaffold` at minimum:
-- `type: "tech-stack"` → `standards/code/tech-stack.md`
-- `type: "conventions"` → `standards/code/conventions.md`
-- Focused `type: "standard"` files for specific concerns (e.g. auth-rules, api-conventions)
+- `type: "standard", id: "tech-stack", group: "code"` → `standards/code/tech-stack.md`
+- `type: "standard", id: "conventions", group: "code"` → `standards/code/conventions.md`
+- Additional focused `type: "standard"` files for specific concerns (e.g. auth-rules, api-conventions)
 
 ### A.3 Scaffold a feature with description
 
 > **Prompt to agent:**
 > Create a KB entry for our task creation feature. Users fill in a form with title (required, 1-200 chars), description (optional, max 2000 chars), assignee (email, required), priority (low/medium/high/critical, default medium), and due date (must be in the future). Business rules: critical tasks auto-notify the assignee via email, tasks without a due date default to 7 days from now.
 
-**Expected:** Agent calls `kb_scaffold({ type: "feature", id: "task-create", description: "..." })`, gets back a prompt, fills it, calls back with content. File created at `knowledge/features/task-create.md`.
+**Expected:** Agent calls `kb_scaffold({ type: "feature", id: "task-create", description: "..." })`, gets back a prompt, fills it, calls back with content. File created at `knowledge/specs/features/task-create.md`.
 
 ### A.4 Scaffold a flow
 
 > **Prompt to agent:**
 > Create a KB flow for task assignment. Steps: 1) manager selects task, 2) manager picks assignee from team dropdown, 3) system validates assignee has capacity (max 10 active tasks), 4) system updates task and sends notification. Guard: task must be in "open" status. States: unassigned → assigned → accepted.
 
-**Expected:** `knowledge/flows/task-assignment.md` created with steps, guards, and states filled.
+**Expected:** `knowledge/specs/flows/task-assignment.md` created with steps, guards, and states filled.
 
 ### A.5 Query the KB
 
 > **Prompt to agent:**
 > What validation rules apply to the task title field?
 
-**Expected:** Agent calls `kb_ask`. Intent: `query`. Returns answer citing `features/task-create.md ## Fields`.
+**Expected:** Agent calls `kb_ask`. Intent: `query`. Returns answer citing `specs/features/task-create.md ## Fields`.
 
 ### A.6 Challenge the KB
 
@@ -138,7 +138,7 @@ git add -A && git commit -m "add archive task function"
 > **Prompt to agent:**
 > Run drift detection.
 
-**Expected:** Agent calls `kb_drift({})`. Returns `code_entries: 1` — `src/services/taskService.ts` maps to `flows/task.md` or similar target.
+**Expected:** Agent calls `kb_drift({})`. Returns `code_entries: 1` — `src/services/taskService.ts` maps to `specs/flows/task.md` or similar target.
 
 ### A.8 Resolve drift
 
@@ -152,7 +152,7 @@ git add -A && git commit -m "add archive task function"
 > **Prompt to agent:**
 > We are changing the task priority from 4 levels to 5 (adding "urgent" above "critical"). What KB files need to change?
 
-**Expected:** Agent calls `kb_impact`. Returns `features/task-create.md` and any flows referencing priority.
+**Expected:** Agent calls `kb_impact`. Returns `specs/features/task-create.md` and any flows referencing priority.
 
 ### A.10 Generate code from KB
 
@@ -317,7 +317,7 @@ git add -A && git commit -m "initial Go project setup"
 > **Prompt to agent:**
 > Create a KB entry for the order creation feature. Fields: user_id (required, UUID), items (array, min 1), shipping_address (required, embedded struct with street/city/zip/country), total (calculated server-side in cents). Business rules: orders over $500 require manager approval, inventory must be reserved before confirming, tax calculated per country.
 
-**Expected:** `knowledge/features/order-create.md` with filled fields, business rules, edge cases.
+**Expected:** `knowledge/specs/features/order-create.md` with filled fields, business rules, edge cases.
 
 ### B.4 Scaffold order flow
 
@@ -353,14 +353,14 @@ git add -A && git commit -m "add refund order service"
 > **Prompt to agent:**
 > Run drift detection.
 
-**Expected:** `code_entries: 1`. Maps `internal/order/service/order_service.go` → `flows/order.md` (strips `Service`, kebab-case).
+**Expected:** `code_entries: 1`. Maps `internal/order/service/order_service.go` → `specs/flows/order.md` (strips `Service`, kebab-case).
 
 ### B.7 Query the KB
 
 > **Prompt to agent:**
 > What happens when an order over $500 is placed?
 
-**Expected:** Answer cites `features/order-create.md ## Business rules`: requires manager approval.
+**Expected:** Answer cites `specs/features/order-create.md ## Business rules`: requires manager approval.
 
 ### B.8 Analyze Go codebase coverage
 
@@ -554,7 +554,7 @@ git add -A && git commit -m "initial Spring Boot project setup"
 > **Prompt to agent:**
 > Create validation rules. Rules: scheduled_at must be weekday 09:00-17:00, patient must have verified identity, doctor must be active and not on leave.
 
-**Expected:** `knowledge/validation/common.md` or `validation/appointment.md`.
+**Expected:** `knowledge/data/validation/common.md` or `data/validation/appointment.md`.
 
 ### C.5 Scaffold schema
 
@@ -581,7 +581,7 @@ git add -A && git commit -m "add reschedule endpoint"
 > **Prompt to agent:**
 > Run drift detection.
 
-**Expected:** Maps `AppointmentController.java` → `features/appointment.api.md` (strips `Controller`, kebab-case).
+**Expected:** Maps `AppointmentController.java` → `specs/features/appointment.api.md` (strips `Controller`, kebab-case).
 
 ### C.7 Resolve drift
 
@@ -609,7 +609,7 @@ git add -A && git commit -m "add reschedule endpoint"
 > **Prompt to agent:**
 > Analyze the project source code and generate a KB coverage report.
 
-**Expected:** `kb_analyze({})` groups Spring Boot files (controllers, services, entities, repositories) by KB target. Controller files map to `features/*.api.md`, service files to `flows/*.md`, etc.
+**Expected:** `kb_analyze({})` groups Spring Boot files (controllers, services, entities, repositories) by KB target. Controller files map to `specs/features/*.api.md`, service files to `specs/flows/*.md`, etc.
 
 ### C.11 Import a document
 
@@ -683,7 +683,7 @@ EOF
 > **Prompt to agent:**
 > Create a KB entry for user authentication with email/password login and JWT tokens.
 
-(Run this AFTER A.3 has created `features/task-create.md` and assuming a `features/user-auth.md` or similar auth file exists.)
+(Run this AFTER A.3 has created `specs/features/task-create.md` and assuming a `specs/features/user-auth.md` or similar auth file exists.)
 
 **Expected:** If an overlapping auth file exists, the scaffold fill prompt warns: "We already have [file] that covers [topic]. Should I extend that instead of creating a new file?" Agent should surface this warning before proceeding.
 
@@ -736,16 +736,16 @@ git add -A && git commit -m "tighten depth policy"
 > **Prompt to agent:**
 > Create features for the billing domain: invoice-create, invoice-send, payment-receive. Group them under "billing".
 
-**Expected:** `features/billing/billing.md` (folder note) auto-created — NOT `_group.md`. Three feature files inside `features/billing/`. The folder note has `type: group` in front-matter.
+**Expected:** `specs/features/billing/billing.md` (folder note) auto-created — NOT `_group.md`. Three feature files inside `specs/features/billing/`. The folder note has `type: group` in front-matter.
 
 ### D.5 Wikilink wiring
 
-> Create `features/checkout.md` with body containing `[[features/billing/invoice-create]]`.
+> Create `specs/features/checkout.md` with body containing `[[specs/features/billing/invoice-create]]`.
 
 > **Prompt to agent:**
 > Reindex the knowledge base.
 
-**Expected:** `_index.yaml` entry for `checkout.md` has `features/billing/invoice-create` in `depends_on`.
+**Expected:** `_index.yaml` entry for `checkout.md` has `specs/features/billing/invoice-create` in `depends_on`.
 
 ### D.6 Analyze and bootstrap KB on existing project
 
@@ -777,7 +777,7 @@ git add -A && git commit -m "tighten depth policy"
 
 ### D.9 Multi-file impact cascade
 
-> Create `features/auth.md`. Create `features/checkout.md` with `depends_on: [auth]`. Create `flows/payment.md` with `depends_on: [checkout]`.
+> Create `specs/features/auth.md`. Create `specs/features/checkout.md` with `depends_on: [auth]`. Create `specs/flows/payment.md` with `depends_on: [checkout]`.
 
 > **Prompt to agent:**
 > We're changing the auth token format from JWT to opaque tokens. What's the impact?
@@ -801,12 +801,12 @@ git add -A && git commit -m "tighten depth policy"
 
 ### D.11 Type keyword search in kb_get
 
-> Create `flows/checkout-flow.md` (with `type: flow` in front-matter) and `features/checkout.md` (with `type: feature`). Run `kb_reindex`. Then:
+> Create `specs/flows/checkout-flow.md` (with `type: flow` in front-matter) and `specs/features/checkout.md` (with `type: feature`). Run `kb_reindex`. Then:
 
 > **Prompt to agent:**
 > Load KB context using the keyword "flow".
 
-**Expected:** Agent calls `kb_get({ keywords: ["flow"] })`. `flows/checkout-flow.md` appears in results (matched on `type: flow` in search text). `features/checkout.md` does not match on type alone.
+**Expected:** Agent calls `kb_get({ keywords: ["flow"] })`. `specs/flows/checkout-flow.md` appears in results (matched on `type: flow` in search text). `specs/features/checkout.md` does not match on type alone.
 
 **TC:** TC-4.15
 
@@ -827,8 +827,8 @@ git add -A && git commit -m "tighten depth policy"
 > Create features for the payments domain: charge-create, refund-issue. Group them under "payments".
 
 **Expected:**
-1. `features/payments/charge-create.md` and `features/payments/refund-issue.md` created.
-2. `features/payments/payments.md` auto-created as folder note (NOT `features/payments/_group.md`).
+1. `specs/features/payments/charge-create.md` and `specs/features/payments/refund-issue.md` created.
+2. `specs/features/payments/payments.md` auto-created as folder note (NOT `specs/features/payments/_group.md`).
 3. `payments.md` has `type: group` in front-matter.
 
 **TC:** TC-2.4, TC-2.4b
@@ -968,7 +968,7 @@ echo "  5. Run tests E.1 through E.8"
 > **Prompt to agent:**
 > Scaffold a feature KB file called `user-management` that covers user CRUD operations.
 
-**Expected:** `features/user-management.md` created.
+**Expected:** `specs/features/user-management.md` created.
 
 Now trigger drift manually:
 
@@ -984,7 +984,7 @@ git add backend && git commit -m "update backend pointer"
 > **Prompt to agent:**
 > Run drift detection to see if any code changes need KB updates.
 
-**Expected:** Drift entry created for `features/user-management.md` with code file `backend/src/services/UserService.ts`.
+**Expected:** Drift entry created for `specs/features/user-management.md` with code file `backend/src/services/UserService.ts`.
 
 ### E.4 Test shared submodule drift tagging
 
@@ -1173,7 +1173,7 @@ EOF
 
 **Expected:**
 1. Agent calls `kb_extract({ source: "knowledge", target_id: "feature-writing", target_group: "knowledge", paths: "features" })`.
-2. `sample_files` contains files from `features/` folder.
+2. `sample_files` contains files from `specs/features/` folder.
 3. `prompt` includes the KB document content for the agent to analyse.
 4. Agent fills the template and calls Phase 2.
 5. File written to `knowledge/standards/knowledge/feature-writing.md`.
@@ -1457,7 +1457,7 @@ Use an existing initialized project that has KB files with empty `tags: []` — 
 
 **Check manually:**
 - Open any feature file — `tags:` array is now populated
-- Run `kb_ask({ question: "how does checkout work?" })` — `context_files` should include `features/checkout.md`
+- Run `kb_ask({ question: "how does checkout work?" })` — `context_files` should include `specs/features/checkout.md`
 
 ---
 
@@ -1465,10 +1465,10 @@ Use an existing initialized project that has KB files with empty `tags: []` — 
 
 ```
 "Tag only the auth feature file, and make sure my existing tags are kept"
-→ kb_autotag({ file_path: "knowledge/features/auth.md" })
+→ kb_autotag({ file_path: "knowledge/specs/features/auth.md" })
 ```
 
-**Expected:** Only `features/auth.md` modified. Existing tags preserved (merged).
+**Expected:** Only `specs/features/auth.md` modified. Existing tags preserved (merged).
 
 ---
 
@@ -1481,7 +1481,7 @@ Use an existing initialized project that has KB files with empty `tags: []` — 
 
 **Expected agent behavior:**
 1. Calls `kb_autorelate({ dry_run: true })`
-2. Presents proposals in readable form: "I'd link `features/checkout.md → features/auth.md` (score 0.64, shared terms: auth, login)"
+2. Presents proposals in readable form: "I'd link `specs/features/checkout.md → specs/features/auth.md` (score 0.64, shared terms: auth, login)"
 3. Notes cycles avoided if any
 
 **Check:** Schema files appear as targets (upstream), feature/flow files appear as sources.

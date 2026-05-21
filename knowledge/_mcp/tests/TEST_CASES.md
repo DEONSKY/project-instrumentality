@@ -60,9 +60,9 @@ kb_init({ interactive: false })
 ### TC-1.5 Folder structure created
 
 **Pass:** After `kb_init`, all these folders exist:
-`features/`, `flows/`, `data/schema/`, `validation/`, `ui/`, `integrations/`, `decisions/`, `standards/code/`, `standards/knowledge/`, `standards/process/`, `_templates/prompts/`, `_prompt-overrides/`, `assets/design/`, `assets/screenshots/`, `exports/`, `sync/`
+`specs/features/`, `specs/flows/`, `data/schema/`, `data/validation/`, `integrations/`, `decisions/`, `components/`, `standards/code/`, `standards/contracts/`, `standards/knowledge/`, `standards/process/`, `_templates/standards/`, `_templates/prompts/`, `_prompt-overrides/`, `assets/design/`, `assets/screenshots/`, `exports/`, `sync/`, `sync/inbound/`, `sync/outbound/`
 
-Neither `capabilities/` nor `foundation/` should exist.
+Neither `capabilities/`, `foundation/`, nor a top-level `ui/` should exist.
 
 ### TC-1.9 Standards stubs auto-scaffolded on init (stack detected)
 
@@ -127,7 +127,7 @@ kb_init({ interactive: true })
 
 ### TC-1.12 .gitattributes written
 
-**Pass:** `.gitattributes` exists with `knowledge/_index.yaml merge=kb-reindex` and `knowledge/features/** merge=kb-conflict`.
+**Pass:** `.gitattributes` exists with `knowledge/_index.yaml merge=kb-reindex` and `knowledge/specs/features/** merge=kb-conflict`.
 
 ---
 
@@ -139,7 +139,7 @@ kb_init({ interactive: true })
 kb_scaffold({ type: "feature", id: "user-auth" })
 ```
 
-**Pass:** `knowledge/features/user-auth.md` created with `id: user-auth` in front-matter. `{{placeholders}}` remain in body.
+**Pass:** `knowledge/specs/features/user-auth.md` created with `id: user-auth` in front-matter. `{{placeholders}}` remain in body.
 
 ### TC-2.2 Scaffold feature (with description)
 
@@ -155,7 +155,7 @@ kb_scaffold({ type: "feature", id: "invoice-create", description: "Users can cre
 kb_scaffold({ type: "feature", id: "invoice-create", content: "<filled markdown>" })
 ```
 
-**Pass:** File written to `knowledge/features/invoice-create.md`. `reindex` runs automatically. Returns `{ written: true }`.
+**Pass:** File written to `knowledge/specs/features/invoice-create.md`. `reindex` runs automatically. Returns `{ written: true }`.
 
 ### TC-2.4 Scaffold with group
 
@@ -163,7 +163,7 @@ kb_scaffold({ type: "feature", id: "invoice-create", content: "<filled markdown>
 kb_scaffold({ type: "feature", id: "payment-method", group: "billing" })
 ```
 
-**Pass:** File at `knowledge/features/billing/payment-method.md`. `knowledge/features/billing/billing.md` (folder note) auto-created if missing — NOT `_group.md`.
+**Pass:** File at `knowledge/specs/features/billing/payment-method.md`. `knowledge/specs/features/billing/billing.md` (folder note) auto-created if missing — NOT `_group.md`.
 
 ### TC-2.4b Scaffold group — folder note naming
 
@@ -171,7 +171,7 @@ kb_scaffold({ type: "feature", id: "payment-method", group: "billing" })
 kb_scaffold({ type: "group", id: "billing", group: "billing" })
 ```
 
-**Pass:** Group file created at `knowledge/features/billing/billing.md` (named after parent folder). Front-matter has `type: group`. File is NOT named `_group.md`.
+**Pass:** Group file created at `knowledge/specs/features/billing/billing.md` (named after parent folder). Front-matter has `type: group`. File is NOT named `_group.md`.
 
 ### TC-2.5 Scaffold depth violation
 
@@ -217,7 +217,7 @@ kb_scaffold({ type: "standard", id: "components", group: "code",
 
 ### TC-2.9 Scaffold overlap detection — existing file warning
 
-1. Create `knowledge/features/user-auth.md` with content about user authentication.
+1. Create `knowledge/specs/features/user-auth.md` with content about user authentication.
 2. Run:
 
 ```
@@ -240,7 +240,7 @@ kb_scaffold({ type: "feature", id: "test-fill", description: "Test feature" })
 kb_scaffold({ type: "feature", id: "user-auth" })
 ```
 
-**Pass:** `knowledge/features/user-auth.md` created. Front-matter contains:
+**Pass:** `knowledge/specs/features/user-auth.md` created. Front-matter contains:
 - `type: feature`
 - `aliases: [user-auth]`
 - `cssclasses: [kb-feature]`
@@ -292,7 +292,7 @@ kb_scaffold({ type: "validation", id: "test-validation" })
 ### TC-3.1 Normal write
 
 ```
-kb_write({ file_path: "knowledge/features/test.md", content: "---\nid: test\napp_scope: all\ncreated: 2026-03-21\n---\n\n## Description\n\nTest feature.\n" })
+kb_write({ file_path: "knowledge/specs/features/test.md", content: "---\nid: test\napp_scope: all\ncreated: 2026-03-21\n---\n\n## Description\n\nTest feature.\n" })
 ```
 
 **Pass:** File written. `_index.yaml` updated. Returns `{ written: true }` with lint results.
@@ -383,7 +383,7 @@ kb_get({ keywords: ["user", "payment"], app_scope: "frontend" })
 
 ### TC-4.6 task_context — creating boosts same-type files
 
-Create `features/auth.md`, `flows/auth-flow.md`, `validation/auth-rules.md`.
+Create `specs/features/auth.md`, `specs/flows/auth-flow.md`, `data/validation/auth-rules.md`.
 
 ```
 kb_get({ keywords: ["auth"], task_context: "creating" })
@@ -393,14 +393,14 @@ kb_get({ keywords: ["auth"], task_context: "creating" })
 
 ### TC-4.7 task_context — reviewing includes drift targets
 
-1. Create a drift entry in `sync/code-drift.md` with heading `## features/billing.md`.
+1. Create a drift entry in `sync/code-drift.md` with heading `## specs/features/billing.md`.
 2. Run:
 
 ```
 kb_get({ keywords: ["auth"], task_context: "reviewing" })
 ```
 
-**Pass:** `features/billing.md` appears in results (loaded from drift target) even though "billing" doesn't match the keyword "auth". Validation and flow files get a relevance boost.
+**Pass:** `specs/features/billing.md` appears in results (loaded from drift target) even though "billing" doesn't match the keyword "auth". Validation and flow files get a relevance boost.
 
 ### TC-4.8 task_context — no drift file, reviewing still works
 
@@ -436,7 +436,7 @@ kb_get({ keywords: ["api"] })
 kb_get({ scope: "features" })
 ```
 
-**Pass:** Returns only files under `knowledge/features/` (plus `always_load` foundation files). No flow, validation, or integration files.
+**Pass:** Returns only files under `knowledge/specs/features/` (plus `always_load` foundation files). No flow, validation, or integration files.
 
 ### TC-4.12 task_type export mode
 
@@ -468,13 +468,13 @@ kb_get({ keywords: ["component"], task_context: "fixing" })
 
 ### TC-4.15 Type keyword search
 
-Create `features/auth.md` with `type: feature` and `flows/auth-flow.md` with `type: flow` in `_index.yaml` (run `kb_reindex` first).
+Create `specs/features/auth.md` with `type: feature` and `specs/flows/auth-flow.md` with `type: flow` in `_index.yaml` (run `kb_reindex` first).
 
 ```
 kb_get({ keywords: ["flow"] })
 ```
 
-**Pass:** `flows/auth-flow.md` appears in results — matched because `type: flow` is part of the searchable text. `features/auth.md` does NOT match on `type`.
+**Pass:** `specs/flows/auth-flow.md` appears in results — matched because `type: flow` is part of the searchable text. `specs/features/auth.md` does NOT match on `type`.
 
 ---
 
@@ -542,30 +542,30 @@ kb_ask({ question: "what is user-authentication?" })
 
 ### TC-6.1 Code→KB drift (React Vite)
 
-1. In `test-react-vite`: create `knowledge/features/login.md` and `src/components/LoginForm.tsx`.
+1. In `test-react-vite`: create `knowledge/specs/features/login.md` and `src/components/LoginForm.tsx`.
 2. Commit both.
 3. Modify `src/components/LoginForm.tsx`, commit.
 4. Run `kb_drift({})`.
 
-**Pass:** `code_entries: 1`. Entry in `sync/code-drift.md` with KB target `features/login.md` and code file `src/components/LoginForm.tsx`.
+**Pass:** `code_entries: 1`. Entry in `sync/code-drift.md` with KB target `specs/features/login.md` and code file `src/components/LoginForm.tsx`.
 
 ### TC-6.2 Code→KB drift (Go)
 
-1. In `test-go-api`: create `knowledge/flows/order.md` and `internal/order/service/order_service.go`.
+1. In `test-go-api`: create `knowledge/specs/flows/order.md` and `internal/order/service/order_service.go`.
 2. Commit both.
 3. Modify `order_service.go`, commit.
 4. Run `kb_drift({})`.
 
-**Pass:** Entry targets `flows/order.md` (name extracted: strip `Service`, kebab-case).
+**Pass:** Entry targets `specs/flows/order.md` (name extracted: strip `Service`, kebab-case).
 
 ### TC-6.3 Code→KB drift (Spring Boot)
 
-1. In `test-spring`: create `knowledge/features/user.api.md` and `src/main/java/com/app/controller/UserController.java`.
+1. In `test-spring`: create `knowledge/specs/features/user.api.md` and `src/main/java/com/app/controller/UserController.java`.
 2. Commit both.
 3. Modify `UserController.java`, commit.
 4. Run `kb_drift({})`.
 
-**Pass:** Entry targets `features/user.api.md` (strip `Controller`, kebab-case).
+**Pass:** Entry targets `specs/features/user.api.md` (strip `Controller`, kebab-case).
 
 ### TC-6.4 KB→Code drift
 
@@ -639,7 +639,7 @@ No remote configured, no upstream tracking.
 ### TC-6.7 Resolve with summaries (Phase 2a)
 
 ```
-kb_drift({ summaries: [{ kb_target: "features/login.md", summary: "added remember-me checkbox" }] })
+kb_drift({ summaries: [{ kb_target: "specs/features/login.md", summary: "added remember-me checkbox" }] })
 ```
 
 **Pass:** Entry removed from `code-drift.md`. Entry appended to `sync/drift-log/YYYY-MM.md`.
@@ -655,7 +655,7 @@ kb_drift({ reverted: [{ code_file: "src/components/LoginForm.tsx" }] })
 ### TC-6.9 Resolve KB confirmed (Phase 2c)
 
 ```
-kb_drift({ kb_confirmed: [{ kb_file: "features/login.md" }] })
+kb_drift({ kb_confirmed: [{ kb_file: "specs/features/login.md" }] })
 ```
 
 **Pass:** Entry removed from `kb-drift.md`. Logged in drift-log.
@@ -672,7 +672,7 @@ kb_drift({ kb_confirmed: [{ kb_file: "features/login.md" }] })
 2. `git mv src/components/LoginForm.tsx src/components/auth/LoginForm.tsx`, commit.
 3. Run `kb_drift({})`.
 
-**Pass:** `code_entries: 1`. One entry in `code-drift.md` for `features/login.md`. The code file line reads:
+**Pass:** `code_entries: 1`. One entry in `code-drift.md` for `specs/features/login.md`. The code file line reads:
 ```
 - `src/components/auth/LoginForm.tsx` ← renamed from `src/components/LoginForm.tsx` — since ...
 ```
@@ -680,11 +680,11 @@ No separate entry for the old path. No deletion entry.
 
 ### TC-6.17 Code rename — different KB targets
 
-1. In `test-react-vite`: create `src/components/CheckoutForm.tsx` (matches `features/checkout.md` pattern), commit, push.
-2. `git mv src/components/CheckoutForm.tsx src/services/checkout.ts` (matches `flows/checkout.md` pattern), commit.
+1. In `test-react-vite`: create `src/components/CheckoutForm.tsx` (matches `specs/features/checkout.md` pattern), commit, push.
+2. `git mv src/components/CheckoutForm.tsx src/services/checkout.ts` (matches `specs/flows/checkout.md` pattern), commit.
 3. Run `kb_drift({})`.
 
-**Pass:** Old entry for `features/checkout.md` has `CheckoutForm.tsx` removed (or entry removed if empty). New entry for `flows/checkout.md` contains:
+**Pass:** Old entry for `specs/features/checkout.md` has `CheckoutForm.tsx` removed (or entry removed if empty). New entry for `specs/flows/checkout.md` contains:
 ```
 - `src/services/checkout.ts` ← renamed from `src/components/CheckoutForm.tsx` — since ...
 ```
@@ -695,22 +695,22 @@ No separate entry for the old path. No deletion entry.
 2. `git mv src/components/ProfileForm.tsx src/pages/ProfilePage.tsx` (matches no `code_path_patterns`), commit.
 3. Run `kb_drift({})`.
 
-**Pass:** Result contains `stale_patterns: [{ intent: "form", kb_target: "features/profile.md", moved: { from: "src/components/ProfileForm.tsx", to: "src/pages/ProfilePage.tsx" } }]`. No crash, no spurious drift entry for the new path.
+**Pass:** Result contains `stale_patterns: [{ intent: "form", kb_target: "specs/features/profile.md", moved: { from: "src/components/ProfileForm.tsx", to: "src/pages/ProfilePage.tsx" } }]`. No crash, no spurious drift entry for the new path.
 
 ### TC-6.19 KB file rename — reference detection
 
-1. Create `knowledge/features/auth.md` with `id: auth`, and `knowledge/flows/login.md` with `depends_on: [features/auth]`. Run `kb_reindex`.
+1. Create `knowledge/specs/features/auth.md` with `id: auth`, and `knowledge/specs/flows/login.md` with `depends_on: [features/auth]`. Run `kb_reindex`.
 2. Commit and push both files (establish baseline).
-3. `git mv knowledge/features/auth.md knowledge/features/authentication.md`, commit.
+3. `git mv knowledge/specs/features/auth.md knowledge/specs/features/authentication.md`, commit.
 4. Run `kb_drift({})`.
 
 **Pass:** `kb_entries: 1`. Entry in `kb-drift.md` includes:
 ```
-## features/authentication.md
-- KB file: `features/authentication.md`
-- Renamed from: `features/auth.md`
-- References to update: 1 file(s) contain [[features/auth]]
-  - `flows/login.md`
+## specs/features/authentication.md
+- KB file: `specs/features/authentication.md`
+- Renamed from: `specs/features/auth.md`
+- References to update: 1 file(s) contain [[specs/features/auth]]
+  - `specs/flows/login.md`
 - Code areas to review: ...
 - Since: ...
 ```
@@ -718,8 +718,8 @@ No separate entry for the old path.
 
 ### TC-6.20 KB file rename — no references
 
-1. Create `knowledge/features/standalone.md`, commit and push.
-2. `git mv knowledge/features/standalone.md knowledge/features/standalone-v2.md`, commit.
+1. Create `knowledge/specs/features/standalone.md`, commit and push.
+2. `git mv knowledge/specs/features/standalone.md knowledge/specs/features/standalone-v2.md`, commit.
 3. Run `kb_drift({})`.
 
 **Pass:** Entry in `kb-drift.md` includes `- **References to update:** none found`. No crash.
@@ -734,7 +734,7 @@ No separate entry for the old path.
 ### TC-6.22 Rename resolution — summaries still work
 
 1. Run TC-6.16 to create the rename entry.
-2. Run `kb_drift({ summaries: [{ kb_target: "features/login.md", summary: "login form moved to auth subfolder" }] })`.
+2. Run `kb_drift({ summaries: [{ kb_target: "specs/features/login.md", summary: "login form moved to auth subfolder" }] })`.
 
 **Pass:** Entry removed from `code-drift.md`. Drift log entry appended. No error about the rename annotation.
 
@@ -762,7 +762,7 @@ Create a KB file containing `API_KEY: something`.
 
 ### TC-7.4 Depth violation
 
-Create `knowledge/features/a/b/c/d/deep.md`.
+Create `knowledge/specs/features/a/b/c/d/deep.md`.
 
 **Pass:** Lint error: depth exceeds max.
 
@@ -774,25 +774,25 @@ Create a KB file with `<<<<<<< HEAD` in body.
 
 ### TC-7.6 Wikilink — valid (with and without .md extension)
 
-Create `knowledge/features/auth.md` and another file referencing `[[features/auth]]` (no `.md` extension).
+Create `knowledge/specs/features/auth.md` and another file referencing `[[specs/features/auth]]` (no `.md` extension).
 
-**Pass:** No `Wikilink target not found` warning. Lint resolves `[[features/auth]]` → `knowledge/features/auth.md`.
+**Pass:** No `Wikilink target not found` warning. Lint resolves `[[specs/features/auth]]` → `knowledge/specs/features/auth.md`.
 
-Also test `[[features/auth.md]]` (with extension).
+Also test `[[specs/features/auth.md]]` (with extension).
 
 **Pass:** No warning either.
 
 ### TC-7.6b Wikilink — missing target
 
-Create a file referencing `[[features/nonexistent]]`.
+Create a file referencing `[[specs/features/nonexistent]]`.
 
-**Pass:** Lint warns: `Wikilink target not found: features/nonexistent`.
+**Pass:** Lint warns: `Wikilink target not found: specs/features/nonexistent`.
 
 ### TC-7.6c Wikilink — section and display text
 
-Create a file referencing `[[features/auth#fields|Auth Fields]]`.
+Create a file referencing `[[specs/features/auth#fields|Auth Fields]]`.
 
-**Pass:** No lint warning (resolves path `features/auth`). `depends_on` in `_index.yaml` contains `features/auth`.
+**Pass:** No lint warning (resolves path `specs/features/auth`). `depends_on` in `_index.yaml` contains `specs/features/auth`.
 
 ### TC-7.7 Wikilink — false positive from backtick code
 
@@ -844,9 +844,9 @@ Create 3 KB files, run `kb_reindex({})`.
 
 ### TC-8.2 Wikilinks auto-added to depends_on
 
-Create `features/billing.md` referencing `[[features/auth]]`.
+Create `specs/features/billing.md` referencing `[[specs/features/auth]]`.
 
-**Pass:** `_index.yaml` entry for `billing.md` has `features/auth` in `depends_on`.
+**Pass:** `_index.yaml` entry for `billing.md` has `specs/features/auth` in `depends_on`.
 
 ### TC-8.3 Wikilinks — inline code ignored
 
@@ -856,27 +856,27 @@ Create a file with `` `[[internal/path]]` `` in inline code.
 
 ### TC-8.4 Group detection and file_count — folder note
 
-Create `features/billing/billing.md` (with `type: group` in front-matter) and `features/billing/invoice.md`.
+Create `specs/features/billing/billing.md` (with `type: group` in front-matter) and `specs/features/billing/invoice.md`.
 
-**Pass:** `_index.yaml` has `groups.features/billing` with `file_count: 1` (excluding `billing.md` folder note itself). Group membership is set regardless of file processing order (second pass ensures all child files get `group` field).
+**Pass:** `_index.yaml` has `groups.specs/features/billing` with `file_count: 1` (excluding `billing.md` folder note itself). Group membership is set regardless of file processing order (second pass ensures all child files get `group` field).
 
 ### TC-8.4b Group detection — legacy _group.md backward compatibility
 
-Create `features/billing/_group.md` (legacy) and `features/billing/invoice.md`.
+Create `specs/features/billing/_group.md` (legacy) and `specs/features/billing/invoice.md`.
 
-**Pass:** `_index.yaml` still detects `features/billing` as a group with `file_count: 1`. `_group.md` excluded from count. Both naming conventions (`{name}.md` and `_group.md`) are detected.
+**Pass:** `_index.yaml` still detects `specs/features/billing` as a group with `file_count: 1`. `_group.md` excluded from count. Both naming conventions (`{name}.md` and `_group.md`) are detected.
 
 ### TC-8.7 `type` field — explicit front-matter
 
-Create `features/checkout.md` with `type: feature` in front-matter. Run `kb_reindex`.
+Create `specs/features/checkout.md` with `type: feature` in front-matter. Run `kb_reindex`.
 
 **Pass:** `_index.yaml` entry for `checkout.md` has `type: feature`.
 
 ### TC-8.8 `type` field — inferred by path (no front-matter type)
 
-Create `flows/order-lifecycle.md` without a `type` field in front-matter. Run `kb_reindex`.
+Create `specs/flows/order-lifecycle.md` without a `type` field in front-matter. Run `kb_reindex`.
 
-**Pass:** `_index.yaml` entry for `order-lifecycle.md` has `type: flow` (inferred from `flows/` folder path by `inferType()`).
+**Pass:** `_index.yaml` entry for `order-lifecycle.md` has `type: flow` (inferred from `specs/flows/` folder path by `inferType()`).
 
 ### TC-8.9 `type` field — inferType coverage
 
@@ -886,7 +886,7 @@ Create one file in each folder: `features/`, `flows/`, `data/schema/`, `validati
 
 ### TC-8.10 Embed wikilinks extracted as dependencies
 
-Create `features/checkout.md` with `![[assets/design/checkout-flow.png]]` in body. Run `kb_reindex`.
+Create `specs/features/checkout.md` with `![[assets/design/checkout-flow.png]]` in body. Run `kb_reindex`.
 
 **Pass:** `_index.yaml` entry for `checkout.md` has `assets/design/checkout-flow.png` in `depends_on` (embed syntax `![[...]]` is parsed the same as `[[...]]`).
 
@@ -908,7 +908,7 @@ Run `kb_reindex` on a KB with lint errors.
 
 ### TC-9.1 Direct keyword match
 
-Create `features/auth.md` and `features/billing.md`.
+Create `specs/features/auth.md` and `specs/features/billing.md`.
 
 ```
 kb_impact({ change_description: "changing the auth token expiry" })
@@ -918,7 +918,7 @@ kb_impact({ change_description: "changing the auth token expiry" })
 
 ### TC-9.2 Transitive dependents
 
-Create `features/checkout.md` with `depends_on: [auth]`.
+Create `specs/features/checkout.md` with `depends_on: [auth]`.
 
 ```
 kb_impact({ change_description: "auth token changes" })
@@ -996,10 +996,10 @@ kb_import({ files_to_write: [{ path: "../../etc/evil.md", content: "hacked" }] }
 
 ### TC-11.4 Import Phase 2 — no overwrite
 
-Create `knowledge/features/existing.md`. Then:
+Create `knowledge/specs/features/existing.md`. Then:
 
 ```
-kb_import({ files_to_write: [{ path: "knowledge/features/existing.md", content: "new" }] })
+kb_import({ files_to_write: [{ path: "knowledge/specs/features/existing.md", content: "new" }] })
 ```
 
 **Pass:** Skipped with reason `"already exists"`. Existing file untouched.
@@ -1196,7 +1196,7 @@ Create a file missing `id` in front-matter.
 
 ### TC-15.2 kb-conflict driver — feature file conflict
 
-1. Create a merge conflict on `knowledge/features/auth.md`.
+1. Create a merge conflict on `knowledge/specs/features/auth.md`.
 2. Let git invoke the `kb-conflict` driver.
 
 **Pass:** Conflict markers written with `<<<<<<< ours`, `||||||| ancestor`, `======= theirs`. Entry appended to `sync/review-queue.md`. Exit code 1 (conflict preserved for human).
@@ -1320,13 +1320,13 @@ kb_analyze({})
 
 ### TC-18.3 Existing KB file detection
 
-Create `knowledge/features/auth.md`. Ensure a code_path_pattern maps source files to `features/auth.md`.
+Create `knowledge/specs/features/auth.md`. Ensure a code_path_pattern maps source files to `specs/features/auth.md`.
 
 ```
 kb_analyze({})
 ```
 
-**Pass:** The `features/auth.md` group has `existing_kb_file: true` and `suggested_action: "review"`.
+**Pass:** The `specs/features/auth.md` group has `existing_kb_file: true` and `suggested_action: "review"`.
 
 ### TC-18.4 Unmatched files
 
@@ -1349,9 +1349,9 @@ kb_analyze({ write_drafts: true })
 
 ### TC-18.6 Write drafts — skips existing
 
-Create `knowledge/features/auth.md`. Run `kb_analyze({ write_drafts: true })`.
+Create `knowledge/specs/features/auth.md`. Run `kb_analyze({ write_drafts: true })`.
 
-**Pass:** No draft written for the `features/auth.md` group. Only groups without existing KB files get drafts.
+**Pass:** No draft written for the `specs/features/auth.md` group. Only groups without existing KB files get drafts.
 
 ### TC-18.7 No code_path_patterns — error
 
@@ -1401,13 +1401,13 @@ estimateTokens("hello world") // 11 chars → ceil(11/4) = 3
 
 ### TC-19.3 Depth validation — boundary
 
-`knowledge/features/a/file.md` → depth 2, max for features is 3.
+`knowledge/specs/features/a/file.md` → depth 2, max for features is 3.
 
 **Pass:** `{ valid: true, actual: 2, max: 3 }`.
 
-`knowledge/features/a/b/c/file.md` → depth 4, max 3.
+`knowledge/specs/features/a/b/c/file.md` → depth 4, max 3.
 
-**Pass:** `{ valid: false, actual: 4, max: 3, suggestion: "knowledge/features/a/b-c/file.md" }`. The suggestion merges the last two *directory* segments (`b` + `c` → `b-c`), keeping the filename (`file.md`) separate.
+**Pass:** `{ valid: false, actual: 4, max: 3, suggestion: "knowledge/specs/features/a/b-c/file.md" }`. The suggestion merges the last two *directory* segments (`b` + `c` → `b-c`), keeping the filename (`file.md`) separate.
 
 ---
 
@@ -1721,7 +1721,7 @@ Submodule is skipped — no false drift, no silent wrong comparison. The warning
 
 ### TC-22.1 Malformed YAML front-matter
 
-Create `knowledge/features/bad-yaml.md`:
+Create `knowledge/specs/features/bad-yaml.md`:
 ```
 ---
 id: bad-yaml
@@ -1734,13 +1734,13 @@ Body content.
 
 ### TC-22.2 Empty KB file
 
-Create `knowledge/features/empty.md` with zero bytes.
+Create `knowledge/specs/features/empty.md` with zero bytes.
 
 **Pass:** `kb_lint` reports missing front-matter fields. `kb_reindex` does not crash.
 
 ### TC-22.3 Binary file in knowledge directory
 
-Place a `.png` file at `knowledge/features/diagram.png`.
+Place a `.png` file at `knowledge/specs/features/diagram.png`.
 
 **Pass:** `kb_lint` and `kb_reindex` skip non-`.md` files. No crash or error.
 
@@ -1892,7 +1892,7 @@ kb_issue_triage({ title: "Cart total wrong", body: "Total doesn't update when co
 ### TC-25.2 Phase 2 — writes triage report to sync/inbound
 
 ```
-kb_issue_triage({ title: "Cart total wrong", body: "Total doesn't update", issue_id: "PROJ-123", content: "---\nissue_id: PROJ-123\nsource: jira\ntitle: Cart total wrong\npriority: high\nlabels: [bug, cart]\nstatus: triaged\ntriaged_at: 2026-03-28\nrelated_kb:\n  - features/cart.md\n---\n\n## Summary\n\nTriage report content here.\n" })
+kb_issue_triage({ title: "Cart total wrong", body: "Total doesn't update", issue_id: "PROJ-123", content: "---\nissue_id: PROJ-123\nsource: jira\ntitle: Cart total wrong\npriority: high\nlabels: [bug, cart]\nstatus: triaged\ntriaged_at: 2026-03-28\nrelated_kb:\n  - specs/features/cart.md\n---\n\n## Summary\n\nTriage report content here.\n" })
 ```
 
 **Pass:** File written to `knowledge/sync/inbound/PROJ-123.md`. Returns `{ file_path: "knowledge/sync/inbound/PROJ-123.md", written: true }`. File content matches the provided content.
@@ -1937,7 +1937,7 @@ kb_issue_plan({ type: "feature", keywords: ["cart"] })
 ### TC-26.2 Phase 2 — writes task YAML to sync/outbound
 
 ```
-kb_issue_plan({ type: "feature", content: "source_docs:\n  - features/cart.md\ngenerated: 2026-03-28\ntarget: jira\nproject: PROJ\nitems:\n  - title: Implement cart\n    type: story\n    description: Implement the cart feature\n    labels: [cart]\n    acceptance_criteria:\n      - Cart displays items\n    priority: medium\n" })
+kb_issue_plan({ type: "feature", content: "source_docs:\n  - specs/features/cart.md\ngenerated: 2026-03-28\ntarget: jira\nproject: PROJ\nitems:\n  - title: Implement cart\n    type: story\n    description: Implement the cart feature\n    labels: [cart]\n    acceptance_criteria:\n      - Cart displays items\n    priority: medium\n" })
 ```
 
 **Pass:** File written to `knowledge/sync/outbound/2026-03-28-feature.yaml`. Returns `{ file_path, written: true }`.
@@ -2004,16 +2004,16 @@ kb_autotag()
 ### TC-28.2 Tag single file
 
 ```
-kb_autotag({ file_path: "knowledge/features/auth.md" })
+kb_autotag({ file_path: "knowledge/specs/features/auth.md" })
 ```
 
-**Pass:** Only `features/auth.md` is modified. `tags` in frontmatter now includes terms from headings and content (e.g. `auth`, `jwt`, `login`). Other files untouched.
+**Pass:** Only `specs/features/auth.md` is modified. `tags` in frontmatter now includes terms from headings and content (e.g. `auth`, `jwt`, `login`). Other files untouched.
 
 ### TC-28.3 Existing tags preserved (merge, not replace)
 
 ```
 # Manually set tags: [custom-tag] in a file, then run autotag
-kb_autotag({ file_path: "knowledge/features/auth.md" })
+kb_autotag({ file_path: "knowledge/specs/features/auth.md" })
 ```
 
 **Pass:** `custom-tag` still present in the file's `tags` array after autotag. Extracted tags are added; no manual tag is removed.
@@ -2043,12 +2043,12 @@ kb_autotag()
 kb_ask({ question: "how does authentication work?" })
 ```
 
-**Pass:** After autotag, `context_files` includes at least one auth-related file (e.g. `features/auth.md`, `flows/auth-flow.md`).
+**Pass:** After autotag, `context_files` includes at least one auth-related file (e.g. `specs/features/auth.md`, `specs/flows/auth-flow.md`).
 
 ### TC-28.7 Invalid file path
 
 ```
-kb_autotag({ file_path: "knowledge/features/nonexistent.md" })
+kb_autotag({ file_path: "knowledge/specs/features/nonexistent.md" })
 ```
 
 **Pass:** Returns `{ error: "File not found: ..." }`. No files modified.
@@ -2094,10 +2094,10 @@ kb_autorelate()
 ### TC-29.5 Single file mode
 
 ```
-kb_autorelate({ file_path: "knowledge/features/checkout.md", dry_run: true })
+kb_autorelate({ file_path: "knowledge/specs/features/checkout.md", dry_run: true })
 ```
 
-**Pass:** Proposals only involve `features/checkout.md` as the `source`. Other file pairs not analyzed.
+**Pass:** Proposals only involve `specs/features/checkout.md` as the `source`. Other file pairs not analyzed.
 
 ### TC-29.6 Threshold filtering
 
@@ -2110,7 +2110,7 @@ kb_autorelate({ dry_run: true, threshold: 0.8 })
 ### TC-29.7 Direction heuristic
 
 ```
-# Project has both features/auth.md and data/schema/users.md
+# Project has both specs/features/auth.md and data/schema/users.md
 kb_autorelate({ dry_run: true })
 ```
 
@@ -2119,7 +2119,7 @@ kb_autorelate({ dry_run: true })
 ### TC-29.8 File not in index
 
 ```
-kb_autorelate({ file_path: "knowledge/features/ghost.md" })
+kb_autorelate({ file_path: "knowledge/specs/features/ghost.md" })
 ```
 
 **Pass:** Returns `{ error: "File not found in index: ..." }`. Suggests running `kb_reindex`.
