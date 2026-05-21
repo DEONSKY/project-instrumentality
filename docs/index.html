@@ -1,0 +1,1085 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Instrumentality-MCP — a structured knowledge base for monorepos</title>
+  <meta name="description" content="A structured knowledge base for monorepos, managed through MCP tools. Bidirectional drift detection, standards conformance, and agent-driven authoring. Works with Claude Code, Cursor, and any MCP-compatible agent." />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <meta property="og:title" content="Instrumentality-MCP" />
+  <meta property="og:description" content="Dissolving the AT-Field between human, code and knowledge." />
+  <meta property="og:image" content="instrumentality-mcp-logo.svg" />
+  <meta property="og:type" content="website" />
+  <style>
+    /* ============================================================
+       Palette — five reds + one body color, lifted from the logo.
+       ============================================================ */
+    :root {
+      --bg: #080001;
+      --bg-soft: #1a0400;
+      --card: #1c0003;
+      --card-hover: #240007;
+      --accent-deep: #cc2200;
+      --accent: #ff5500;
+      --accent-bright: #ff6600;
+      --muted: #884422;
+      --muted-soft: #553322;
+      --text: #eaeaea;
+      --text-dim: #a8a39c;
+      --border: rgba(204, 34, 0, 0.28);
+      --border-soft: rgba(204, 34, 0, 0.12);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent-bright); text-decoration: none; }
+    a:hover { color: var(--accent); text-decoration: underline; }
+
+    code, .mono {
+      font-family: "Courier New", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    /* ============================================================
+       Top nav
+       ============================================================ */
+    header.topnav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(8, 0, 1, 0.92);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .topnav-inner {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 1.05em;
+      letter-spacing: 1px;
+      text-decoration: none;
+    }
+    .brand:hover { text-decoration: none; color: var(--accent); }
+    .brand svg { width: 26px; height: 26px; }
+    .brand-text { font-weight: 600; }
+    .brand-mcp {
+      font-family: "Courier New", monospace;
+      color: var(--accent);
+      letter-spacing: 3px;
+      font-size: 0.78em;
+      margin-left: 2px;
+    }
+
+    nav.primary {
+      display: flex;
+      gap: 22px;
+      align-items: center;
+    }
+    nav.primary a {
+      color: var(--text-dim);
+      font-size: 0.92em;
+      font-family: "Courier New", monospace;
+      letter-spacing: 0.04em;
+    }
+    nav.primary a:hover { color: var(--accent); text-decoration: none; }
+    nav.primary .gh-cta {
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 6px 14px;
+      border-radius: 3px;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      letter-spacing: 0;
+    }
+    nav.primary .gh-cta:hover {
+      background: var(--accent-deep);
+      border-color: var(--accent-deep);
+      color: #fff;
+    }
+
+    .nav-toggle {
+      display: none;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 10px;
+      cursor: pointer;
+      border-radius: 3px;
+      font-size: 1.1em;
+    }
+
+    /* ============================================================
+       Section primitives
+       ============================================================ */
+    section {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 90px 24px 30px;
+      scroll-margin-top: 70px;
+    }
+    .section-label {
+      font-family: "Courier New", monospace;
+      font-size: 0.78em;
+      color: var(--muted);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+    .section-label .slash { color: var(--muted-soft); margin: 0 6px; }
+    h2.section-title {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 2em;
+      font-weight: 600;
+      margin: 0 0 14px;
+      color: var(--text);
+    }
+    .section-intro {
+      max-width: 760px;
+      color: var(--text-dim);
+      font-size: 1.05em;
+      margin-bottom: 36px;
+    }
+
+    /* ============================================================
+       Hero
+       ============================================================ */
+    .hero {
+      position: relative;
+      text-align: center;
+      padding: 70px 24px 50px;
+      background: radial-gradient(ellipse at center, var(--bg-soft) 0%, var(--bg) 75%);
+      border-bottom: 1px solid var(--border-soft);
+      overflow: hidden;
+    }
+    .hero-inner {
+      max-width: 760px;
+      margin: 0 auto;
+      position: relative;
+      z-index: 2;
+    }
+    .hero-logo {
+      width: 100%;
+      max-width: 280px;
+      margin: 0 auto 28px;
+      display: block;
+    }
+    .hero h1 {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 2.8em;
+      font-weight: 600;
+      margin: 0 0 4px;
+      letter-spacing: 1px;
+      color: var(--text);
+    }
+    .hero h1 .mcp-suffix {
+      font-family: "Courier New", monospace;
+      color: var(--accent-deep);
+      letter-spacing: 6px;
+      font-size: 0.55em;
+      vertical-align: 0.45em;
+      margin-left: 8px;
+    }
+    .hero-motto {
+      font-family: "Courier New", monospace;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      font-size: 0.92em;
+      margin: 6px 0 22px;
+    }
+    .hero-sub {
+      color: var(--text-dim);
+      font-size: 1.12em;
+      max-width: 560px;
+      margin: 0 auto 32px;
+      line-height: 1.55;
+    }
+    .hero-cta {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 11px 22px;
+      border-radius: 3px;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 0.96em;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .btn-primary {
+      background: var(--accent-deep);
+      border-color: var(--accent-deep);
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      text-decoration: none;
+    }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text);
+    }
+    .btn-ghost:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    /* Subtle AT-Field diamond ornaments in the hero corners.
+       Two outlined diamonds, low opacity, decorative only. */
+    .hero-ornament {
+      position: absolute;
+      width: 280px;
+      height: 280px;
+      opacity: 0.08;
+      pointer-events: none;
+      z-index: 1;
+    }
+    .hero-ornament.tl { top: -60px; left: -60px; }
+    .hero-ornament.br { bottom: -60px; right: -60px; transform: rotate(180deg); }
+
+    /* ============================================================
+       Overview pull quotes
+       ============================================================ */
+    .pull-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+    }
+    .pull {
+      border: 1px solid var(--border-soft);
+      border-top: 1px solid var(--accent-deep);
+      background: var(--card);
+      padding: 22px 22px 20px;
+      border-radius: 3px;
+    }
+    .pull-key {
+      font-family: "Courier New", monospace;
+      color: var(--accent);
+      font-size: 0.95em;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+    }
+    .pull-key code {
+      background: rgba(255, 85, 0, 0.08);
+      padding: 1px 5px;
+      border-radius: 2px;
+    }
+    .pull-text {
+      color: var(--text-dim);
+      font-size: 0.96em;
+      line-height: 1.5;
+    }
+
+    .overview-body p {
+      max-width: 760px;
+      color: var(--text-dim);
+      font-size: 1.05em;
+    }
+    .overview-body { margin-bottom: 40px; }
+
+    /* ============================================================
+       Capabilities grid
+       ============================================================ */
+    .cap-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 18px;
+    }
+    .cap-card {
+      background: var(--card);
+      border: 1px solid var(--border-soft);
+      border-top: 1px solid var(--accent-deep);
+      border-radius: 3px;
+      padding: 22px 22px 20px;
+      position: relative;
+    }
+    .cap-code {
+      font-family: "Courier New", monospace;
+      color: var(--muted);
+      font-size: 0.74em;
+      letter-spacing: 0.16em;
+      margin-bottom: 8px;
+    }
+    .cap-name {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 1.45em;
+      font-weight: 600;
+      margin: 0 0 8px;
+      color: var(--accent-bright);
+    }
+    .cap-blurb {
+      color: var(--text-dim);
+      font-size: 0.95em;
+      line-height: 1.55;
+      margin-bottom: 16px;
+    }
+    .cap-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .chip {
+      font-family: "Courier New", monospace;
+      font-size: 0.84em;
+      color: var(--accent);
+      background: rgba(255, 85, 0, 0.06);
+      border: 1px solid var(--border-soft);
+      padding: 3px 9px;
+      border-radius: 12px;
+      transition: background 0.15s, border-color 0.15s, transform 0.15s;
+    }
+    .chip:hover {
+      background: rgba(255, 85, 0, 0.15);
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+    .cap-footnote {
+      margin-top: 26px;
+      color: var(--muted);
+      font-family: "Courier New", monospace;
+      font-size: 0.86em;
+      text-align: center;
+      letter-spacing: 0.04em;
+    }
+
+    /* ============================================================
+       Lifecycle diagram
+       ============================================================ */
+    .lifecycle-wrap {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 36px;
+      align-items: center;
+    }
+    .lifecycle-svg {
+      width: 100%;
+      max-width: 560px;
+      height: auto;
+      background: var(--card);
+      border: 1px solid var(--border-soft);
+      border-radius: 3px;
+      padding: 20px;
+    }
+    .lifecycle-caption p {
+      color: var(--text-dim);
+      font-size: 1em;
+      margin: 0 0 14px;
+    }
+    .lifecycle-caption .key {
+      font-family: "Courier New", monospace;
+      color: var(--accent);
+    }
+
+    /* ============================================================
+       Extensions cards
+       ============================================================ */
+    .ext-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 18px;
+    }
+    .ext-card {
+      background: var(--card);
+      border: 1px solid var(--border-soft);
+      border-top: 1px solid var(--accent-deep);
+      border-radius: 3px;
+      padding: 24px;
+    }
+    .ext-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .ext-head svg {
+      width: 36px;
+      height: 36px;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+    .ext-title {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 1.35em;
+      font-weight: 600;
+      color: var(--text);
+      margin: 0;
+    }
+    .ext-host {
+      font-family: "Courier New", monospace;
+      font-size: 0.78em;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      margin-top: 2px;
+    }
+    .ext-card ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .ext-card ul li {
+      color: var(--text-dim);
+      padding: 6px 0 6px 18px;
+      position: relative;
+      font-size: 0.95em;
+      border-bottom: 1px dashed var(--border-soft);
+    }
+    .ext-card ul li:last-child { border-bottom: none; }
+    .ext-card ul li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 14px;
+      width: 8px;
+      height: 8px;
+      background: var(--accent-deep);
+      transform: rotate(45deg);
+    }
+    .ext-card ul li code {
+      color: var(--accent);
+      font-size: 0.92em;
+    }
+
+    /* ============================================================
+       Quickstart
+       ============================================================ */
+    .qs-list {
+      display: grid;
+      gap: 22px;
+    }
+    .qs-step {
+      display: grid;
+      grid-template-columns: 56px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    .qs-num {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 2.4em;
+      font-weight: 600;
+      color: var(--accent-deep);
+      line-height: 1;
+      text-align: center;
+    }
+    .qs-body h3 {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 1.2em;
+      font-weight: 600;
+      margin: 6px 0 8px;
+      color: var(--text);
+    }
+    .qs-body p {
+      color: var(--text-dim);
+      margin: 0 0 12px;
+      font-size: 0.96em;
+    }
+    pre.code {
+      background: var(--card);
+      border: 1px solid var(--border-soft);
+      border-left: 3px solid var(--accent-deep);
+      border-radius: 3px;
+      padding: 14px 18px;
+      overflow-x: auto;
+      font-family: "Courier New", ui-monospace, monospace;
+      font-size: 0.9em;
+      line-height: 1.55;
+      color: var(--text);
+      margin: 0;
+      white-space: pre;
+    }
+    pre.code .tok-key { color: var(--accent-bright); }
+    pre.code .tok-str { color: #d4a373; }
+    pre.code .tok-comment { color: var(--muted); font-style: italic; }
+    pre.code .tok-prompt { color: var(--accent); user-select: none; }
+
+    /* ============================================================
+       Why section
+       ============================================================ */
+    .why-body {
+      max-width: 760px;
+    }
+    .why-body p {
+      color: var(--text-dim);
+      font-size: 1.05em;
+      margin-bottom: 16px;
+    }
+    .why-body strong { color: var(--text); font-weight: 600; }
+
+    /* ============================================================
+       Footer
+       ============================================================ */
+    footer.site-footer {
+      margin-top: 60px;
+      border-top: 1px solid var(--border-soft);
+      padding: 30px 24px 40px;
+      text-align: center;
+      background: var(--bg);
+    }
+    .footer-divider {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 22px;
+    }
+    .footer-divider .bar {
+      height: 1px;
+      width: 70px;
+      background: var(--accent-deep);
+      opacity: 0.6;
+    }
+    .footer-divider .diamond {
+      width: 12px;
+      height: 12px;
+      background: var(--accent);
+      transform: rotate(45deg);
+    }
+    .footer-motto {
+      color: var(--muted);
+      font-family: "Courier New", monospace;
+      font-size: 0.88em;
+      letter-spacing: 0.08em;
+      margin-bottom: 14px;
+    }
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 22px;
+      flex-wrap: wrap;
+      font-size: 0.92em;
+      color: var(--text-dim);
+    }
+    .footer-links a { color: var(--text-dim); }
+    .footer-links a:hover { color: var(--accent); }
+
+    /* ============================================================
+       Responsive
+       ============================================================ */
+    @media (max-width: 880px) {
+      nav.primary { display: none; }
+      nav.primary.open {
+        display: flex;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        flex-direction: column;
+        background: var(--bg);
+        border-bottom: 1px solid var(--border);
+        padding: 14px 24px;
+        gap: 12px;
+      }
+      .nav-toggle { display: inline-block; }
+      .topnav-inner { position: relative; }
+
+      .pull-row, .cap-grid, .ext-grid { grid-template-columns: 1fr; }
+      .lifecycle-wrap { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 2.1em; }
+      section { padding-top: 60px; }
+      h2.section-title { font-size: 1.6em; }
+    }
+    @media (max-width: 480px) {
+      .qs-step { grid-template-columns: 40px 1fr; gap: 14px; }
+      .qs-num { font-size: 1.9em; }
+      .hero-logo { max-width: 220px; }
+      .hero h1 { font-size: 1.8em; letter-spacing: 0.5px; }
+      pre.code { font-size: 0.82em; padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ============================================================
+       Top nav
+       ============================================================ -->
+  <header class="topnav">
+    <div class="topnav-inner">
+      <a href="#top" class="brand" aria-label="Instrumentality-MCP home">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" fill="none" stroke="var(--accent)" stroke-width="2"/>
+          <polygon points="12,3 21,12 12,21 3,12" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>
+          <circle cx="12" cy="6.5" r="1.6" fill="var(--accent)"/>
+          <circle cx="6.5" cy="15.5" r="1.6" fill="var(--accent)"/>
+          <circle cx="17.5" cy="15.5" r="1.6" fill="var(--accent)"/>
+          <circle cx="12" cy="12" r="1.5" fill="var(--accent)"/>
+        </svg>
+        <span class="brand-text">Instrumentality</span>
+        <span class="brand-mcp">MCP</span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false">≡</button>
+      <nav class="primary" id="primaryNav">
+        <a href="#overview">Overview</a>
+        <a href="#capabilities">Capabilities</a>
+        <a href="#lifecycle">Lifecycle</a>
+        <a href="#extensions">Extensions</a>
+        <a href="#quickstart">Quickstart</a>
+        <a href="https://github.com/DEONSKY/project-instrumentality" class="gh-cta" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       Hero
+       ============================================================ -->
+  <a id="top"></a>
+  <section class="hero" style="padding-top:80px;">
+    <!-- AT-Field diamond ornaments — decorative, low opacity. Two corners only. -->
+    <svg class="hero-ornament tl" viewBox="0 0 200 200" aria-hidden="true">
+      <polygon points="100,10 190,100 100,190 10,100" fill="none" stroke="#ff5500" stroke-width="1.5" stroke-dasharray="4 8"/>
+      <polygon points="100,30 170,100 100,170 30,100" fill="none" stroke="#ff5500" stroke-width="1" stroke-dasharray="3 6"/>
+      <polygon points="100,55 145,100 100,145 55,100" fill="none" stroke="#ff5500" stroke-width="0.8"/>
+    </svg>
+    <svg class="hero-ornament br" viewBox="0 0 200 200" aria-hidden="true">
+      <polygon points="100,10 190,100 100,190 10,100" fill="none" stroke="#ff5500" stroke-width="1.5" stroke-dasharray="4 8"/>
+      <polygon points="100,30 170,100 100,170 30,100" fill="none" stroke="#ff5500" stroke-width="1" stroke-dasharray="3 6"/>
+      <polygon points="100,55 145,100 100,145 55,100" fill="none" stroke="#ff5500" stroke-width="0.8"/>
+    </svg>
+
+    <div class="hero-inner">
+      <img class="hero-logo" src="instrumentality-mcp-logo.svg" alt="Instrumentality-MCP logo" width="280" height="280" />
+      <h1>Instrumentality<span class="mcp-suffix">MCP</span></h1>
+      <div class="hero-motto">Dissolving the AT-Field between human, code and knowledge</div>
+      <p class="hero-sub">
+        A structured knowledge base for monorepos, managed through MCP tools.
+        Works with Claude Code, Cursor, and any MCP-compatible agent.
+        <strong style="color:var(--text);">No API keys required.</strong>
+      </p>
+      <div class="hero-cta">
+        <a href="https://github.com/DEONSKY/project-instrumentality" class="btn btn-primary" rel="noopener">
+          View on GitHub →
+        </a>
+        <a href="#overview" class="btn btn-ghost">Read the docs ↓</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       Section 01 — Overview
+       ============================================================ -->
+  <section id="overview">
+    <div class="section-label">Section <span class="slash">/</span> 01 <span class="slash">/</span> Overview</div>
+    <h2 class="section-title">What it is</h2>
+
+    <div class="overview-body">
+      <p>
+        Instrumentality-MCP creates a <code>knowledge/</code> folder in your project and keeps it synchronized
+        with your codebase — in <em>both</em> directions. Code changes are detected and surfaced for KB
+        review (code→KB); KB spec changes are flagged for developers to verify the implementation still
+        matches (KB→code).
+      </p>
+      <p>
+        Instead of scattering product context across Notion, Confluence, and README files, everything lives
+        as structured Markdown beside your code — versioned in git, loaded automatically into your agent's
+        context when relevant.
+      </p>
+    </div>
+
+    <div class="pull-row">
+      <div class="pull">
+        <div class="pull-key"><code>knowledge/</code> lives in git</div>
+        <div class="pull-text">Structured Markdown next to your source. Versioned, diffable, reviewable in PRs — never a separate wiki to drift from.</div>
+      </div>
+      <div class="pull">
+        <div class="pull-key">Bidirectional drift</div>
+        <div class="pull-text">Code changes flag stale KB; KB changes flag stale code. Queues are PM-gated — nothing auto-rewrites itself.</div>
+      </div>
+      <div class="pull">
+        <div class="pull-key">No API keys</div>
+        <div class="pull-text">The MCP server returns prompts and context. Your agent does the reasoning. Bring whichever model you already pay for.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       Section 02 — Capabilities
+       ============================================================ -->
+  <section id="capabilities">
+    <div class="section-label">Section <span class="slash">/</span> 02 <span class="slash">/</span> Capabilities</div>
+    <h2 class="section-title">Twenty-two MCP tools, four categories</h2>
+    <p class="section-intro">
+      Every tool the kb-mcp server exposes — grouped the same way the in-editor Capabilities panel groups
+      them. Each tool is callable by an MCP-compatible agent, and the read-only tools also back the
+      sidebar dashboards in the editor extensions.
+    </p>
+
+    <div class="cap-grid">
+      <div class="cap-card">
+        <div class="cap-code">CAT::01 <span style="color:var(--muted-soft)">·</span> SYNC</div>
+        <h3 class="cap-name">Sync</h3>
+        <p class="cap-blurb">
+          Detect code↔KB misalignment and coordinate the sync state surfaced in the dashboard.
+          Bidirectional drift, standards conformance, submodule coordination.
+        </p>
+        <div class="cap-chips">
+          <span class="chip">kb_drift</span>
+          <span class="chip">kb_conform</span>
+          <span class="chip">kb_sub</span>
+          <span class="chip">kb_status</span>
+        </div>
+      </div>
+
+      <div class="cap-card">
+        <div class="cap-code">CAT::02 <span style="color:var(--muted-soft)">·</span> AUTHORING</div>
+        <h3 class="cap-name">Authoring</h3>
+        <p class="cap-blurb">
+          Write, scaffold, import, and tag KB content. Two-phase tools that load context first,
+          let the agent fill the template, then write — so new content fits what's already there.
+        </p>
+        <div class="cap-chips">
+          <span class="chip">kb_write</span>
+          <span class="chip">kb_scaffold</span>
+          <span class="chip">kb_import</span>
+          <span class="chip">kb_export</span>
+          <span class="chip">kb_autotag</span>
+          <span class="chip">kb_autorelate</span>
+        </div>
+      </div>
+
+      <div class="cap-card">
+        <div class="cap-code">CAT::03 <span style="color:var(--muted-soft)">·</span> GOVERNANCE</div>
+        <h3 class="cap-name">Governance</h3>
+        <p class="cap-blurb">
+          Conform code to standards, bootstrap on legacy projects, migrate after template changes,
+          and upgrade the KB schema. Standards-as-data, queue-driven enforcement.
+        </p>
+        <div class="cap-chips">
+          <span class="chip">kb_init</span>
+          <span class="chip">kb_analyze</span>
+          <span class="chip">kb_extract</span>
+          <span class="chip">kb_migrate</span>
+          <span class="chip">kb_upgrade</span>
+          <span class="chip">kb_inventory</span>
+        </div>
+      </div>
+
+      <div class="cap-card">
+        <div class="cap-code">CAT::04 <span style="color:var(--muted-soft)">·</span> INTROSPECTION</div>
+        <h3 class="cap-name">Introspection</h3>
+        <p class="cap-blurb">
+          Read-only queries over the KB and its history — fetch context for a working file,
+          ask questions, trace impact, inspect schemas, bridge to issue trackers.
+        </p>
+        <div class="cap-chips">
+          <span class="chip">kb_get</span>
+          <span class="chip">kb_ask</span>
+          <span class="chip">kb_impact</span>
+          <span class="chip">kb_history</span>
+          <span class="chip">kb_schema</span>
+          <span class="chip">kb_issue</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="cap-footnote">
+      22 tools surfaced <span style="color:var(--muted-soft)">·</span> same MCP server backs Claude Code, Cursor, and Claude Desktop
+    </div>
+  </section>
+
+  <!-- ============================================================
+       Section 03 — Lifecycle
+       ============================================================ -->
+  <section id="lifecycle">
+    <div class="section-label">Section <span class="slash">/</span> 03 <span class="slash">/</span> Lifecycle</div>
+    <h2 class="section-title">How drift detection works</h2>
+
+    <div class="lifecycle-wrap">
+      <svg class="lifecycle-svg" viewBox="0 0 560 320" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <radialGradient id="centerGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#ff8800" stop-opacity="0.5"/>
+            <stop offset="100%" stop-color="#ff5500" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+
+        <!-- Three lanes -->
+        <!-- code lane (left) -->
+        <rect x="20" y="40" width="150" height="240" fill="none" stroke="#cc2200" stroke-opacity="0.25" stroke-dasharray="3 6" rx="3"/>
+        <text x="95" y="32" text-anchor="middle" font-family="'Courier New',monospace" font-size="11" fill="#884422" letter-spacing="2">CODE</text>
+
+        <!-- queue lane (center) -->
+        <rect x="200" y="40" width="160" height="240" fill="none" stroke="#ff5500" stroke-opacity="0.4" rx="3"/>
+        <text x="280" y="32" text-anchor="middle" font-family="'Courier New',monospace" font-size="11" fill="#ff5500" letter-spacing="2">DRIFT QUEUE</text>
+
+        <!-- kb lane (right) -->
+        <rect x="390" y="40" width="150" height="240" fill="none" stroke="#cc2200" stroke-opacity="0.25" stroke-dasharray="3 6" rx="3"/>
+        <text x="465" y="32" text-anchor="middle" font-family="'Courier New',monospace" font-size="11" fill="#884422" letter-spacing="2">KNOWLEDGE</text>
+
+        <!-- code commits -->
+        <rect x="40" y="70" width="110" height="22" fill="#1c0003" stroke="#cc2200" rx="2"/>
+        <text x="95" y="85" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#eaeaea">git push</text>
+
+        <rect x="40" y="110" width="110" height="22" fill="#1c0003" stroke="#552200" rx="2"/>
+        <text x="95" y="125" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#a8a39c">post-merge</text>
+
+        <!-- KB writes -->
+        <rect x="410" y="70" width="110" height="22" fill="#1c0003" stroke="#cc2200" rx="2"/>
+        <text x="465" y="85" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#eaeaea">kb_write</text>
+
+        <rect x="410" y="110" width="110" height="22" fill="#1c0003" stroke="#552200" rx="2"/>
+        <text x="465" y="125" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#a8a39c">spec edits</text>
+
+        <!-- Center merge node (glow + diamond, echoes logo's central node) -->
+        <circle cx="280" cy="160" r="48" fill="url(#centerGlow)"/>
+        <polygon points="280,128 312,160 280,192 248,160" fill="#1e0004" stroke="#ff6600" stroke-width="2"/>
+        <polygon points="280,142 298,160 280,178 262,160" fill="#ff5500"/>
+        <text x="280" y="225" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#ff6600" letter-spacing="2">kb_drift</text>
+        <text x="280" y="240" text-anchor="middle" font-family="'Courier New',monospace" font-size="9" fill="#884422">PM-gated</text>
+
+        <!-- Arrows code -> center -->
+        <line x1="150" y1="81" x2="245" y2="155" stroke="#ff5500" stroke-width="1.4" stroke-opacity="0.7"/>
+        <polygon points="245,155 238,150 240,158" fill="#ff5500" opacity="0.7"/>
+        <line x1="150" y1="121" x2="248" y2="162" stroke="#ff5500" stroke-width="0.9" stroke-opacity="0.4"/>
+
+        <!-- Arrows center -> kb (and reverse) -->
+        <line x1="315" y1="155" x2="410" y2="81" stroke="#ff5500" stroke-width="1.4" stroke-opacity="0.7"/>
+        <polygon points="410,81 403,86 401,78" fill="#ff5500" opacity="0.7"/>
+        <line x1="312" y1="162" x2="410" y2="121" stroke="#ff5500" stroke-width="0.9" stroke-opacity="0.4"/>
+
+        <!-- Queue file labels -->
+        <rect x="218" y="245" width="124" height="22" fill="#1c0003" stroke="#cc2200" rx="2"/>
+        <text x="280" y="260" text-anchor="middle" font-family="'Courier New',monospace" font-size="9" fill="#ff5500">code-drift.md</text>
+
+        <rect x="218" y="270" width="124" height="22" fill="#1c0003" stroke="#cc2200" rx="2"/>
+        <text x="280" y="285" text-anchor="middle" font-family="'Courier New',monospace" font-size="9" fill="#ff5500">kb-drift.md</text>
+
+        <!-- Small connector lines from center to queue files -->
+        <line x1="280" y1="208" x2="280" y2="245" stroke="#ff5500" stroke-width="0.8" stroke-opacity="0.5" stroke-dasharray="2 3"/>
+      </svg>
+
+      <div class="lifecycle-caption">
+        <p>
+          Two git hooks write drift entries automatically — <span class="key">pre-push</span> when you push,
+          <span class="key">post-merge</span> after merges (so cross-branch semantic conflicts surface even
+          without a file-level git conflict).
+        </p>
+        <p>
+          Entries land in <code>sync/code-drift.md</code> or <code>sync/kb-drift.md</code> as a structured queue.
+          A PM or developer reviews each entry through their agent (which fetches the diff and explains it in
+          plain English), then decides: <span class="key">summarise into KB</span>, <span class="key">revert the code</span>,
+          or <span class="key">confirm the code already matches</span>.
+        </p>
+        <p>
+          Every resolution lands in an append-only <code>sync/drift-log/</code> — so the history of how the KB
+          drifted, and how it was reconciled, is itself versioned alongside the code.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       Section 04 — Extensions
+       ============================================================ -->
+  <section id="extensions">
+    <div class="section-label">Section <span class="slash">/</span> 04 <span class="slash">/</span> Extensions</div>
+    <h2 class="section-title">Two editors, one sync surface</h2>
+    <p class="section-intro">
+      The same MCP server backs companion extensions for VSCode and Obsidian. Both render the queue state
+      live — pipeline strip, drift entries with inline verdicts, conform-pending lists, lint diagnostics —
+      and route resolution actions back through the MCP.
+    </p>
+
+    <div class="ext-grid">
+      <div class="ext-card">
+        <div class="ext-head">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+            <polygon points="12,3 21,12 12,21 3,12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+            <circle cx="12" cy="6.5" r="1.7"/>
+            <circle cx="6.5" cy="15.5" r="1.7"/>
+            <circle cx="17.5" cy="15.5" r="1.7"/>
+            <circle cx="12" cy="12" r="1.6"/>
+          </svg>
+          <div>
+            <h3 class="ext-title">VSCode extension</h3>
+            <div class="ext-host">EDITOR :: vscode 1.85+</div>
+          </div>
+        </div>
+        <ul>
+          <li>Pipeline strip across code-drift, kb-drift, conform-pending, lint — a glance at sync health.</li>
+          <li>Sidebar accordion with grouped queue entries; click to see diff, file links, and rule context.</li>
+          <li>Inline verdicts: <code>applied</code>, <code>exempted</code>, <code>promoted</code>, <code>dismissed</code> — submitted straight to the MCP.</li>
+          <li>Capabilities panel documenting every MCP tool with natural-language example prompts.</li>
+          <li>Lint diagnostics surfaced into the VSCode Problems view for in-context fixes.</li>
+        </ul>
+      </div>
+
+      <div class="ext-card">
+        <div class="ext-head">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+            <polygon points="12,3 21,12 12,21 3,12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+            <circle cx="12" cy="6.5" r="1.7"/>
+            <circle cx="6.5" cy="15.5" r="1.7"/>
+            <circle cx="17.5" cy="15.5" r="1.7"/>
+            <circle cx="12" cy="12" r="1.6"/>
+          </svg>
+          <div>
+            <h3 class="ext-title">Obsidian plugin</h3>
+            <div class="ext-host">EDITOR :: obsidian 1.4+</div>
+          </div>
+        </div>
+        <ul>
+          <li>The same sync surfaces — rendered inside an Obsidian vault opened on your <code>knowledge/</code> folder.</li>
+          <li>Dashboard view: drift queues, conform-pending, promotions ledger, submodule status.</li>
+          <li>Click any KB target or rule link to jump to the source file in the vault.</li>
+          <li>Submodule branch status pinned at the top with at-a-glance health dots.</li>
+          <li>Lint surfacing for standards files — invalid YAML and structural issues caught before writing.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       Section 05 — Quickstart
+       ============================================================ -->
+  <section id="quickstart">
+    <div class="section-label">Section <span class="slash">/</span> 05 <span class="slash">/</span> Quickstart</div>
+    <h2 class="section-title">Three steps</h2>
+    <p class="section-intro">
+      Get the MCP running locally, point your agent at it, and bootstrap your first <code>knowledge/</code>
+      folder. Everything below is verbatim from the README.
+    </p>
+
+    <div class="qs-list">
+
+      <div class="qs-step">
+        <div class="qs-num">1</div>
+        <div class="qs-body">
+          <h3>Install</h3>
+          <p>Clone the repo and install the MCP server's Node dependencies.</p>
+<pre class="code"><span class="tok-prompt">$</span> git clone https://github.com/DEONSKY/project-instrumentality kb-mcp
+<span class="tok-prompt">$</span> cd kb-mcp/knowledge/_mcp && npm install</pre>
+        </div>
+      </div>
+
+      <div class="qs-step">
+        <div class="qs-num">2</div>
+        <div class="qs-body">
+          <h3>Configure your agent</h3>
+          <p>Point your MCP-compatible agent at <code>server.js</code> using its absolute path. The
+            same config shape works for Claude Code (<code>.claude/mcp.json</code>) and Cursor
+            (<code>.cursor/mcp.json</code>).</p>
+<pre class="code">{
+  <span class="tok-key">"mcpServers"</span>: {
+    <span class="tok-key">"kb"</span>: {
+      <span class="tok-key">"command"</span>: <span class="tok-str">"node"</span>,
+      <span class="tok-key">"args"</span>: [<span class="tok-str">"/absolute/path/to/kb-mcp/knowledge/_mcp/server.js"</span>]
+    }
+  }
+}</pre>
+        </div>
+      </div>
+
+      <div class="qs-step">
+        <div class="qs-num">3</div>
+        <div class="qs-body">
+          <h3>Bootstrap</h3>
+          <p>Ask your agent to initialize the knowledge base — or call <code>kb_init</code> directly.</p>
+<pre class="code"><span class="tok-comment">// Via your agent:</span>
+<span class="tok-str">"Initialize the knowledge base for this project"</span>
+
+<span class="tok-comment">// Or non-interactively:</span>
+kb_init({ <span class="tok-key">interactive</span>: false, <span class="tok-key">config</span>: { <span class="tok-key">projectName</span>: <span class="tok-str">"MyApp"</span> } })</pre>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============================================================
+       Section 06 — Why
+       ============================================================ -->
+  <section id="why">
+    <div class="section-label">Section <span class="slash">/</span> 06 <span class="slash">/</span> Why</div>
+    <h2 class="section-title">Why this shape</h2>
+
+    <div class="why-body">
+      <p>
+        Most "agent knowledge" tooling assumes the agent is the source of truth — embedding everything into
+        an opaque vector store, asking you to trust similarity scores, and silently rewriting documents on
+        your behalf. Instrumentality inverts that.
+      </p>
+      <p>
+        <strong>The MCP server returns prompts and context, not generated content.</strong> Your agent does
+        the reasoning, using whichever model you already pay for. There are no API keys to manage, no
+        third-party services to trust, and no hidden state — every change to the knowledge base is a git
+        commit you can review.
+      </p>
+      <p>
+        <strong>The KB lives next to your code.</strong> Specs, flows, schemas, ADRs, standards, validation
+        rules — all of them as structured Markdown under <code>knowledge/</code>. Branchable, diffable,
+        mergeable. When the code changes, drift detection surfaces what needs review. When the KB changes,
+        it surfaces what code may now be stale. The agent helps you reconcile; it never silently decides.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       Footer
+       ============================================================ -->
+  <footer class="site-footer">
+    <div class="footer-divider" aria-hidden="true">
+      <div class="bar"></div>
+      <div class="diamond"></div>
+      <div class="bar"></div>
+    </div>
+    <div class="footer-motto">— Dissolving the AT-Field between human, code and knowledge —</div>
+    <div class="footer-links">
+      <a href="https://github.com/DEONSKY/project-instrumentality" rel="noopener">GitHub</a>
+      <a href="https://github.com/DEONSKY/project-instrumentality#readme" rel="noopener">README</a>
+      <a href="https://github.com/DEONSKY/project-instrumentality/blob/master/LICENSE.md" rel="noopener">License</a>
+      <a href="https://modelcontextprotocol.io" rel="noopener">Model Context Protocol</a>
+    </div>
+  </footer>
+
+  <script>
+    // Mobile nav toggle (the only JS on the page).
+    (function () {
+      var btn = document.getElementById('navToggle');
+      var nav = document.getElementById('primaryNav');
+      if (!btn || !nav) return;
+      btn.addEventListener('click', function () {
+        var open = nav.classList.toggle('open');
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+      // Close the nav after tapping an in-page link on mobile.
+      nav.addEventListener('click', function (e) {
+        if (e.target.tagName === 'A' && nav.classList.contains('open')) {
+          nav.classList.remove('open');
+          btn.setAttribute('aria-expanded', 'false');
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
