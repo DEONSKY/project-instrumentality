@@ -29,7 +29,7 @@ Treating all three the same — "drop them in `assets/`" — produces a folder w
 
 ## Decision
 
-Three tracks, one folder structure:
+Three contributor-facing tracks plus one tool-managed track, one folder structure:
 
 ```
 knowledge/
@@ -42,6 +42,8 @@ knowledge/
         mockup-v3.png           ← Track 3: PNG export from Figma / Sketch
         mockup-source.md        ← one-line file: Figma URL + exporter notes
       system-map.canvas         ← Obsidian Canvas (top-level when cross-domain)
+    imports/                    ← Track 4 (tool-managed): kb_import extractions
+      <source-basename>-img-<n>.<ext>
 ```
 
 ### Track 1 — Ad-hoc screenshots
@@ -85,6 +87,17 @@ The KB does **not** replicate the design tool. For each polished mockup that app
 
 The PNG ages; the sidecar tells you whether to trust it. When Figma changes meaningfully, re-export the PNG and bump `v3` → `v4`.
 
+### Track 4 — Auto-extracted imports (tool-managed)
+
+`kb_import` extracts inline images from DOCX uploads to `assets/imports/`, replacing them with markdown image references in the imported chunks. Contributors don't create or curate this folder — the tool owns it:
+
+- **Naming:** `<source-basename>-img-<n>.<ext>`, counter-resolved on collision.
+- **Lifetime:** tied to the source document. If the imported feature spec is deleted, its `*-img-*` siblings can be removed alongside it.
+- **Behaviour:** treat like Track 1 — high volume, low intent, no per-image curation. Differs from Track 1 only in that it's machine-written, not paste-from-clipboard.
+- **Indexing:** excluded from `kb_get` keyword search (same as `screenshots/`) — only `assets/design/**` is indexed.
+
+If a contributor wants to promote an imported image to a curated mockup, copy it into `assets/design/<context>/` and write a sidecar — leave the original under `imports/` so the source-doc rewrite stays intact.
+
 ### Cross-cutting — Obsidian Canvas for system maps
 
 `.canvas` files are native Obsidian — no plugin needed. Use them for:
@@ -123,9 +136,10 @@ Reject Figma entirely. **Not chosen** — Excalidraw is excellent for sketches a
 > - Canvas files give a low-effort way to ship visual architecture without a separate tool.
 >
 > **Negative / trade-offs:**
-> - Three rules instead of one; contributors must learn the distinction between tracks.
+> - Three contributor rules plus one tool-managed folder; contributors must learn the distinction between tracks.
 > - PNG snapshots can rot relative to the Figma source; the sidecar file's `Last-exported` line is the only signal.
 > - Excalidraw plugin removal would leave existing `.excalidraw.md` files as fallback text — readable but not editable in-place.
+> - `assets/imports/` can accumulate orphans when source documents are deleted without cleanup — periodic sweeps may be needed if the folder grows uncomfortably large.
 
 ## Obsidian setup checklist
 

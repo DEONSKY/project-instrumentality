@@ -46,7 +46,12 @@ knowledge/sync/outbound/**           merge=union
 knowledge/specs/features/**          merge=kb-conflict
 knowledge/specs/flows/**             merge=kb-conflict
 knowledge/_rules.md                  merge=kb-conflict
-knowledge/assets/**                  filter=lfs diff=lfs merge=lfs -text
+knowledge/assets/**/*.png            filter=lfs diff=lfs merge=lfs -text
+knowledge/assets/**/*.jpg            filter=lfs diff=lfs merge=lfs -text
+knowledge/assets/**/*.jpeg           filter=lfs diff=lfs merge=lfs -text
+knowledge/assets/**/*.gif            filter=lfs diff=lfs merge=lfs -text
+knowledge/assets/**/*.pdf            filter=lfs diff=lfs merge=lfs -text
+knowledge/assets/**/*.fig            filter=lfs diff=lfs merge=lfs -text
 `
 
 const CURSOR_MCP = {
@@ -111,6 +116,17 @@ async function runTool({ interactive = true, config = null, regenerate_agent_rul
     if (!fs.existsSync(fullPath)) {
       fs.mkdirSync(fullPath, { recursive: true })
       filesCreated.push(fullPath + '/')
+    }
+  })
+
+  // 1a. Drop .gitkeep into asset folders so the structure survives `git add`
+  // even before any artefact lands — preserves the contract from
+  // decisions/design-asset-storage.md.
+  ;['assets/design', 'assets/screenshots'].forEach(folder => {
+    const keepPath = path.join(KB_ROOT, folder, '.gitkeep')
+    if (!fs.existsSync(keepPath)) {
+      fs.writeFileSync(keepPath, '')
+      filesCreated.push(keepPath)
     }
   })
 
