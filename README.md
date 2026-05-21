@@ -862,7 +862,7 @@ PM opens Claude: "review code-drift.md"
 
 ### 13. PM tool integration (Jira, GitHub Issues, Linear)
 
-The KB bridges the gap between knowledge and project management tools through a middleware layer. No direct PM tool API calls — staging files in `sync/inbound/` and `sync/outbound/` act as the interface. External adapter scripts handle actual API sync.
+The KB bridges the gap between knowledge and project management tools through a middleware layer. No direct PM tool API calls from KB-MCP itself — staging files in `sync/inbound/` and `sync/outbound/` act as the interface. The actual API hop is handled by a **dedicated PM-tool MCP** (e.g. an Atlassian/Jira MCP, GitHub MCP, or Linear MCP) connected alongside KB-MCP — the agent reads the staging file and calls the PM-tool MCP's create-issue tool per item. No bespoke adapter script is required.
 
 **Consult KB before filing an issue:**
 ```
@@ -901,13 +901,29 @@ PM: "I want to file a bug about login failing with expired tokens"
 
 → kb_issue({ command: "plan", ..., content: "<YAML task breakdown>" })
   → Writes to knowledge/sync/outbound/2026-03-28-feature.yaml
-  → Adapter script picks up YAML and creates Jira tickets
 ```
+
+**Pushing the YAML to Jira / GitHub / Linear:**
+
+Connect a PM-tool MCP alongside KB-MCP (for Jira, Atlassian's official remote MCP or a community equivalent such as [`sooperset/mcp-atlassian`](https://github.com/sooperset/mcp-atlassian); similar servers exist for GitHub and Linear). Then ask the agent to push:
+
+```
+"Read knowledge/sync/outbound/2026-03-28-feature.yaml and create the items in Jira."
+
+→ Agent reads YAML
+→ For each item without a `jira_key`:
+    calls the PM-tool MCP's create-issue tool (mapping title/type/labels/priority/
+    acceptance_criteria/depends_on per the target's schema)
+→ Agent edits the YAML in place, adding `jira_key: ABC-123` to each pushed item
+  so a re-run is idempotent
+```
+
+Credentials stay inside the PM-tool MCP — they never touch KB-MCP. Re-runs skip items that already carry a `jira_key`. The same flow works for GitHub Issues or Linear by swapping the connected MCP and asking the agent accordingly.
 
 **Staging file flow:**
 ```
 PM Tool (Jira, Linear, GitHub Issues)
-    ↕  adapter scripts (outside MCP)
+    ↕  dedicated PM-tool MCP (Atlassian MCP, GitHub MCP, Linear MCP, ...)
 Staging files (knowledge/sync/inbound/, sync/outbound/)
     ↕  kb_issue (triage, plan)
 KB documents (knowledge/specs/, data/, integrations/, decisions/, standards/, components/)

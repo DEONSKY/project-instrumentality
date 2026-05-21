@@ -35,7 +35,23 @@ items:
       - "Another criterion"
     priority: critical | high | medium | low
     depends_on: ["Title of dependency item"]
+    # jira_key / github_issue / linear_id — leave unset; populated after a successful
+    # push so re-runs are idempotent
 ```
+
+## After writing the YAML — pushing to the PM tool
+
+KB-MCP does not call PM-tool APIs itself. To turn the YAML into real tickets, rely on a **dedicated PM-tool MCP** connected to the same agent (e.g. an Atlassian/Jira MCP for `target: jira`, a GitHub MCP for `target: github`, a Linear MCP for `target: linear`).
+
+When the user asks you to push, the loop is:
+
+1. Read the YAML you just wrote.
+2. For each `item` **without** a `jira_key` / `github_issue` / `linear_id`:
+   - Call the connected PM-tool MCP's create-issue tool, mapping `title`, `type`, `description`, `labels`, `priority`, and `acceptance_criteria` to the target's schema.
+   - For `depends_on`: titles only — if the dependent item was just created in this run, link it via the PM-tool MCP's link tool; otherwise leave the dependency as a note in the description.
+3. Edit the YAML in place, annotating the pushed item with its returned id (e.g. `jira_key: ABC-123` plus optionally `jira_url: https://.../browse/ABC-123`).
+
+Re-runs are safe — items that already carry an id are skipped. If no PM-tool MCP is connected, tell the user which one they need to add and stop.
 
 ## Guidelines
 
