@@ -162,62 +162,86 @@
     }
 
     /* ============================================================
-       Hero
+       Hero — horizontal split: logo left, content right.
        ============================================================ */
     .hero {
       position: relative;
-      text-align: center;
-      padding: 70px 24px 50px;
+      padding: 80px 24px 70px;
       background: radial-gradient(ellipse at center, var(--bg-soft) 0%, var(--bg) 75%);
       border-bottom: 1px solid var(--border-soft);
       overflow: hidden;
     }
     .hero-inner {
-      max-width: 760px;
+      max-width: 1180px;
       margin: 0 auto;
       position: relative;
       z-index: 2;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+      gap: 56px;
+      align-items: center;
+    }
+    .hero-logo-wrap {
+      display: flex;
+      justify-content: center;
+      align-items: center;
     }
     .hero-logo {
       width: 100%;
-      max-width: 280px;
-      margin: 0 auto 28px;
+      max-width: 420px;
       display: block;
+      filter: drop-shadow(0 0 40px rgba(255, 85, 0, 0.12));
+    }
+    .hero-content { max-width: 540px; }
+    .hero-kicker {
+      font-family: "Courier New", monospace;
+      color: var(--accent);
+      letter-spacing: 0.32em;
+      font-size: 0.78em;
+      text-transform: uppercase;
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .hero-kicker::before {
+      content: "";
+      width: 26px;
+      height: 1px;
+      background: var(--accent);
+      display: inline-block;
     }
     .hero h1 {
       font-family: Georgia, "Times New Roman", serif;
-      font-size: 2.8em;
+      font-size: 2.6em;
       font-weight: 600;
-      margin: 0 0 4px;
-      letter-spacing: 1px;
+      margin: 0 0 14px;
+      letter-spacing: 0.5px;
       color: var(--text);
+      line-height: 1.15;
     }
-    .hero h1 .mcp-suffix {
-      font-family: "Courier New", monospace;
-      color: var(--accent-deep);
-      letter-spacing: 6px;
-      font-size: 0.55em;
-      vertical-align: 0.45em;
-      margin-left: 8px;
+    .hero h1 .em {
+      color: var(--accent-bright);
+      font-style: normal;
     }
     .hero-motto {
       font-family: "Courier New", monospace;
       color: var(--muted);
       letter-spacing: 0.08em;
-      font-size: 0.92em;
-      margin: 6px 0 22px;
+      font-size: 0.9em;
+      margin: 0 0 18px;
+      border-left: 2px solid var(--accent-deep);
+      padding-left: 12px;
     }
     .hero-sub {
       color: var(--text-dim);
-      font-size: 1.12em;
-      max-width: 560px;
-      margin: 0 auto 32px;
-      line-height: 1.55;
+      font-size: 1.08em;
+      margin: 0 0 28px;
+      line-height: 1.6;
     }
     .hero-cta {
       display: flex;
       gap: 12px;
-      justify-content: center;
       flex-wrap: wrap;
     }
     .btn {
@@ -258,14 +282,56 @@
        Two outlined diamonds, low opacity, decorative only. */
     .hero-ornament {
       position: absolute;
-      width: 280px;
-      height: 280px;
-      opacity: 0.08;
+      width: 320px;
+      height: 320px;
+      opacity: 0.07;
       pointer-events: none;
       z-index: 1;
     }
-    .hero-ornament.tl { top: -60px; left: -60px; }
-    .hero-ornament.br { bottom: -60px; right: -60px; transform: rotate(180deg); }
+    .hero-ornament.tl { top: -80px; left: -80px; }
+    .hero-ornament.br { bottom: -80px; right: -80px; transform: rotate(180deg); }
+
+    /* ============================================================
+       Stats strip — slim band right below the hero.
+       ============================================================ */
+    .stats-strip-wrap {
+      background: var(--bg);
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .stats-strip {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 26px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 32px;
+    }
+    .stat-cell {
+      flex: 1;
+      text-align: center;
+    }
+    .stat-num {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 2.2em;
+      font-weight: 600;
+      color: var(--accent-bright);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .stat-label {
+      font-family: "Courier New", monospace;
+      font-size: 0.74em;
+      color: var(--muted);
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+    }
+    .stat-divider {
+      width: 1px;
+      height: 36px;
+      background: var(--border-soft);
+      flex-shrink: 0;
+    }
 
     /* ============================================================
        Overview pull quotes
@@ -323,20 +389,55 @@
       border-radius: 3px;
       padding: 22px 22px 20px;
       position: relative;
+      transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
     }
+    .cap-card:hover {
+      border-color: var(--accent-deep);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(204, 34, 0, 0.12);
+    }
+    .cap-head {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 10px;
+    }
+    .cap-icon {
+      width: 44px;
+      height: 44px;
+      flex-shrink: 0;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      background: rgba(255, 85, 0, 0.05);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+    }
+    .cap-icon svg {
+      width: 22px;
+      height: 22px;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+    .cap-head-text { flex: 1; min-width: 0; }
     .cap-code {
       font-family: "Courier New", monospace;
       color: var(--muted);
       font-size: 0.74em;
       letter-spacing: 0.16em;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
     }
     .cap-name {
       font-family: Georgia, "Times New Roman", serif;
-      font-size: 1.45em;
+      font-size: 1.4em;
       font-weight: 600;
-      margin: 0 0 8px;
+      margin: 0;
       color: var(--accent-bright);
+      line-height: 1.1;
     }
     .cap-blurb {
       color: var(--text-dim);
@@ -604,16 +705,36 @@
 
       .pull-row, .cap-grid, .ext-grid { grid-template-columns: 1fr; }
       .lifecycle-wrap { grid-template-columns: 1fr; }
-      .hero h1 { font-size: 2.1em; }
+      .hero-inner {
+        grid-template-columns: 1fr;
+        gap: 28px;
+        text-align: center;
+      }
+      .hero-content { max-width: 560px; margin: 0 auto; }
+      .hero-kicker { justify-content: center; }
+      .hero-kicker::before { display: none; }
+      .hero-motto { border-left: none; padding-left: 0; }
+      .hero-cta { justify-content: center; }
+      .hero-logo { max-width: 320px; }
+      .hero h1 { font-size: 2em; }
       section { padding-top: 60px; }
       h2.section-title { font-size: 1.6em; }
+      .stats-strip { gap: 18px; padding: 18px 16px; }
+      .stat-num { font-size: 1.7em; }
     }
     @media (max-width: 480px) {
       .qs-step { grid-template-columns: 40px 1fr; gap: 14px; }
       .qs-num { font-size: 1.9em; }
-      .hero-logo { max-width: 220px; }
-      .hero h1 { font-size: 1.8em; letter-spacing: 0.5px; }
+      .hero-logo { max-width: 260px; }
+      .hero h1 { font-size: 1.7em; letter-spacing: 0.5px; }
+      .hero { padding: 50px 20px 40px; }
       pre.code { font-size: 0.82em; padding: 12px; }
+      .stats-strip {
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      .stat-cell { flex: 0 0 calc(50% - 18px); }
+      .stat-divider { display: none; }
     }
   </style>
 </head>
@@ -652,7 +773,7 @@
        Hero
        ============================================================ -->
   <a id="top"></a>
-  <section class="hero" style="padding-top:80px;">
+  <section class="hero">
     <!-- AT-Field diamond ornaments — decorative, low opacity. Two corners only. -->
     <svg class="hero-ornament tl" viewBox="0 0 200 200" aria-hidden="true">
       <polygon points="100,10 190,100 100,190 10,100" fill="none" stroke="#ff5500" stroke-width="1.5" stroke-dasharray="4 8"/>
@@ -666,22 +787,54 @@
     </svg>
 
     <div class="hero-inner">
-      <img class="hero-logo" src="instrumentality-mcp-logo.svg" alt="Instrumentality-MCP logo" width="280" height="280" />
-      <h1>Instrumentality<span class="mcp-suffix">MCP</span></h1>
-      <div class="hero-motto">Dissolving the AT-Field between human, code and knowledge</div>
-      <p class="hero-sub">
-        A structured knowledge base for monorepos, managed through MCP tools.
-        Works with Claude Code, Cursor, and any MCP-compatible agent.
-        <strong style="color:var(--text);">No API keys required.</strong>
-      </p>
-      <div class="hero-cta">
-        <a href="https://github.com/DEONSKY/project-instrumentality" class="btn btn-primary" rel="noopener">
-          View on GitHub →
-        </a>
-        <a href="#overview" class="btn btn-ghost">Read the docs ↓</a>
+      <div class="hero-logo-wrap">
+        <img class="hero-logo" src="instrumentality-mcp-logo.svg" alt="Instrumentality-MCP logo" width="420" height="420" />
+      </div>
+      <div class="hero-content">
+        <div class="hero-kicker">SYS :: KB-MCP :: v0.3</div>
+        <h1>A knowledge base that <span class="em">lives in git</span>, not a wiki.</h1>
+        <div class="hero-motto">Dissolving the AT-Field between human, code and knowledge.</div>
+        <p class="hero-sub">
+          Structured Markdown beside your code, bidirectional drift detection, standards conformance —
+          all driven through MCP tools. Works with Claude Code, Cursor, and any MCP-compatible agent.
+          <strong style="color:var(--text);">No API keys required.</strong>
+        </p>
+        <div class="hero-cta">
+          <a href="https://github.com/DEONSKY/project-instrumentality" class="btn btn-primary" rel="noopener">
+            View on GitHub →
+          </a>
+          <a href="#overview" class="btn btn-ghost">Read the docs ↓</a>
+        </div>
       </div>
     </div>
   </section>
+
+  <!-- ============================================================
+       Stats strip — at-a-glance scale
+       ============================================================ -->
+  <div class="stats-strip-wrap" aria-label="Project at a glance">
+    <div class="stats-strip">
+      <div class="stat-cell">
+        <div class="stat-num">22</div>
+        <div class="stat-label">Tools</div>
+      </div>
+      <div class="stat-divider" aria-hidden="true"></div>
+      <div class="stat-cell">
+        <div class="stat-num">4</div>
+        <div class="stat-label">Categories</div>
+      </div>
+      <div class="stat-divider" aria-hidden="true"></div>
+      <div class="stat-cell">
+        <div class="stat-num">2</div>
+        <div class="stat-label">Editor Surfaces</div>
+      </div>
+      <div class="stat-divider" aria-hidden="true"></div>
+      <div class="stat-cell">
+        <div class="stat-num">0</div>
+        <div class="stat-label">API Keys</div>
+      </div>
+    </div>
+  </div>
 
   <!-- ============================================================
        Section 01 — Overview
@@ -734,8 +887,20 @@
 
     <div class="cap-grid">
       <div class="cap-card">
-        <div class="cap-code">CAT::01 <span style="color:var(--muted-soft)">·</span> SYNC</div>
-        <h3 class="cap-name">Sync</h3>
+        <div class="cap-head">
+          <div class="cap-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M21 12a9 9 0 0 1-15.6 6.2L3 16"/>
+              <path d="M3 12a9 9 0 0 1 15.6-6.2L21 8"/>
+              <polyline points="21 3 21 8 16 8"/>
+              <polyline points="3 21 3 16 8 16"/>
+            </svg>
+          </div>
+          <div class="cap-head-text">
+            <div class="cap-code">CAT::01 <span style="color:var(--muted-soft)">·</span> SYNC</div>
+            <h3 class="cap-name">Sync</h3>
+          </div>
+        </div>
         <p class="cap-blurb">
           Detect code↔KB misalignment and coordinate the sync state surfaced in the dashboard.
           Bidirectional drift, standards conformance, submodule coordination.
@@ -749,8 +914,18 @@
       </div>
 
       <div class="cap-card">
-        <div class="cap-code">CAT::02 <span style="color:var(--muted-soft)">·</span> AUTHORING</div>
-        <h3 class="cap-name">Authoring</h3>
+        <div class="cap-head">
+          <div class="cap-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 20h9"/>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+          </div>
+          <div class="cap-head-text">
+            <div class="cap-code">CAT::02 <span style="color:var(--muted-soft)">·</span> AUTHORING</div>
+            <h3 class="cap-name">Authoring</h3>
+          </div>
+        </div>
         <p class="cap-blurb">
           Write, scaffold, import, and tag KB content. Two-phase tools that load context first,
           let the agent fill the template, then write — so new content fits what's already there.
@@ -766,8 +941,18 @@
       </div>
 
       <div class="cap-card">
-        <div class="cap-code">CAT::03 <span style="color:var(--muted-soft)">·</span> GOVERNANCE</div>
-        <h3 class="cap-name">Governance</h3>
+        <div class="cap-head">
+          <div class="cap-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <polyline points="9 12 11 14 15 10"/>
+            </svg>
+          </div>
+          <div class="cap-head-text">
+            <div class="cap-code">CAT::03 <span style="color:var(--muted-soft)">·</span> GOVERNANCE</div>
+            <h3 class="cap-name">Governance</h3>
+          </div>
+        </div>
         <p class="cap-blurb">
           Conform code to standards, bootstrap on legacy projects, migrate after template changes,
           and upgrade the KB schema. Standards-as-data, queue-driven enforcement.
@@ -783,8 +968,18 @@
       </div>
 
       <div class="cap-card">
-        <div class="cap-code">CAT::04 <span style="color:var(--muted-soft)">·</span> INTROSPECTION</div>
-        <h3 class="cap-name">Introspection</h3>
+        <div class="cap-head">
+          <div class="cap-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </div>
+          <div class="cap-head-text">
+            <div class="cap-code">CAT::04 <span style="color:var(--muted-soft)">·</span> INTROSPECTION</div>
+            <h3 class="cap-name">Introspection</h3>
+          </div>
+        </div>
         <p class="cap-blurb">
           Read-only queries over the KB and its history — fetch context for a working file,
           ask questions, trace impact, inspect schemas, bridge to issue trackers.
