@@ -4,6 +4,7 @@ const matter = require('gray-matter')
 const { matterStringify } = require('../lib/matter-utils')
 const { loadGraph } = require('../lib/graph')
 const { runTool: reindex } = require('./reindex')
+const { inferType } = require('../lib/types')
 
 const KB_ROOT = 'knowledge'
 const SKIP_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules', 'drift-log', '_templates', 'sync'])
@@ -20,7 +21,7 @@ const TYPE_PRIORITY = {
   flow: 5,
   standard: 6,
   decision: 7,
-  ui: 4,
+  component: 4,
   group: 10,
   unknown: 5
 }
@@ -258,18 +259,6 @@ function resolveDirection(fileA, fileB, graph) {
 
   // Same priority: alphabetical (arbitrary but consistent)
   return fileA < fileB ? { from: fileA, to: fileB } : { from: fileB, to: fileA }
-}
-
-function inferType(filePath) {
-  if (filePath.startsWith('specs/features/')) return 'feature'
-  if (filePath.startsWith('specs/flows/')) return 'flow'
-  if (filePath.startsWith('data/schema/')) return 'schema'
-  if (filePath.startsWith('data/validation/')) return 'validation'
-  if (filePath.startsWith('data/')) return 'data'
-  if (filePath.startsWith('integrations/')) return 'integration'
-  if (filePath.startsWith('decisions/')) return 'decision'
-  if (filePath.startsWith('standards/')) return 'standard'
-  return 'unknown'
 }
 
 function getExistingDeps(graph, filePath) {

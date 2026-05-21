@@ -43,7 +43,6 @@ import { SidebarViewProvider } from "./sidebar-view";
 import { openCapabilities } from "./help-view";
 import { KbDiagnostics } from "./diagnostics";
 import { sendPrompt, maybeSuggestAgentBackend } from "./agent-backend";
-import { registerWelcome } from "./welcome";
 import { showFileDiff } from "./diff";
 import {
   handleSubmoduleSync as runSubmoduleSync,
@@ -135,8 +134,6 @@ export function activate(context: vscode.ExtensionContext): void {
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
   statusBar.command = "instrumentality.openDashboard";
   context.subscriptions.push(statusBar);
-
-  registerWelcome(context);
 
   context.subscriptions.push(
     vscode.commands.registerCommand("instrumentality.refresh", () => void refresh()),

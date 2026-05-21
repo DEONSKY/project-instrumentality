@@ -14,13 +14,16 @@ const KB_ROOT = 'knowledge'
  * Signal: if the agent determines a file is already compliant, skip it.
  * Otherwise, generate updated content and call kb_write.
  */
-async function runTool({ since, dry_run = false } = {}) {
+async function runTool({ since } = {}) {
   const git = simpleGit(process.cwd())
   const rulesPath = path.join(KB_ROOT, '_rules.md')
 
   // Find the commit where _rules.md last changed, or use explicit ref
   let rulesDiff = ''
   const ref = since || await findLastRulesChange(git, rulesPath)
+  if (!ref) {
+    return { message: 'No prior commit found that touched _rules.md. Pass `since` explicitly to compare against an older ref.', total_files: 0, files: [] }
+  }
   try {
     rulesDiff = await git.diff([ref, 'HEAD', '--', rulesPath])
   } catch (e) {
@@ -29,7 +32,7 @@ async function runTool({ since, dry_run = false } = {}) {
 
   // No-change detection: if diff is empty or only whitespace, short-circuit
   if (!rulesDiff || !rulesDiff.trim()) {
-    return { message: 'No changes detected in _rules.md since last commit. Nothing to migrate.', total_files: 0, files: [] }
+    return { message: `No changes detected in _rules.md between ${ref} and HEAD. Nothing to migrate.`, total_files: 0, files: [] }
   }
 
   const allKbFiles = collectKBFiles()
@@ -62,24 +65,32 @@ async function runTool({ since, dry_run = false } = {}) {
   return {
     total_files: files.length,
     files,
-    dry_run,
-    note: dry_run
-      ? 'Dry run — review the prompts above. No files will be written. Re-run without dry_run to apply.'
-      : 'For each file, process the prompt. If already compliant, skip. Otherwise call kb_write with updated content.'
+    note: 'For each file, process the prompt. If already compliant, skip. Otherwise call kb_write with updated content.'
   }
 }
 
+// Walk back through git history for the most recent commit that touched
+// _rules.md and return its parent SHA — diffing parent..HEAD then captures
+// all rules changes since the last edit. Returns null if no such commit
+// exists (e.g. _rules.md was just added in HEAD, or repo has no history).
 async function findLastRulesChange(git, rulesPath) {
   try {
-    // Check if _rules.md changed in the most recent commit
-    const headDiff = await git.diff(['HEAD~1', 'HEAD', '--', rulesPath])
-    if (!headDiff || !headDiff.trim()) {
-      // _rules.md didn't change in the last commit — return HEAD so diff is empty
-      return 'HEAD'
+    const log = await git.log({ file: rulesPath, maxCount: 2 })
+    const commits = log.all || []
+    if (commits.length === 0) return null
+    // commits[0] is the latest commit that touched _rules.md. We want the
+    // commit BEFORE it, so we can diff the change in.
+    const latest = commits[0].hash
+    try {
+      const parent = await git.revparse([`${latest}^`])
+      return parent.trim()
+    } catch {
+      // No parent — latest is the initial commit; nothing to diff against.
+      return null
     }
-    return 'HEAD~1'
-  } catch { /* fall through — e.g. only one commit in repo */ }
-  return 'HEAD~1'
+  } catch {
+    return null
+  }
 }
 
 function collectKBFiles() {
@@ -107,12 +118,11 @@ module.exports = {
   runTool,
   definition: {
     name: 'kb_migrate',
-    description: 'Migrate KB files after _rules.md changes. Manual trigger only.',
+    description: 'Migrate KB files after _rules.md changes. Returns one prompt per KB file for the calling agent to review; the agent calls kb_write per file if an update is needed. Does not write directly.',
     inputSchema: {
       type: 'object',
       properties: {
-        since: { type: 'string', description: 'Commit SHA to diff _rules.md from. Auto-detected if omitted.' },
-        dry_run: { type: 'boolean', description: 'Preview migration prompts without writing files', default: false }
+        since: { type: 'string', description: 'Commit SHA to diff _rules.md from. Auto-detected by walking git log for the last commit that touched _rules.md and diffing its parent..HEAD.' }
       }
     }
   }

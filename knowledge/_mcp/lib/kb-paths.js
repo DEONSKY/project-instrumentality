@@ -65,7 +65,8 @@ function getGroupFolder(type) {
     validation: 'data/validation',
     integration: 'integrations',
     decision: 'decisions',
-    standard: 'standards'
+    standard: 'standards',
+    component: 'components'
   }
   return map[type] || 'specs/features'
 }

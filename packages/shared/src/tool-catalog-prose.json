@@ -171,7 +171,7 @@
       "whenToUse": "Pull the change history of a KB file — git commits and drift-log references, optionally with patch bodies.",
       "examplePrompts": [
         "Show me the history of the api-errors standard.",
-        "What drift events have touched knowledge/features/billing.md?"
+        "What drift events have touched knowledge/specs/features/billing.md?"
       ]
     },
     "kb_status": {

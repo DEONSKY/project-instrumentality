@@ -1,3 +1,13 @@
+# kb-mcp merge drivers (installed in .git/config by `kb_init`):
+#   kb-reindex   regenerates _index.yaml from the merged tree (silent resolve)
+#   kb-conflict  writes conflict markers AND appends to sync/review-queue.md
+#
+# kb-conflict is scoped to high-traffic narrative folders (specs/) and the
+# authoritative _rules.md. Data/decisions/integrations/standards/components
+# are intentionally left to git's default 3-way merge: they tend to be small,
+# rarely conflicting, and a queue entry per conflict would be noise. Extend
+# the kb-conflict rows below if your team starts hitting merge conflicts in
+# those folders.
 knowledge/_index.yaml           merge=kb-reindex
 knowledge/sync/code-drift.md    merge=union
 knowledge/sync/kb-drift.md      merge=union

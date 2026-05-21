@@ -77,7 +77,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
         "name": "file_path",
         "type": "string",
         "required": true,
-        "hint": "Path to the KB file (e.g. knowledge/features/my-feature.md)"
+        "hint": "Path to the KB file (e.g. knowledge/specs/features/my-feature.md)"
       },
       {
         "name": "content",
@@ -435,7 +435,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     "name": "kb_migrate",
     "category": "governance",
-    "shortDescription": "Migrate KB files after _rules.md changes. Manual trigger only.",
+    "shortDescription": "Migrate KB files after _rules.md changes. Returns one prompt per KB file for the calling agent to review; the agent calls kb_write per file if an update is needed. Does not write directly.",
     "whenToUse": "After _rules.md changes, migrate existing KB files to match the new conventions and emit review prompts for the agent.",
     "examplePrompts": [
       "Migrate the KB — I just updated _rules.md.",
@@ -446,13 +446,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
         "name": "since",
         "type": "string",
         "required": false,
-        "hint": "Commit SHA to diff _rules.md from. Auto-detected if omitted."
-      },
-      {
-        "name": "dry_run",
-        "type": "boolean",
-        "required": false,
-        "hint": "Preview migration prompts without writing files"
+        "hint": "Commit SHA to diff _rules.md from. Auto-detected by walking git log for the last commit that touched _rules.md and diffing its parent..HEAD."
       }
     ],
     "surfaces": [
@@ -804,7 +798,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
         "name": "file_path",
         "type": "string",
         "required": false,
-        "hint": "Path to a single KB file (e.g. knowledge/features/auth.md), or \"all\" to tag the entire KB. Default: all. Used by fast and review modes."
+        "hint": "Path to a single KB file (e.g. knowledge/specs/features/auth.md), or \"all\" to tag the entire KB. Default: all. Used by fast and review modes."
       },
       {
         "name": "mode",
@@ -816,7 +810,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
         "name": "tags",
         "type": "object",
         "required": false,
-        "hint": "For mode=apply only. Map of file_path to tag array, e.g. { \"features/auth.md\": [\"auth\", \"session\", \"jwt\"] }."
+        "hint": "For mode=apply only. Map of file_path to tag array, e.g. { \"specs/features/auth.md\": [\"auth\", \"session\", \"jwt\"] }."
       }
     ],
     "surfaces": [
@@ -929,7 +923,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
     "whenToUse": "Pull the change history of a KB file — git commits and drift-log references, optionally with patch bodies.",
     "examplePrompts": [
       "Show me the history of the api-errors standard.",
-      "What drift events have touched knowledge/features/billing.md?"
+      "What drift events have touched knowledge/specs/features/billing.md?"
     ],
     "keyParams": [
       {
