@@ -19,8 +19,6 @@ function getDefaultRules() {
     version: '1.0',
     depth_policy: {
       default_max: 3,
-      group_trigger: 5,
-      group_warn: 8,
       overrides: {
         specs: 4,
         data: 3,
@@ -39,9 +37,6 @@ function getDefaultRules() {
       'api_key:',
       'secret:'
     ],
-    cross_app_refs: {
-      always_shared: ['data', 'integrations', 'decisions', 'standards']
-    },
     code_path_patterns: [
       {
         intent: 'validation',
@@ -86,7 +81,7 @@ function getDefaultRules() {
       override_dir: 'knowledge/_prompt-overrides',
       valid_override_types: ['replace', 'extend-before', 'extend-after', 'suppress', 'section-replace'],
       suppress_requires_reason: true,
-      protected: ['drift-summary', 'ask-sync']
+      protected: ['drift-summary', 'ask-sync', 'conform-check', 'conform-resolve']
     }
   }
 }
@@ -114,7 +109,6 @@ function loadRules(kbRoot = 'knowledge') {
     getSecretPatterns: () => raw.secret_patterns || getDefaultRules().secret_patterns,
     getCodePathPatterns: () => raw.code_path_patterns || getDefaultRules().code_path_patterns,
     getPromptOverrides: () => raw.prompt_overrides || getDefaultRules().prompt_overrides,
-    getCrossAppRefConfig: () => raw.cross_app_refs || getDefaultRules().cross_app_refs,
     getWorkingPathsCap: () => Number.isInteger(raw.working_paths_cap) ? raw.working_paths_cap : 10,
     getStandardsThreshold: () => Number.isInteger(raw.standards_threshold) ? raw.standards_threshold : 40,
     getAppRootPatterns: () => (raw.app_root_patterns && typeof raw.app_root_patterns === 'object') ? raw.app_root_patterns : {},

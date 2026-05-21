@@ -177,7 +177,7 @@ Or call it directly:
 
 ```js
 // non-interactive
-kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", "api"] } })
+kb_init({ interactive: false, config: { projectName: "MyApp" } })
 ```
 
 ---
@@ -205,6 +205,9 @@ kb_init({ interactive: false, config: { projectName: "MyApp", appNames: ["web", 
 | `kb_autotag` | Auto-extract tags from KB file content and write them to frontmatter. Improves `kb_ask` search accuracy when files have empty `tags: []`. Extracts from headings (3×), bold text, inline code, file path, and body word frequency. Merges with existing tags — never removes manual ones. Run `file_path: "all"` (default) or target a single file |
 | `kb_autorelate` | Discover semantic relations between KB files using keyword overlap (Overlap Coefficient). Proposes `depends_on` links. Use `dry_run: true` to preview before writing. `threshold` (default `0.25`) controls sensitivity. Direction is inferred from type priority: schemas and validation are upstream, flows and decisions are downstream |
 | `kb_schema` | Query database schema files (DBML format) with table-level extraction. `list`: returns all table/enum names in a schema file. `query`: extracts specific tables by name (`entities`) or keyword relevance (`keywords`). Schema files use one-file-per-database layout with dbdiagram.io DBML syntax in the markdown body. `kb_get` automatically filters schema files to relevant tables when loading context |
+| `kb_status` | Read-only sync-state aggregate. Returns counts and entries for code-drift, kb-drift, standards-drift, conform-pending (current + aspirational), pending promotions, and lint issues, plus the current git HEAD short SHA. Same data the KB Sync VSCode extension renders. Never writes. Use at session start, before opening a PR, or whenever the user asks "what is drifting?" |
+| `kb_history` | Get the change history of a KB file: git commits that touched it plus any drift-log entries that reference it. Optional `limit`, `since` (ISO date filter), and `include_diff` to include patch bodies. Call when a decision depends on *why* or *when* something changed — not for routine reads |
+| `kb_upgrade` | Upgrade project KB templates and config after MCP server update. Auto-updates unmodified templates, returns merge prompts for customized ones, patches `_rules.md` with new keys. Supports `dry_run` to preview and `force` to overwrite customized templates |
 
 ### `_rules.md` configuration reference
 
@@ -991,7 +994,7 @@ AFTER:  one entry per kb_target → both KB docs flagged
 
 - **`orphan_pattern`** — pattern's `paths` glob matches zero real files (typo, deleted directory, dead module).
 - **`ghost_target`** — pattern's `kb_target` points at a KB file that doesn't exist.
-- **`multi_target_files`** — the fan-out twin: tells you which files are being fanned out to multiple targets (useful when one is intentional, the other is a mistake).
+- **`fanout_with_hardcoded`** — a fully-hardcoded `kb_target` (no `{name}`) catches many files with distinct names — one KB file is being asked to document many concepts. Templating the target with `{name}` is usually the fix.
 - **`convention_violation`** — pattern's `kb_target` is in the "wrong" folder per project convention (e.g. a pattern with `intent: data-model` pointing at `standards/code/foo.md` should live in `data/schema/`).
 - **`unmapped_kb_group`** — KB folders that have files but no patterns pointing to them (drift can't track their code).
 
@@ -1006,19 +1009,21 @@ AFTER:  one entry per kb_target → both KB docs flagged
                             │                         │
             ┌───────────────┼─────────┬───────────┬───┴──────────┐
             ▼               ▼         ▼           ▼              ▼
-     orphan_pattern   ghost_target  multi_   convention_   unmapped_
-     (paths match     (kb_target    target_  violation     kb_group
-      no files)        missing)     files    (wrong        (folder has
-                                    (fan-out  folder)       files but
-                                     map)                   no patterns)
+     orphan_pattern   ghost_target  fanout_   convention_   unmapped_
+     (paths match     (kb_target    with_     violation     kb_group
+      no files)        missing)     hardcoded (wrong        (folder has
+                                    (one KB    folder)       files but
+                                     target,                 no patterns)
+                                     many
+                                     files)
 
-     paths:           kb_target:    file:    intent:       folder:
-      src/dead/**      foo.md       Auth     data-model    decisions/
-                       ⚠            Form     kb_target:    count: 4
-                       doesn't       ↓       standards/    no patterns
-                       exist        2 kb     code/foo.md
-                                    targets  should live
-                                             in data/schema/
+     paths:           kb_target:    kb_target: intent:       folder:
+      src/dead/**      foo.md       std/code/  data-model    decisions/
+                       ⚠            api.md     kb_target:    count: 4
+                       doesn't       ↓         standards/    no patterns
+                       exist        12 distinct code/foo.md
+                                    concepts   should live
+                                               in data/schema/
 ```
 
 ### 4. UI mapping diagnostics (P1/P2)
@@ -1035,7 +1040,7 @@ The same `pattern_audit.findings` get rendered as a "Mapping Diagnostics" card i
   │      [ Copy fix prompt ]   ←─ clipboard        │
   │                                                │
   │  ▶ ghost_target · specs/features/missing.md    │  ← collapsed
-  │  ▶ multi_target · AuthForm.tsx                 │
+  │  ▶ fanout_with_hardcoded · std/code/api.md     │
   │  ▶ convention · standards/code/...             │
   │                                                │
   └────────────────────────────────────────────────┘
@@ -1359,6 +1364,9 @@ Uses [[integrations/stripe]] for payment processing.
 2026-03-20 — created
 ```
 
+**Optional frontmatter flags:**
+- **`always_load: true`** — file is always included in `kb_get` results regardless of keywords or `app_scope` filter (subject to the token budget). Use sparingly for foundation files that every task needs context on — e.g. `standards/global.md`, a company-wide style guide, or a shared glossary. Files without this flag are only loaded when their keywords or scope match the request.
+
 Cross-references use Obsidian-compatible `[[wikilinks]]` in content. These are automatically extracted during `kb_reindex` and stored as `depends_on` in `_index.yaml`, which `kb_impact` uses for blast-radius analysis.
 
 Supported wikilink formats:
@@ -1371,9 +1379,9 @@ Supported wikilink formats:
 
 The `knowledge/` folder is designed to open directly as an Obsidian vault. All generated templates include:
 
-- **`type`** — document type (`feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `ui`, `data`, `group`). Stored in `_index.yaml` and used for keyword-based scoring in `kb_get` / `kb_impact`. Files without an explicit `type` field have it inferred from their folder path by `inferType()` during reindex.
+- **`type`** — document type (`feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `component`, `data`, `group`). Stored in `_index.yaml` and used for keyword-based scoring in `kb_get` / `kb_impact`. Files without an explicit `type` field have it inferred from their folder path by `inferType()` during reindex.
 - **`aliases`** — Obsidian quick-switcher (Cmd+O) and link-autocomplete aliases. Each template seeds a sensible default (`id` or a readable label).
-- **`cssclasses`** — per-type CSS class for theming (`kb-feature`, `kb-flow`, `kb-schema`, `kb-validation`, `kb-integration`, `kb-decision`, `kb-standard`, `kb-ui`, `kb-data`, `kb-group`). Add a `.obsidian/snippets/kb.css` to activate visual differentiation in the graph view.
+- **`cssclasses`** — per-type CSS class for theming (`kb-feature`, `kb-flow`, `kb-schema`, `kb-validation`, `kb-integration`, `kb-decision`, `kb-component`, `kb-group`). Add a `.obsidian/snippets/kb.css` to activate visual differentiation in the graph view.
 - **Callouts** — edge cases, guards, and open questions use Obsidian callout syntax (`> [!warning]`, `> [!important]`, `> [!question]`, `> [!info]`, `> [!caution]`) so they render as styled blocks rather than plain bullet lists.
 - **Folder notes** — group files are named after their parent folder (`specs/features/billing/billing.md` instead of `specs/features/billing/_group.md`), matching the Obsidian Folder Notes plugin convention. Legacy `_group.md` files are still detected for backward compatibility.
 

@@ -10,6 +10,7 @@ function inferType(relativePath) {
   if (relativePath.startsWith('integrations/')) return 'integration'
   if (relativePath.startsWith('decisions/')) return 'decision'
   if (relativePath.startsWith('standards/')) return 'standard'
+  if (relativePath.startsWith('components/')) return 'component'
   if (relativePath.startsWith('data/')) return 'data'
   return 'unknown'
 }

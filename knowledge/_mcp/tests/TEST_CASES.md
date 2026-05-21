@@ -880,9 +880,9 @@ Create `specs/flows/order-lifecycle.md` without a `type` field in front-matter. 
 
 ### TC-8.9 `type` field — inferType coverage
 
-Create one file in each folder: `features/`, `flows/`, `data/schema/`, `validation/`, `integrations/`, `decisions/`, `standards/`, `ui/`, `data/` (non-schema). None has an explicit `type` field.
+Create one file in each folder: `specs/features/`, `specs/flows/`, `data/schema/`, `data/validation/`, `integrations/`, `decisions/`, `standards/`, `components/`, `data/` (non-schema, non-validation). None has an explicit `type` field.
 
-**Pass:** Each entry in `_index.yaml` gets the correct inferred type: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `ui`, `data`.
+**Pass:** Each entry in `_index.yaml` gets the correct inferred type from `lib/types.js::inferType()`: `feature`, `flow`, `schema`, `validation`, `integration`, `decision`, `standard`, `component`, `data`.
 
 ### TC-8.10 Embed wikilinks extracted as dependencies
 

@@ -274,30 +274,24 @@ async function promptConfig() {
   console.log('\n=== KB-MCP Setup ===\n')
 
   const projectName = await ask('Project name: ')
-  const appNamesInput = await ask('App names (comma-separated, e.g. frontend,backend): ')
-  const appNames = appNamesInput.split(',').map(s => s.trim()).filter(Boolean)
 
   rl.close()
 
-  return { projectName, appNames }
+  return { projectName }
 }
 
 function getDefaultConfig() {
-  return { projectName: 'My Project', appNames: ['app'] }
+  return { projectName: 'My Project' }
 }
 
 function generateRulesContent(cfg, hints = {}) {
-  const appNames = (cfg.appNames || ['app']).join(', ')
   return `---
 version: "1.0"
 project_name: "${cfg.projectName || 'My Project'}"
-app_names: [${appNames}]
 _detected_stacks: [${buildStacksSummary(hints).map(s => `"${s}"`).join(', ')}]
 
 depth_policy:
   default_max: 3
-  group_trigger: 5
-  group_warn: 8
   overrides:
     specs: 4
     data: 3
@@ -340,6 +334,8 @@ prompt_overrides:
   protected:
     - drift-summary
     - ask-sync
+    - conform-check
+    - conform-resolve
 ---
 
 # Knowledge Base Rules

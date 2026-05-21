@@ -1,17 +1,41 @@
 const fs = require('fs')
 const path = require('path')
 const matter = require('gray-matter')
+const { loadRules } = require('./rules')
 
-// Project-local prompts (cwd/knowledge/_templates/prompts) take priority.
-// Falls back to prompts bundled with the MCP server when the project doesn't have them yet.
-const PROJECT_PROMPTS_DIR = 'knowledge/_templates/prompts'
+// Fallback values used when prompt_overrides config can't be resolved (e.g.
+// _rules.md missing). Match getDefaultRules().prompt_overrides.
+const DEFAULT_BASE_DIR = 'knowledge/_templates/prompts'
+const DEFAULT_OVERRIDE_DIR = 'knowledge/_prompt-overrides'
 const BUNDLED_PROMPTS_DIR = path.join(__dirname, '../../_templates/prompts')
-const OVERRIDE_DIR = 'knowledge/_prompt-overrides'
+const DEFAULT_VALID_TYPES = ['replace', 'extend-before', 'extend-after', 'suppress', 'section-replace']
+const DEFAULT_PROTECTED = ['drift-summary', 'ask-sync', 'conform-check', 'conform-resolve']
 
-const PROTECTED = ['drift-summary', 'ask-sync', 'conform-check', 'conform-resolve']
+function getOverridesConfig() {
+  try {
+    const cfg = loadRules('knowledge').getPromptOverrides() || {}
+    return {
+      base_dir: cfg.base_dir || DEFAULT_BASE_DIR,
+      override_dir: cfg.override_dir || DEFAULT_OVERRIDE_DIR,
+      valid_override_types: Array.isArray(cfg.valid_override_types) && cfg.valid_override_types.length
+        ? cfg.valid_override_types
+        : DEFAULT_VALID_TYPES,
+      suppress_requires_reason: cfg.suppress_requires_reason !== false,
+      protected: Array.isArray(cfg.protected) ? cfg.protected : DEFAULT_PROTECTED
+    }
+  } catch {
+    return {
+      base_dir: DEFAULT_BASE_DIR,
+      override_dir: DEFAULT_OVERRIDE_DIR,
+      valid_override_types: DEFAULT_VALID_TYPES,
+      suppress_requires_reason: true,
+      protected: DEFAULT_PROTECTED
+    }
+  }
+}
 
-function resolveBaseDir() {
-  if (fs.existsSync(PROJECT_PROMPTS_DIR)) return PROJECT_PROMPTS_DIR
+function resolveBaseDir(configuredBaseDir) {
+  if (fs.existsSync(configuredBaseDir)) return configuredBaseDir
   return BUNDLED_PROMPTS_DIR
 }
 
@@ -40,8 +64,9 @@ function mergeSection(baseContent, overrideContent, sectionName) {
 }
 
 function resolvePrompt(promptName, context = {}) {
-  const basePath = path.join(resolveBaseDir(), `${promptName}.md`)
-  const overridePath = path.join(OVERRIDE_DIR, `${promptName}.md`)
+  const cfg = getOverridesConfig()
+  const basePath = path.join(resolveBaseDir(cfg.base_dir), `${promptName}.md`)
+  const overridePath = path.join(cfg.override_dir, `${promptName}.md`)
 
   const base = loadFile(basePath)
   if (!base) throw new Error(`Base prompt not found: ${promptName}`)
@@ -54,10 +79,21 @@ function resolvePrompt(promptName, context = {}) {
 
   const { override: type, section, reason } = override.data
 
+  if (!cfg.valid_override_types.includes(type)) {
+    throw new Error(
+      `Invalid override type: ${type}. Valid: ${cfg.valid_override_types.join(', ')}`
+    )
+  }
+
   if (type === 'suppress') {
-    if (PROTECTED.includes(promptName)) {
+    if (cfg.protected.includes(promptName)) {
       throw new Error(
         `Prompt "${promptName}" is protected and cannot be suppressed.`
+      )
+    }
+    if (cfg.suppress_requires_reason && !reason) {
+      throw new Error(
+        `Prompt override "${promptName}" uses suppress but is missing required reason: field`
       )
     }
     return null

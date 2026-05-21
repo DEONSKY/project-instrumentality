@@ -5,6 +5,7 @@ const { loadGraph, getAlwaysLoad, getByScope } = require('../lib/graph')
 const { estimateTokens, totalTokens } = require('../lib/budget')
 const { loadRules } = require('../lib/rules')
 const { loadStandardsIndex, findStandardsForPath, inferAppScope } = require('../lib/standards')
+const { inferType } = require('../lib/types')
 
 const KB_ROOT = 'knowledge'
 const DEFAULT_MAX_TOKENS = 8000
@@ -352,28 +353,17 @@ function loadFile(filePath) {
   try {
     const raw = fs.readFileSync(fullPath, 'utf8')
     const parsed = matter(raw)
+    const relPath = filePath.startsWith('knowledge/') ? filePath.slice('knowledge/'.length) : filePath
     return {
       path: filePath.startsWith('knowledge/') ? filePath : `knowledge/${filePath}`,
       id: parsed.data.id || path.basename(fullPath, '.md'),
-      type: parsed.data.type || inferType(fullPath),
+      type: parsed.data.type || inferType(relPath),
       app_scope: parsed.data.app_scope || 'all',
       content: parsed.content
     }
   } catch (e) {
     return null
   }
-}
-
-function inferType(filePath) {
-  if (filePath.includes('/features/')) return 'feature'
-  if (filePath.includes('/flows/')) return 'flow'
-  if (filePath.includes('/data/schema/')) return 'schema'
-  if (filePath.includes('/validation/')) return 'validation'
-  if (filePath.includes('/integrations/')) return 'integration'
-  if (filePath.includes('/decisions/')) return 'decision'
-  if (filePath.includes('/standards/')) return 'standard'
-  if (filePath.includes('/ui/')) return 'ui'
-  return 'general'
 }
 
 // ── task context helpers ─────────────────────────────────────────────────────
@@ -383,7 +373,7 @@ const TYPE_HINT_KEYWORDS = {
   flows: ['flow', 'process', 'workflow', 'pipeline'],
   'data/schema': ['schema', 'model', 'entity', 'table', 'database'],
   validation: ['validation', 'validator', 'rule', 'constraint'],
-  ui: ['component', 'button', 'form', 'modal', 'layout'],
+  components: ['component', 'button', 'form', 'modal', 'layout'],
   integrations: ['integration', 'api', 'webhook', 'external'],
   'standards/code': ['component', 'api', 'test', 'testing', 'code', 'style'],
   'standards/knowledge': ['feature', 'flow', 'schema', 'document', 'kb'],
