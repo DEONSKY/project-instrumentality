@@ -97,19 +97,39 @@
     }
 
     /* Alert hexes — fixed-position project-themed ornaments at viewport
-       edges: DRIFT / CONFORM / SYNC. Low opacity, staggered flicker. */
+       edges: DRIFT / CONFORM / SYNC. Each has a main hex (cycled via
+       flicker, staccato) plus a satellite group that breathes slowly
+       and independently (smooth ease in/out, 10s cycle). The two
+       animations run on inner SVG <g> groups so they're decoupled. */
     .alert-hex {
       position: fixed;
-      width: 130px;
-      height: 150px;
+      width: 180px;
+      height: 200px;
       pointer-events: none;
       z-index: 0;
-      animation: alert-flicker 7s ease-in-out infinite;
     }
     .alert-hex svg { width: 100%; height: 100%; display: block; }
-    .alert-hex.ah-tl { top: 96px;  left: -38px; animation-delay: 0s; }
-    .alert-hex.ah-tr { top: 220px; right: -42px; animation-delay: 2.4s; }
-    .alert-hex.ah-bl { bottom: 90px; left: -32px; animation-delay: 4.8s; }
+    .alert-hex.ah-tl { top: 96px;  left: -38px; }
+    .alert-hex.ah-tr { top: 220px; right: -42px; }
+    .alert-hex.ah-bl { bottom: 90px; left: -32px; }
+
+    .alert-main {
+      animation: alert-flicker 7s ease-in-out infinite;
+      transform-origin: center;
+    }
+    .alert-sats {
+      animation: sat-fade 10s ease-in-out infinite;
+      transform-origin: center;
+    }
+    /* Staggered phases so the three clusters don't pulse in unison.
+       Main flicker and sat fade use independent staggers. */
+    .ah-tl .alert-main { animation-delay: 0s;   }
+    .ah-tr .alert-main { animation-delay: 2.4s; }
+    .ah-bl .alert-main { animation-delay: 4.8s; }
+    .ah-tl .alert-sats { animation-delay: 0s;   }
+    .ah-tr .alert-sats { animation-delay: 3.4s; }
+    .ah-bl .alert-sats { animation-delay: 6.8s; }
+
     @keyframes alert-flicker {
       0%, 100% { opacity: 0.32; }
       42%      { opacity: 0.32; }
@@ -118,6 +138,13 @@
       50%      { opacity: 0.32; }
       52%      { opacity: 0.75; }
       54%      { opacity: 0.32; }
+    }
+    /* Satellite group breathes smoothly from near-invisible to full.
+       Multiplied by per-polygon stroke-opacity (0.40 / 0.18) for the
+       final radial fade-out effect. */
+    @keyframes sat-fade {
+      0%, 100% { opacity: 0.12; }
+      50%      { opacity: 1; }
     }
 
     /* Make sure content paints above bg layers. The topnav already has
@@ -957,7 +984,9 @@
       .flow-diagram svg .outcome-good-2,
       .site-bg,
       .scan-line,
-      .alert-hex { animation: none; }
+      .alert-hex,
+      .alert-main,
+      .alert-sats { animation: none; }
       .scan-line { display: none; }
       .alert-hex { opacity: 0.38; }
     }
@@ -1029,50 +1058,146 @@
   <div class="scan-line" aria-hidden="true"></div>
 
   <div class="alert-hex ah-tl" aria-hidden="true">
-    <svg viewBox="0 0 130 150" xmlns="http://www.w3.org/2000/svg">
-      <polygon points="65,5 124,38 124,112 65,145 6,112 6,38"
-               fill="rgba(204,34,0,0.18)" stroke="#ff5500" stroke-width="1.5" stroke-opacity="0.55"/>
-      <polygon points="65,18 110,44 110,106 65,132 20,106 20,44"
-               fill="none" stroke="#ff5500" stroke-width="0.8" stroke-opacity="0.35"/>
-      <text x="65" y="83" text-anchor="middle"
-            font-family="Arial Black, Impact, sans-serif" font-size="17"
-            font-weight="900" fill="#ff5500" fill-opacity="0.85"
-            letter-spacing="0.5">DRIFT</text>
-      <text x="65" y="98" text-anchor="middle"
-            font-family="'Courier New',monospace" font-size="7"
-            fill="#ff8800" fill-opacity="0.7" letter-spacing="1.2">PM-GATED</text>
+    <svg viewBox="0 0 180 200" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <!-- Tight radial gradient — fade reaches alpha=0 well inside
+             the viewBox (radius 150 vs. far corner ~170) so satellites
+             smoothly dissolve into transparency BEFORE they'd be clipped.
+             Inner 40% is full alpha so the immediate honeycomb stays
+             clearly visible. -->
+        <radialGradient id="fade-tl" cx="65" cy="75" r="150" gradientUnits="userSpaceOnUse">
+          <stop offset="0%"  stop-color="white"/>
+          <stop offset="40%" stop-color="white"/>
+          <stop offset="95%" stop-color="black"/>
+        </radialGradient>
+        <mask id="sat-mask-tl" maskUnits="userSpaceOnUse">
+          <rect x="-150" y="-150" width="500" height="500" fill="url(#fade-tl)"/>
+        </mask>
+      </defs>
+      <g class="alert-sats" mask="url(#sat-mask-tl)">
+        <!-- Full 1st-ring of adjacent neighbors. All equidistant from
+             main; the mask fades them based on distance from center. -->
+        <!-- E -->
+        <polygon points="183,5 242,38 242,112 183,145 124,112 124,38"
+                 fill="none" stroke="#ff5500" stroke-width="1.1" stroke-opacity="0.60"/>
+        <!-- NE -->
+        <polygon points="124,-100 183,-67 183,7 124,40 65,7 65,-67"
+                 fill="none" stroke="#ff5500" stroke-width="1.1" stroke-opacity="0.60"/>
+        <!-- SE -->
+        <polygon points="124,110 183,145 183,215 124,250 65,215 65,145"
+                 fill="none" stroke="#ff5500" stroke-width="1.1" stroke-opacity="0.60"/>
+        <!-- NW (mostly off top-left, partial corner visible) -->
+        <polygon points="6,-100 65,-67 65,7 6,40 -53,7 -53,-67"
+                 fill="none" stroke="#ff5500" stroke-width="1.1" stroke-opacity="0.60"/>
+        <!-- SW (mostly off bottom-left, partial corner visible) -->
+        <polygon points="6,110 65,145 65,215 6,250 -53,215 -53,145"
+                 fill="none" stroke="#ff5500" stroke-width="1.1" stroke-opacity="0.60"/>
+      </g>
+      <g class="alert-main">
+        <polygon points="65,5 124,38 124,112 65,145 6,112 6,38"
+                 fill="rgba(204,34,0,0.18)" stroke="#ff5500" stroke-width="1.5" stroke-opacity="0.55"/>
+        <polygon points="65,18 110,44 110,106 65,132 20,106 20,44"
+                 fill="none" stroke="#ff5500" stroke-width="0.8" stroke-opacity="0.35"/>
+        <text x="65" y="83" text-anchor="middle"
+              font-family="Arial Black, Impact, sans-serif" font-size="17"
+              font-weight="900" fill="#ff5500" fill-opacity="0.85"
+              letter-spacing="0.5">DRIFT</text>
+        <text x="65" y="98" text-anchor="middle"
+              font-family="'Courier New',monospace" font-size="7"
+              fill="#ff8800" fill-opacity="0.7" letter-spacing="1.2">PM-GATED</text>
+      </g>
     </svg>
   </div>
 
   <div class="alert-hex ah-tr" aria-hidden="true">
-    <svg viewBox="0 0 130 150" xmlns="http://www.w3.org/2000/svg">
-      <polygon points="65,5 124,38 124,112 65,145 6,112 6,38"
-               fill="rgba(8,0,1,0.85)" stroke="#ff5500" stroke-width="1.5" stroke-opacity="0.55"/>
-      <polygon points="65,18 110,44 110,106 65,132 20,106 20,44"
-               fill="none" stroke="#ff5500" stroke-width="0.8" stroke-opacity="0.35"/>
-      <text x="65" y="80" text-anchor="middle"
-            font-family="Arial Black, Impact, sans-serif" font-size="14"
-            font-weight="900" fill="#ff5500" fill-opacity="0.85"
-            letter-spacing="0.5">CONFORM</text>
-      <text x="65" y="95" text-anchor="middle"
-            font-family="'Courier New',monospace" font-size="7"
-            fill="#ff8800" fill-opacity="0.65" letter-spacing="1.2">PHASE 1.5</text>
+    <svg viewBox="0 0 180 200" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="fade-tr" cx="115" cy="75" r="150" gradientUnits="userSpaceOnUse">
+          <stop offset="0%"  stop-color="white"/>
+          <stop offset="40%" stop-color="white"/>
+          <stop offset="95%" stop-color="black"/>
+        </radialGradient>
+        <mask id="sat-mask-tr" maskUnits="userSpaceOnUse">
+          <rect x="-250" y="-150" width="500" height="500" fill="url(#fade-tr)"/>
+        </mask>
+      </defs>
+      <g class="alert-sats" mask="url(#sat-mask-tr)">
+        <!-- W -->
+        <polygon points="-3,5 56,38 56,112 -3,145 -62,112 -62,38"
+                 fill="none" stroke="#ff5500" stroke-width="1.1" stroke-opacity="0.60"/>
+        <!-- NW -->
+        <polygon points="56,-100 115,-67 115,7 56,40 -3,7 -3,-67"
+                 fill="none" stroke="#ff5500" stroke-width="1.1" stroke-opacity="0.60"/>
+        <!-- SW -->
+        <polygon points="56,110 115,145 115,215 56,250 -3,215 -3,145"
+                 fill="none" stroke="#ff5500" stroke-width="1.1" stroke-opacity="0.60"/>
+        <!-- NE (mostly off top-right, partial corner visible) -->
+        <polygon points="174,-100 233,-67 233,7 174,40 115,7 115,-67"
+                 fill="none" stroke="#ff5500" stroke-width="1.1" stroke-opacity="0.60"/>
+        <!-- SE (mostly off bottom-right, partial corner visible) -->
+        <polygon points="174,110 233,145 233,215 174,250 115,215 115,145"
+                 fill="none" stroke="#ff5500" stroke-width="1.1" stroke-opacity="0.60"/>
+      </g>
+      <g class="alert-main">
+        <!-- Shifted +50 in x to stay anchored to viewport right edge -->
+        <polygon points="115,5 174,38 174,112 115,145 56,112 56,38"
+                 fill="rgba(8,0,1,0.85)" stroke="#ff5500" stroke-width="1.5" stroke-opacity="0.55"/>
+        <polygon points="115,18 160,44 160,106 115,132 70,106 70,44"
+                 fill="none" stroke="#ff5500" stroke-width="0.8" stroke-opacity="0.35"/>
+        <text x="115" y="80" text-anchor="middle"
+              font-family="Arial Black, Impact, sans-serif" font-size="14"
+              font-weight="900" fill="#ff5500" fill-opacity="0.85"
+              letter-spacing="0.5">CONFORM</text>
+        <text x="115" y="95" text-anchor="middle"
+              font-family="'Courier New',monospace" font-size="7"
+              fill="#ff8800" fill-opacity="0.65" letter-spacing="1.2">PHASE 1.5</text>
+      </g>
     </svg>
   </div>
 
   <div class="alert-hex ah-bl" aria-hidden="true">
-    <svg viewBox="0 0 130 150" xmlns="http://www.w3.org/2000/svg">
-      <polygon points="65,5 124,38 124,112 65,145 6,112 6,38"
-               fill="rgba(204,34,0,0.18)" stroke="#ff5500" stroke-width="1.5" stroke-opacity="0.55"/>
-      <polygon points="65,18 110,44 110,106 65,132 20,106 20,44"
-               fill="none" stroke="#ff5500" stroke-width="0.8" stroke-opacity="0.35"/>
-      <text x="65" y="83" text-anchor="middle"
-            font-family="Arial Black, Impact, sans-serif" font-size="19"
-            font-weight="900" fill="#ff5500" fill-opacity="0.85"
-            letter-spacing="0.5">SYNC</text>
-      <text x="65" y="98" text-anchor="middle"
-            font-family="'Courier New',monospace" font-size="7"
-            fill="#ff8800" fill-opacity="0.65" letter-spacing="1.2">BIDIRECTIONAL</text>
+    <svg viewBox="0 0 180 200" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="fade-bl" cx="65" cy="125" r="150" gradientUnits="userSpaceOnUse">
+          <stop offset="0%"  stop-color="white"/>
+          <stop offset="40%" stop-color="white"/>
+          <stop offset="95%" stop-color="black"/>
+        </radialGradient>
+        <mask id="sat-mask-bl" maskUnits="userSpaceOnUse">
+          <rect x="-150" y="-250" width="500" height="500" fill="url(#fade-bl)"/>
+        </mask>
+      </defs>
+      <g class="alert-sats" mask="url(#sat-mask-bl)">
+        <!-- E -->
+        <polygon points="183,55 242,88 242,162 183,195 124,162 124,88"
+                 fill="none" stroke="#ff5500" stroke-width="1.1" stroke-opacity="0.60"/>
+        <!-- NE -->
+        <polygon points="124,-50 183,-17 183,57 124,90 65,57 65,-17"
+                 fill="none" stroke="#ff5500" stroke-width="1.1" stroke-opacity="0.60"/>
+        <!-- NW (partial — extends left off canvas) -->
+        <polygon points="6,-50 65,-17 65,57 6,90 -53,57 -53,-17"
+                 fill="none" stroke="#ff5500" stroke-width="1.1" stroke-opacity="0.60"/>
+        <!-- SE (extends down off canvas, partial top visible) -->
+        <polygon points="124,160 183,193 183,267 124,300 65,267 65,193"
+                 fill="none" stroke="#ff5500" stroke-width="1.1" stroke-opacity="0.60"/>
+        <!-- SW (extends down-left off canvas, partial top-right visible) -->
+        <polygon points="6,160 65,193 65,267 6,300 -53,267 -53,193"
+                 fill="none" stroke="#ff5500" stroke-width="1.1" stroke-opacity="0.60"/>
+      </g>
+      <g class="alert-main">
+        <!-- Shifted +50 in y to stay anchored to viewport bottom -->
+        <polygon points="65,55 124,88 124,162 65,195 6,162 6,88"
+                 fill="rgba(204,34,0,0.18)" stroke="#ff5500" stroke-width="1.5" stroke-opacity="0.55"/>
+        <polygon points="65,68 110,94 110,156 65,182 20,156 20,94"
+                 fill="none" stroke="#ff5500" stroke-width="0.8" stroke-opacity="0.35"/>
+        <text x="65" y="133" text-anchor="middle"
+              font-family="Arial Black, Impact, sans-serif" font-size="19"
+              font-weight="900" fill="#ff5500" fill-opacity="0.85"
+              letter-spacing="0.5">SYNC</text>
+        <text x="65" y="148" text-anchor="middle"
+              font-family="'Courier New',monospace" font-size="7"
+              fill="#ff8800" fill-opacity="0.65" letter-spacing="1.2">BIDIRECTIONAL</text>
+      </g>
     </svg>
   </div>
 
