@@ -34,14 +34,100 @@
 
     html { scroll-behavior: smooth; }
 
+    html { background: var(--bg); }
     body {
       margin: 0;
-      background: var(--bg);
+      background: transparent;
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
       font-size: 16px;
       line-height: 1.6;
       -webkit-font-smoothing: antialiased;
+      position: relative;
+    }
+
+    /* ============================================================
+       Site background — fixed radial vignette only (no full-page
+       hex tiling). Project-themed alert hexes pin to corners as
+       small accents. Scan-line sweeps the viewport.
+       All layers pointer-events: none and sit at z-index 0.
+       ============================================================ */
+    .site-bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background-image:
+        radial-gradient(ellipse 1200px 800px at 50% 25%, transparent 0%, rgba(0, 0, 0, 0.55) 100%);
+      background-size: 100% 100%;
+      background-repeat: no-repeat;
+      background-position: center top;
+    }
+
+    /* Scan-line — thin horizontal sweep that travels the viewport.
+       Telemetry-ambient, not film overlay. */
+    .scan-line {
+      position: fixed;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 2px;
+      pointer-events: none;
+      z-index: 0;
+      background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 85, 0, 0.0) 5%,
+        rgba(255, 85, 0, 0.35) 35%,
+        rgba(255, 136, 0, 0.55) 50%,
+        rgba(255, 85, 0, 0.35) 65%,
+        rgba(255, 85, 0, 0.0) 95%,
+        transparent 100%
+      );
+      filter: blur(0.4px);
+      opacity: 0;
+      animation: scan-down 26s linear infinite;
+    }
+    @keyframes scan-down {
+      0%   { transform: translateY(-4vh); opacity: 0; }
+      4%   { opacity: 0.5; }
+      40%  { transform: translateY(102vh); opacity: 0.5; }
+      45%  { opacity: 0; transform: translateY(102vh); }
+      100% { opacity: 0; transform: translateY(102vh); }
+    }
+
+    /* Alert hexes — fixed-position project-themed ornaments at viewport
+       edges: DRIFT / CONFORM / SYNC. Low opacity, staggered flicker. */
+    .alert-hex {
+      position: fixed;
+      width: 130px;
+      height: 150px;
+      pointer-events: none;
+      z-index: 0;
+      animation: alert-flicker 7s ease-in-out infinite;
+    }
+    .alert-hex svg { width: 100%; height: 100%; display: block; }
+    .alert-hex.ah-tl { top: 96px;  left: -38px; animation-delay: 0s; }
+    .alert-hex.ah-tr { top: 220px; right: -42px; animation-delay: 2.4s; }
+    .alert-hex.ah-bl { bottom: 90px; left: -32px; animation-delay: 4.8s; }
+    @keyframes alert-flicker {
+      0%, 100% { opacity: 0.32; }
+      42%      { opacity: 0.32; }
+      44%      { opacity: 0.82; }
+      46%      { opacity: 0.32; }
+      50%      { opacity: 0.32; }
+      52%      { opacity: 0.75; }
+      54%      { opacity: 0.32; }
+    }
+
+    /* Make sure content paints above bg layers. The topnav already has
+       its own sticky stacking (z-index 100) so we don't touch it. */
+    .hero,
+    section,
+    .stats-strip-wrap,
+    footer.site-footer {
+      position: relative;
+      z-index: 1;
     }
 
     a { color: var(--accent-bright); text-decoration: none; }
@@ -868,7 +954,12 @@
       .hero-ornament.tl,
       .hero-ornament.br,
       .flow-diagram svg .outcome-good,
-      .flow-diagram svg .outcome-good-2 { animation: none; }
+      .flow-diagram svg .outcome-good-2,
+      .site-bg,
+      .scan-line,
+      .alert-hex { animation: none; }
+      .scan-line { display: none; }
+      .alert-hex { opacity: 0.38; }
     }
 
     /* ============================================================
@@ -910,6 +1001,8 @@
       h2.section-title { font-size: 1.6em; }
       .stats-strip { gap: 18px; padding: 18px 16px; }
       .stat-num { font-size: 1.7em; }
+      /* Alert hexes would overlap narrow content. Hide them. */
+      .alert-hex { display: none; }
     }
     @media (max-width: 480px) {
       .qs-step { grid-template-columns: 40px 1fr; gap: 14px; }
@@ -928,6 +1021,60 @@
   </style>
 </head>
 <body>
+
+  <!-- Fixed background — radial vignette. Scan-line sweeps the
+       viewport. Project-themed alert hexes (DRIFT / CONFORM / SYNC)
+       pin to corners. All sit at z-index 0, behind content (z-index 1). -->
+  <div class="site-bg" aria-hidden="true"></div>
+  <div class="scan-line" aria-hidden="true"></div>
+
+  <div class="alert-hex ah-tl" aria-hidden="true">
+    <svg viewBox="0 0 130 150" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="65,5 124,38 124,112 65,145 6,112 6,38"
+               fill="rgba(204,34,0,0.18)" stroke="#ff5500" stroke-width="1.5" stroke-opacity="0.55"/>
+      <polygon points="65,18 110,44 110,106 65,132 20,106 20,44"
+               fill="none" stroke="#ff5500" stroke-width="0.8" stroke-opacity="0.35"/>
+      <text x="65" y="83" text-anchor="middle"
+            font-family="Arial Black, Impact, sans-serif" font-size="17"
+            font-weight="900" fill="#ff5500" fill-opacity="0.85"
+            letter-spacing="0.5">DRIFT</text>
+      <text x="65" y="98" text-anchor="middle"
+            font-family="'Courier New',monospace" font-size="7"
+            fill="#ff8800" fill-opacity="0.7" letter-spacing="1.2">PM-GATED</text>
+    </svg>
+  </div>
+
+  <div class="alert-hex ah-tr" aria-hidden="true">
+    <svg viewBox="0 0 130 150" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="65,5 124,38 124,112 65,145 6,112 6,38"
+               fill="rgba(8,0,1,0.85)" stroke="#ff5500" stroke-width="1.5" stroke-opacity="0.55"/>
+      <polygon points="65,18 110,44 110,106 65,132 20,106 20,44"
+               fill="none" stroke="#ff5500" stroke-width="0.8" stroke-opacity="0.35"/>
+      <text x="65" y="80" text-anchor="middle"
+            font-family="Arial Black, Impact, sans-serif" font-size="14"
+            font-weight="900" fill="#ff5500" fill-opacity="0.85"
+            letter-spacing="0.5">CONFORM</text>
+      <text x="65" y="95" text-anchor="middle"
+            font-family="'Courier New',monospace" font-size="7"
+            fill="#ff8800" fill-opacity="0.65" letter-spacing="1.2">PHASE 1.5</text>
+    </svg>
+  </div>
+
+  <div class="alert-hex ah-bl" aria-hidden="true">
+    <svg viewBox="0 0 130 150" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="65,5 124,38 124,112 65,145 6,112 6,38"
+               fill="rgba(204,34,0,0.18)" stroke="#ff5500" stroke-width="1.5" stroke-opacity="0.55"/>
+      <polygon points="65,18 110,44 110,106 65,132 20,106 20,44"
+               fill="none" stroke="#ff5500" stroke-width="0.8" stroke-opacity="0.35"/>
+      <text x="65" y="83" text-anchor="middle"
+            font-family="Arial Black, Impact, sans-serif" font-size="19"
+            font-weight="900" fill="#ff5500" fill-opacity="0.85"
+            letter-spacing="0.5">SYNC</text>
+      <text x="65" y="98" text-anchor="middle"
+            font-family="'Courier New',monospace" font-size="7"
+            fill="#ff8800" fill-opacity="0.65" letter-spacing="1.2">BIDIRECTIONAL</text>
+    </svg>
+  </div>
 
   <!-- ============================================================
        Top nav
