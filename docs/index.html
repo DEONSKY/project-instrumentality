@@ -445,25 +445,39 @@
       line-height: 1.55;
       margin-bottom: 16px;
     }
-    .cap-chips {
+    /* Tool detail list — replaces simple chips with name + one-liner.
+       Each row is a 2-column grid: monospace tool name, prose description. */
+    .cap-tools {
       display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
+      flex-direction: column;
+      border-top: 1px dashed var(--border-soft);
+      margin-top: 4px;
     }
-    .chip {
+    .tool-row {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px dashed var(--border-soft);
+      align-items: baseline;
+    }
+    .tool-row:last-child { border-bottom: none; }
+    .tool-name {
       font-family: "Courier New", monospace;
-      font-size: 0.84em;
       color: var(--accent);
+      font-size: 0.92em;
+      font-weight: 600;
       background: rgba(255, 85, 0, 0.06);
-      border: 1px solid var(--border-soft);
-      padding: 3px 9px;
-      border-radius: 12px;
-      transition: background 0.15s, border-color 0.15s, transform 0.15s;
+      padding: 2px 8px;
+      border-radius: 2px;
+      text-align: center;
+      letter-spacing: 0;
+      white-space: nowrap;
     }
-    .chip:hover {
-      background: rgba(255, 85, 0, 0.15);
-      border-color: var(--accent);
-      transform: translateY(-1px);
+    .tool-when {
+      color: var(--text-dim);
+      font-size: 0.9em;
+      line-height: 1.5;
     }
     .cap-footnote {
       margin-top: 26px;
@@ -472,6 +486,85 @@
       font-size: 0.86em;
       text-align: center;
       letter-spacing: 0.04em;
+    }
+
+    /* ============================================================
+       Flows — worked scenarios chaining MCP tools in practice.
+       ============================================================ */
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 18px;
+    }
+    .flow-card {
+      background: var(--card);
+      border: 1px solid var(--border-soft);
+      border-top: 1px solid var(--accent-deep);
+      border-radius: 3px;
+      padding: 24px 22px 20px;
+      display: flex;
+      flex-direction: column;
+    }
+    .flow-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-family: "Courier New", monospace;
+      font-size: 0.74em;
+      color: var(--muted);
+      letter-spacing: 0.18em;
+      margin-bottom: 8px;
+    }
+    .flow-meta .flow-tag { color: var(--accent); }
+    .flow-title {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 1.3em;
+      font-weight: 600;
+      margin: 0 0 8px;
+      color: var(--text);
+    }
+    .flow-line {
+      font-size: 0.93em;
+      color: var(--text-dim);
+      margin: 0 0 6px;
+      line-height: 1.5;
+    }
+    .flow-line b {
+      font-family: "Courier New", monospace;
+      color: var(--accent);
+      font-size: 0.82em;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-right: 6px;
+      font-weight: 600;
+    }
+    .flow-diagram {
+      margin: 14px 0 0;
+      padding: 12px 10px 8px;
+      background: rgba(8, 0, 1, 0.55);
+      border: 1px solid var(--border-soft);
+      border-left: 3px solid var(--accent-deep);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .flow-diagram svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: 420px;
+    }
+    /* Pulsing positive-outcome boxes in the flow SVGs — slow MAGI-style breathe. */
+    @keyframes outcome-breath {
+      0%, 100% { opacity: 0.85; }
+      50%      { opacity: 1; }
+    }
+    .flow-diagram svg .outcome-good {
+      animation: outcome-breath 2.6s ease-in-out infinite;
+      transform-origin: center;
+    }
+    .flow-diagram svg .outcome-good-2 {
+      animation: outcome-breath 2.6s ease-in-out infinite;
+      animation-delay: 0.4s;
     }
 
     /* ============================================================
@@ -684,6 +777,101 @@
     .footer-links a:hover { color: var(--accent); }
 
     /* ============================================================
+       Animations — scroll reveal, MAGI status pulse, central diamond
+       breath. All respect prefers-reduced-motion.
+       ============================================================ */
+    .reveal {
+      opacity: 0;
+      transform: translateY(18px);
+      transition:
+        opacity 0.7s cubic-bezier(0.22, 0.61, 0.36, 1),
+        transform 0.7s cubic-bezier(0.22, 0.61, 0.36, 1);
+      will-change: opacity, transform;
+    }
+    .reveal.is-revealed {
+      opacity: 1;
+      transform: none;
+    }
+    /* Stagger children within the same group so cards cascade in. */
+    .reveal-group > .reveal {
+      transition-delay: 0ms;
+    }
+    .reveal-group > .reveal:nth-child(2) { transition-delay: 80ms; }
+    .reveal-group > .reveal:nth-child(3) { transition-delay: 160ms; }
+    .reveal-group > .reveal:nth-child(4) { transition-delay: 240ms; }
+
+    /* SYS::LIVE status dot — small heartbeat next to the brand. */
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px rgba(255, 85, 0, 0.7);
+      margin-right: 8px;
+      vertical-align: middle;
+      animation: sys-pulse 1.8s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    @keyframes sys-pulse {
+      0%, 100% {
+        opacity: 1;
+        box-shadow: 0 0 6px rgba(255, 85, 0, 0.7);
+      }
+      50% {
+        opacity: 0.35;
+        box-shadow: 0 0 14px rgba(255, 136, 0, 0.85);
+      }
+    }
+
+    /* Lifecycle SVG center diamond — slow breath, like a system thinking. */
+    @keyframes core-breath {
+      0%, 100% {
+        opacity: 0.85;
+        transform: scale(1);
+      }
+      50% {
+        opacity: 1;
+        transform: scale(1.06);
+      }
+    }
+    .lifecycle-svg .core-pulse {
+      transform-origin: 280px 160px;
+      transform-box: fill-box;
+      animation: core-breath 2.8s ease-in-out infinite;
+    }
+    /* Lifecycle SVG center glow — subtle radial throb behind the diamond. */
+    @keyframes core-glow {
+      0%, 100% { opacity: 0.55; }
+      50%      { opacity: 0.95; }
+    }
+    .lifecycle-svg .core-glow {
+      animation: core-glow 2.8s ease-in-out infinite;
+      transform-origin: center;
+    }
+
+    /* Hero AT-Field diamond ornaments — very slow drift for ambient motion. */
+    @keyframes drift-rotate {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+    .hero-ornament.tl { animation: drift-rotate 120s linear infinite; transform-origin: center; }
+    .hero-ornament.br { animation: drift-rotate 120s linear infinite reverse; transform-origin: center; }
+
+    /* Reduced-motion users get a static page. */
+    @media (prefers-reduced-motion: reduce) {
+      .reveal,
+      .reveal.is-revealed { opacity: 1; transform: none; transition: none; }
+      .status-dot,
+      .lifecycle-svg .core-pulse,
+      .lifecycle-svg .core-glow,
+      .hero-ornament.tl,
+      .hero-ornament.br,
+      .flow-diagram svg .outcome-good,
+      .flow-diagram svg .outcome-good-2 { animation: none; }
+    }
+
+    /* ============================================================
        Responsive
        ============================================================ */
     @media (max-width: 880px) {
@@ -703,7 +891,8 @@
       .nav-toggle { display: inline-block; }
       .topnav-inner { position: relative; }
 
-      .pull-row, .cap-grid, .ext-grid { grid-template-columns: 1fr; }
+      .pull-row, .cap-grid, .ext-grid, .flow-grid { grid-template-columns: 1fr; }
+      .tool-row { grid-template-columns: 100px 1fr; gap: 10px; }
       .lifecycle-wrap { grid-template-columns: 1fr; }
       .hero-inner {
         grid-template-columns: 1fr;
@@ -746,6 +935,7 @@
   <header class="topnav">
     <div class="topnav-inner">
       <a href="#top" class="brand" aria-label="Instrumentality-MCP home">
+        <span class="status-dot" aria-hidden="true" title="SYS :: LIVE"></span>
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <circle cx="12" cy="12" r="10" fill="none" stroke="var(--accent)" stroke-width="2"/>
           <polygon points="12,3 21,12 12,21 3,12" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>
@@ -762,6 +952,7 @@
         <a href="#overview">Overview</a>
         <a href="#capabilities">Capabilities</a>
         <a href="#lifecycle">Lifecycle</a>
+        <a href="#flows">Flows</a>
         <a href="#extensions">Extensions</a>
         <a href="#quickstart">Quickstart</a>
         <a href="https://github.com/DEONSKY/project-instrumentality" class="gh-cta" rel="noopener">GitHub →</a>
@@ -815,22 +1006,22 @@
   <div class="stats-strip-wrap" aria-label="Project at a glance">
     <div class="stats-strip">
       <div class="stat-cell">
-        <div class="stat-num">22</div>
+        <div class="stat-num" data-target="22">22</div>
         <div class="stat-label">Tools</div>
       </div>
       <div class="stat-divider" aria-hidden="true"></div>
       <div class="stat-cell">
-        <div class="stat-num">4</div>
+        <div class="stat-num" data-target="4">4</div>
         <div class="stat-label">Categories</div>
       </div>
       <div class="stat-divider" aria-hidden="true"></div>
       <div class="stat-cell">
-        <div class="stat-num">2</div>
+        <div class="stat-num" data-target="2">2</div>
         <div class="stat-label">Editor Surfaces</div>
       </div>
       <div class="stat-divider" aria-hidden="true"></div>
       <div class="stat-cell">
-        <div class="stat-num">0</div>
+        <div class="stat-num" data-target="0">0</div>
         <div class="stat-label">API Keys</div>
       </div>
     </div>
@@ -841,7 +1032,7 @@
        ============================================================ -->
   <section id="overview">
     <div class="section-label">Section <span class="slash">/</span> 01 <span class="slash">/</span> Overview</div>
-    <h2 class="section-title">What it is</h2>
+    <h2 class="section-title reveal">What it is</h2>
 
     <div class="overview-body">
       <p>
@@ -857,16 +1048,16 @@
       </p>
     </div>
 
-    <div class="pull-row">
-      <div class="pull">
+    <div class="pull-row reveal-group">
+      <div class="pull reveal">
         <div class="pull-key"><code>knowledge/</code> lives in git</div>
         <div class="pull-text">Structured Markdown next to your source. Versioned, diffable, reviewable in PRs — never a separate wiki to drift from.</div>
       </div>
-      <div class="pull">
+      <div class="pull reveal">
         <div class="pull-key">Bidirectional drift</div>
         <div class="pull-text">Code changes flag stale KB; KB changes flag stale code. Queues are PM-gated — nothing auto-rewrites itself.</div>
       </div>
-      <div class="pull">
+      <div class="pull reveal">
         <div class="pull-key">No API keys</div>
         <div class="pull-text">The MCP server returns prompts and context. Your agent does the reasoning. Bring whichever model you already pay for.</div>
       </div>
@@ -878,15 +1069,15 @@
        ============================================================ -->
   <section id="capabilities">
     <div class="section-label">Section <span class="slash">/</span> 02 <span class="slash">/</span> Capabilities</div>
-    <h2 class="section-title">Twenty-two MCP tools, four categories</h2>
+    <h2 class="section-title reveal">Twenty-two MCP tools, four categories</h2>
     <p class="section-intro">
       Every tool the kb-mcp server exposes — grouped the same way the in-editor Capabilities panel groups
       them. Each tool is callable by an MCP-compatible agent, and the read-only tools also back the
       sidebar dashboards in the editor extensions.
     </p>
 
-    <div class="cap-grid">
-      <div class="cap-card">
+    <div class="cap-grid reveal-group">
+      <div class="cap-card reveal">
         <div class="cap-head">
           <div class="cap-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
@@ -903,17 +1094,25 @@
         </div>
         <p class="cap-blurb">
           Detect code↔KB misalignment and coordinate the sync state surfaced in the dashboard.
-          Bidirectional drift, standards conformance, submodule coordination.
+          Bidirectional drift, submodule coordination, aggregate health.
         </p>
-        <div class="cap-chips">
-          <span class="chip">kb_drift</span>
-          <span class="chip">kb_conform</span>
-          <span class="chip">kb_sub</span>
-          <span class="chip">kb_status</span>
+        <div class="cap-tools">
+          <div class="tool-row">
+            <code class="tool-name">kb_drift</code>
+            <div class="tool-when">Detect code↔KB misalignment after recent edits and queue findings for human review.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_sub</code>
+            <div class="tool-when">Coordinate git submodules safely — status, ordered push plan, feature→main merge planning.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_status</code>
+            <div class="tool-when">Aggregate sync state in one readonly call — drifts, conform-pending, promotions, lint, HEAD SHA.</div>
+          </div>
         </div>
       </div>
 
-      <div class="cap-card">
+      <div class="cap-card reveal">
         <div class="cap-head">
           <div class="cap-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
@@ -927,20 +1126,46 @@
           </div>
         </div>
         <p class="cap-blurb">
-          Write, scaffold, import, and tag KB content. Two-phase tools that load context first,
-          let the agent fill the template, then write — so new content fits what's already there.
+          Load context, scaffold, write, import, and enrich KB content. Two-phase tools load
+          related files first so new content aligns with what's already there.
         </p>
-        <div class="cap-chips">
-          <span class="chip">kb_write</span>
-          <span class="chip">kb_scaffold</span>
-          <span class="chip">kb_import</span>
-          <span class="chip">kb_export</span>
-          <span class="chip">kb_autotag</span>
-          <span class="chip">kb_autorelate</span>
+        <div class="cap-tools">
+          <div class="tool-row">
+            <code class="tool-name">kb_get</code>
+            <div class="tool-when">Load the right KB slices into the agent's context — token-budgeted, scope-aware retrieval.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_write</code>
+            <div class="tool-when">Persist a new or updated KB file and let the indexer regenerate metadata in one step.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_scaffold</code>
+            <div class="tool-when">Spin up a new KB file from the right template and (optionally) get a fill prompt for the agent.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_import</code>
+            <div class="tool-when">Bring outside docs into the KB — extract+classify, or paginated auto-classify with an approval gate.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_analyze</code>
+            <div class="tool-when">Scan source files and group them into KB targets via <code>code_path_patterns</code> — a bootstrap aid.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_extract</code>
+            <div class="tool-when">Sample code or existing KB content and get back a prompt for deriving a standards doc from the pattern.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_autotag</code>
+            <div class="tool-when">Manage tags across KB files — fast regex auto-apply, scored review, or LLM-validated apply.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_autorelate</code>
+            <div class="tool-when">Discover related KB files via keyword overlap and propose <code>depends_on</code> links (dry-run by default).</div>
+          </div>
         </div>
       </div>
 
-      <div class="cap-card">
+      <div class="cap-card reveal">
         <div class="cap-head">
           <div class="cap-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
@@ -954,20 +1179,34 @@
           </div>
         </div>
         <p class="cap-blurb">
-          Conform code to standards, bootstrap on legacy projects, migrate after template changes,
-          and upgrade the KB schema. Standards-as-data, queue-driven enforcement.
+          Bootstrap, enforce, and evolve the KB. Standards-as-data, queue-driven conformance,
+          schema migrations, and a bridge from KB context to issue trackers.
         </p>
-        <div class="cap-chips">
-          <span class="chip">kb_init</span>
-          <span class="chip">kb_analyze</span>
-          <span class="chip">kb_extract</span>
-          <span class="chip">kb_migrate</span>
-          <span class="chip">kb_upgrade</span>
-          <span class="chip">kb_inventory</span>
+        <div class="cap-tools">
+          <div class="tool-row">
+            <code class="tool-name">kb_init</code>
+            <div class="tool-when">Bootstrap a fresh KB layout in a repo — templates, rules, agent rule files (CLAUDE.md / .cursorrules).</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_conform</code>
+            <div class="tool-when">Sweep code against standards rules; the LLM judge classifies each finding and the verdict step closes it out.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_migrate</code>
+            <div class="tool-when">After <code>_rules.md</code> changes, migrate existing KB files to match the new conventions.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_issue</code>
+            <div class="tool-when">Bridge issue trackers and the KB — triage against existing rules, plan from KB context, or consult before filing.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_upgrade</code>
+            <div class="tool-when">After upgrading the kb-mcp package, patch templates and <code>_rules.md</code> so the repo picks up new keys safely.</div>
+          </div>
         </div>
       </div>
 
-      <div class="cap-card">
+      <div class="cap-card reveal">
         <div class="cap-head">
           <div class="cap-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
@@ -981,16 +1220,34 @@
           </div>
         </div>
         <p class="cap-blurb">
-          Read-only queries over the KB and its history — fetch context for a working file,
-          ask questions, trace impact, inspect schemas, bridge to issue trackers.
+          Read-only queries over the KB and its history — ask questions, trace impact,
+          export, inspect schemas, audit decisions, and snapshot coverage health.
         </p>
-        <div class="cap-chips">
-          <span class="chip">kb_get</span>
-          <span class="chip">kb_ask</span>
-          <span class="chip">kb_impact</span>
-          <span class="chip">kb_history</span>
-          <span class="chip">kb_schema</span>
-          <span class="chip">kb_issue</span>
+        <div class="cap-tools">
+          <div class="tool-row">
+            <code class="tool-name">kb_ask</code>
+            <div class="tool-when">Free-form questions over the KB — query, brainstorm, challenge, sync-check, onboard, or generate.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_impact</code>
+            <div class="tool-when">Trace which KB files (and code paths) a proposed change would ripple into — dry-run, no writes.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_inventory</code>
+            <div class="tool-when">Read-only health snapshot — stale rules, uncovered code paths, pending promotions.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_history</code>
+            <div class="tool-when">Pull the change history of a KB file — git commits and drift-log references, optionally with patch bodies.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_schema</code>
+            <div class="tool-when">Query DBML schema files in the KB — list or extract tables and enums by keyword or exact name.</div>
+          </div>
+          <div class="tool-row">
+            <code class="tool-name">kb_export</code>
+            <div class="tool-when">Render the KB out to PDF, DOCX, Confluence, Notion, or static HTML for sharing or archive.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -1005,9 +1262,9 @@
        ============================================================ -->
   <section id="lifecycle">
     <div class="section-label">Section <span class="slash">/</span> 03 <span class="slash">/</span> Lifecycle</div>
-    <h2 class="section-title">How drift detection works</h2>
+    <h2 class="section-title reveal">How drift detection works</h2>
 
-    <div class="lifecycle-wrap">
+    <div class="lifecycle-wrap reveal">
       <svg class="lifecycle-svg" viewBox="0 0 560 320" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <defs>
           <radialGradient id="centerGlow" cx="50%" cy="50%" r="50%">
@@ -1044,9 +1301,9 @@
         <text x="465" y="125" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#a8a39c">spec edits</text>
 
         <!-- Center merge node (glow + diamond, echoes logo's central node) -->
-        <circle cx="280" cy="160" r="48" fill="url(#centerGlow)"/>
+        <circle class="core-glow" cx="280" cy="160" r="48" fill="url(#centerGlow)"/>
         <polygon points="280,128 312,160 280,192 248,160" fill="#1e0004" stroke="#ff6600" stroke-width="2"/>
-        <polygon points="280,142 298,160 280,178 262,160" fill="#ff5500"/>
+        <polygon class="core-pulse" points="280,142 298,160 280,178 262,160" fill="#ff5500"/>
         <text x="280" y="225" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#ff6600" letter-spacing="2">kb_drift</text>
         <text x="280" y="240" text-anchor="middle" font-family="'Courier New',monospace" font-size="9" fill="#884422">PM-gated</text>
 
@@ -1092,19 +1349,300 @@
   </section>
 
   <!-- ============================================================
-       Section 04 — Extensions
+       Section 04 — Flows (lifecycle diagrams from the extension)
+       ============================================================ -->
+  <section id="flows">
+    <div class="section-label">Section <span class="slash">/</span> 04 <span class="slash">/</span> Flows</div>
+    <h2 class="section-title reveal">Worked flows — what actually happens</h2>
+    <p class="section-intro">
+      The same lifecycle diagrams the in-editor extensions surface in their education banners.
+      Four canonical flows cover the bidirectional drift loop and the standards-conformance loop —
+      every drift queue entry follows one of these shapes, end to end.
+    </p>
+
+    <div class="flow-grid reveal-group">
+
+      <!-- FLOW 01 — Code Drift (code → KB) -->
+      <div class="flow-card reveal">
+        <div class="flow-meta">
+          <span class="flow-tag">FLOW :: 01</span>
+          <span>CODE → KB</span>
+        </div>
+        <h3 class="flow-title">Code Drift</h3>
+        <p class="flow-line"><b>What</b>Code changed since the last KB sync.</p>
+        <p class="flow-line"><b>Todo</b>Update the KB to reflect the change — or acknowledge if the change doesn't affect the KB.</p>
+        <div class="flow-diagram">
+          <svg viewBox="0 0 460 350" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <defs>
+              <marker id="ar01" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M0,0 L10,5 L0,10 z" fill="#ff5500"/>
+              </marker>
+            </defs>
+
+            <!-- Step 1: trigger -->
+            <rect x="150" y="14" width="160" height="30" rx="3" fill="#1c0003" stroke="#cc2200" stroke-width="1.2"/>
+            <text x="230" y="33" text-anchor="middle" font-family="'Courier New',monospace" font-size="10.5" fill="#eaeaea">git push / hook</text>
+            <line x1="230" y1="45" x2="230" y2="78" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar01)"/>
+
+            <!-- Step 2: queue entry -->
+            <rect x="150" y="80" width="160" height="30" rx="3" fill="#1c0003" stroke="#cc2200" stroke-width="1.2"/>
+            <text x="230" y="99" text-anchor="middle" font-family="'Courier New',monospace" font-size="10.5" fill="#ff8800">code-drift.md entry</text>
+            <line x1="230" y1="111" x2="230" y2="144" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar01)"/>
+
+            <!-- Step 3: agent action -->
+            <rect x="135" y="146" width="190" height="30" rx="3" fill="rgba(255,85,0,0.06)" stroke="#ff5500" stroke-width="1.4"/>
+            <text x="230" y="165" text-anchor="middle" font-family="'Courier New',monospace" font-size="10.5" fill="#ff8800">Resolve via Agent</text>
+
+            <!-- Fanout to 3 outcomes -->
+            <line x1="230" y1="176" x2="230" y2="196" stroke="#ff5500" stroke-width="1.4"/>
+            <line x1="80" y1="196" x2="380" y2="196" stroke="#ff5500" stroke-width="1.2"/>
+            <line x1="80" y1="196" x2="80" y2="216" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar01)"/>
+            <line x1="230" y1="196" x2="230" y2="216" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar01)"/>
+            <line x1="380" y1="196" x2="380" y2="216" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar01)"/>
+
+            <!-- 3 outcome boxes -->
+            <g class="outcome-good">
+              <rect x="30" y="222" width="100" height="28" rx="3" fill="rgba(255,85,0,0.14)" stroke="#ff8800" stroke-width="1.4"/>
+              <text x="80" y="240" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#ff8800" font-weight="600">Update KB</text>
+            </g>
+            <rect x="180" y="222" width="100" height="28" rx="3" fill="#1c0003" stroke="#884422" stroke-width="1.2"/>
+            <text x="230" y="240" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#eaeaea">Revert</text>
+            <rect x="330" y="222" width="100" height="28" rx="3" fill="#1c0003" stroke="#552200" stroke-width="1.2" stroke-dasharray="3 3"/>
+            <text x="380" y="240" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#a8a39c">Dismiss</text>
+
+            <!-- Converge into drift-log -->
+            <line x1="80" y1="250" x2="80" y2="276" stroke="#ff5500" stroke-width="1" stroke-opacity="0.5"/>
+            <line x1="230" y1="250" x2="230" y2="276" stroke="#ff5500" stroke-width="1" stroke-opacity="0.5"/>
+            <line x1="380" y1="250" x2="380" y2="276" stroke="#ff5500" stroke-width="1" stroke-opacity="0.5"/>
+            <line x1="80" y1="276" x2="380" y2="276" stroke="#ff5500" stroke-width="1" stroke-opacity="0.5"/>
+            <line x1="230" y1="276" x2="230" y2="298" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar01)"/>
+
+            <!-- Terminal: drift-log -->
+            <rect x="160" y="300" width="140" height="32" rx="3" fill="rgba(255,85,0,0.18)" stroke="#ff8800" stroke-width="1.5"/>
+            <text x="230" y="320" text-anchor="middle" font-family="'Courier New',monospace" font-size="10.5" font-weight="700" fill="#ff8800" letter-spacing="0.5">sync/drift-log/</text>
+          </svg>
+        </div>
+      </div>
+
+      <!-- FLOW 02 — KB Drift (KB → code) -->
+      <div class="flow-card reveal">
+        <div class="flow-meta">
+          <span class="flow-tag">FLOW :: 02</span>
+          <span>KB → CODE</span>
+        </div>
+        <h3 class="flow-title">KB Drift</h3>
+        <p class="flow-line"><b>What</b>KB content changed but the mapped code wasn't touched.</p>
+        <p class="flow-line"><b>Todo</b>Verify the code still matches, revise the KB, or acknowledge if benign.</p>
+        <div class="flow-diagram">
+          <svg viewBox="0 0 460 350" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <defs>
+              <marker id="ar02" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M0,0 L10,5 L0,10 z" fill="#ff5500"/>
+              </marker>
+            </defs>
+
+            <!-- Step 1: KB edit -->
+            <rect x="150" y="14" width="160" height="30" rx="3" fill="#1c0003" stroke="#cc2200" stroke-width="1.2"/>
+            <text x="230" y="33" text-anchor="middle" font-family="'Courier New',monospace" font-size="10.5" fill="#eaeaea">KB edit → push hook</text>
+            <line x1="230" y1="45" x2="230" y2="78" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar02)"/>
+
+            <!-- Step 2: queue entry -->
+            <rect x="150" y="80" width="160" height="30" rx="3" fill="#1c0003" stroke="#cc2200" stroke-width="1.2"/>
+            <text x="230" y="99" text-anchor="middle" font-family="'Courier New',monospace" font-size="10.5" fill="#ff8800">kb-drift.md entry</text>
+            <line x1="230" y1="111" x2="230" y2="144" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar02)"/>
+
+            <!-- Step 3: agent action -->
+            <rect x="115" y="146" width="230" height="42" rx="3" fill="rgba(255,85,0,0.06)" stroke="#ff5500" stroke-width="1.4"/>
+            <text x="230" y="162" text-anchor="middle" font-family="'Courier New',monospace" font-size="10.5" fill="#ff8800">Resolve via Agent</text>
+            <text x="230" y="178" text-anchor="middle" font-family="'Courier New',monospace" font-size="9" fill="#a8a39c">(reads diff, verifies code)</text>
+
+            <!-- Fanout to 2 outcomes -->
+            <line x1="230" y1="188" x2="230" y2="208" stroke="#ff5500" stroke-width="1.4"/>
+            <line x1="130" y1="208" x2="330" y2="208" stroke="#ff5500" stroke-width="1.2"/>
+            <line x1="130" y1="208" x2="130" y2="228" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar02)"/>
+            <line x1="330" y1="208" x2="330" y2="228" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar02)"/>
+
+            <!-- 2 outcomes -->
+            <g class="outcome-good">
+              <rect x="60" y="234" width="140" height="28" rx="3" fill="rgba(255,85,0,0.14)" stroke="#ff8800" stroke-width="1.4"/>
+              <text x="130" y="252" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#ff8800" font-weight="600">Code confirmed</text>
+            </g>
+            <rect x="260" y="234" width="140" height="28" rx="3" fill="#1c0003" stroke="#552200" stroke-width="1.2" stroke-dasharray="3 3"/>
+            <text x="330" y="252" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#a8a39c">Dismiss</text>
+
+            <!-- Converge -->
+            <line x1="130" y1="262" x2="130" y2="282" stroke="#ff5500" stroke-width="1" stroke-opacity="0.5"/>
+            <line x1="330" y1="262" x2="330" y2="282" stroke="#ff5500" stroke-width="1" stroke-opacity="0.5"/>
+            <line x1="130" y1="282" x2="330" y2="282" stroke="#ff5500" stroke-width="1" stroke-opacity="0.5"/>
+            <line x1="230" y1="282" x2="230" y2="298" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar02)"/>
+
+            <!-- Terminal -->
+            <rect x="160" y="300" width="140" height="32" rx="3" fill="rgba(255,85,0,0.18)" stroke="#ff8800" stroke-width="1.5"/>
+            <text x="230" y="320" text-anchor="middle" font-family="'Courier New',monospace" font-size="10.5" font-weight="700" fill="#ff8800" letter-spacing="0.5">sync/drift-log/</text>
+          </svg>
+        </div>
+      </div>
+
+      <!-- FLOW 03 — Conform Pending (detect → judge) -->
+      <div class="flow-card reveal">
+        <div class="flow-meta">
+          <span class="flow-tag">FLOW :: 03</span>
+          <span>CONFORM · DETECT</span>
+        </div>
+        <h3 class="flow-title">Conform Pending</h3>
+        <p class="flow-line"><b>What</b>Standards rules waiting for your judgment.</p>
+        <p class="flow-line"><b>Todo</b>Submit your judgment for these rules — pass, fail, or n/a.</p>
+        <div class="flow-diagram">
+          <svg viewBox="0 0 460 350" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <defs>
+              <marker id="ar03" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M0,0 L10,5 L0,10 z" fill="#ff5500"/>
+              </marker>
+            </defs>
+
+            <!-- Phase 1 -->
+            <rect x="150" y="14" width="160" height="30" rx="3" fill="#1c0003" stroke="#cc2200" stroke-width="1.2"/>
+            <text x="230" y="33" text-anchor="middle" font-family="'Courier New',monospace" font-size="10.5" fill="#eaeaea">Phase 1 detect</text>
+            <line x1="230" y1="45" x2="230" y2="78" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar03)"/>
+
+            <!-- Pending file -->
+            <rect x="130" y="80" width="200" height="30" rx="3" fill="#1c0003" stroke="#cc2200" stroke-width="1.2"/>
+            <text x="230" y="99" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#ff8800">.conform-pending/&lt;mode&gt;.json</text>
+            <line x1="230" y1="111" x2="230" y2="144" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar03)"/>
+
+            <!-- Agent judge -->
+            <rect x="115" y="146" width="230" height="42" rx="3" fill="rgba(255,85,0,0.06)" stroke="#ff5500" stroke-width="1.4"/>
+            <text x="230" y="162" text-anchor="middle" font-family="'Courier New',monospace" font-size="10.5" fill="#ff8800">Resolve via Agent</text>
+            <text x="230" y="178" text-anchor="middle" font-family="'Courier New',monospace" font-size="9" fill="#a8a39c">(judges each triple, one call)</text>
+
+            <!-- Fanout to 3 -->
+            <line x1="230" y1="188" x2="230" y2="208" stroke="#ff5500" stroke-width="1.4"/>
+            <line x1="80" y1="208" x2="380" y2="208" stroke="#ff5500" stroke-width="1.2"/>
+            <line x1="80" y1="208" x2="80" y2="228" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar03)"/>
+            <line x1="230" y1="208" x2="230" y2="228" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar03)"/>
+            <line x1="380" y1="208" x2="380" y2="228" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar03)"/>
+
+            <!-- pass / fail / n/a -->
+            <g class="outcome-good">
+              <rect x="30" y="234" width="100" height="28" rx="3" fill="rgba(255,85,0,0.14)" stroke="#ff8800" stroke-width="1.4"/>
+              <text x="80" y="252" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#ff8800" font-weight="600">pass</text>
+            </g>
+            <rect x="180" y="234" width="100" height="28" rx="3" fill="#1c0003" stroke="#cc2200" stroke-width="1.4"/>
+            <text x="230" y="252" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#eaeaea" font-weight="600">fail</text>
+            <rect x="330" y="234" width="100" height="28" rx="3" fill="#1c0003" stroke="#552200" stroke-width="1.2" stroke-dasharray="3 3"/>
+            <text x="380" y="252" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#a8a39c">n/a</text>
+
+            <!-- Only fail flows to standards-drift -->
+            <line x1="230" y1="262" x2="230" y2="298" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar03)"/>
+            <text x="248" y="282" font-family="'Courier New',monospace" font-size="9" fill="#a8a39c">queues</text>
+
+            <!-- Terminal: standards-drift.md -->
+            <rect x="150" y="300" width="160" height="32" rx="3" fill="rgba(255,85,0,0.18)" stroke="#ff8800" stroke-width="1.5"/>
+            <text x="230" y="320" text-anchor="middle" font-family="'Courier New',monospace" font-size="10.5" font-weight="700" fill="#ff8800" letter-spacing="0.5">standards-drift.md</text>
+          </svg>
+        </div>
+      </div>
+
+      <!-- FLOW 04 — Standards Drift (resolve) -->
+      <div class="flow-card reveal">
+        <div class="flow-meta">
+          <span class="flow-tag">FLOW :: 04</span>
+          <span>CONFORM · RESOLVE</span>
+        </div>
+        <h3 class="flow-title">Standards Drift</h3>
+        <p class="flow-line"><b>What</b>Code that broke a standard's rule.</p>
+        <p class="flow-line"><b>Todo</b>Resolve via <code>kb_conform</code> — apply, exempt, promote, dismiss, or acknowledge.</p>
+        <div class="flow-diagram">
+          <svg viewBox="0 0 460 360" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <defs>
+              <marker id="ar04" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M0,0 L10,5 L0,10 z" fill="#ff5500"/>
+              </marker>
+            </defs>
+
+            <!-- Phase 1 preFilter -->
+            <rect x="130" y="10" width="200" height="28" rx="3" fill="#1c0003" stroke="#cc2200" stroke-width="1.2"/>
+            <text x="230" y="28" text-anchor="middle" font-family="'Courier New',monospace" font-size="10.5" fill="#eaeaea">kb_conform Phase 1 (preFilter)</text>
+            <line x1="230" y1="39" x2="230" y2="64" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar04)"/>
+
+            <!-- Phase 1.5 judge -->
+            <rect x="150" y="66" width="160" height="28" rx="3" fill="#1c0003" stroke="#cc2200" stroke-width="1.2"/>
+            <text x="230" y="84" text-anchor="middle" font-family="'Courier New',monospace" font-size="10.5" fill="#eaeaea">Phase 1.5 (judge)</text>
+            <line x1="230" y1="95" x2="230" y2="120" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar04)"/>
+
+            <!-- Queue entry -->
+            <rect x="130" y="122" width="200" height="30" rx="3" fill="rgba(255,85,0,0.06)" stroke="#ff5500" stroke-width="1.4"/>
+            <text x="230" y="141" text-anchor="middle" font-family="'Courier New',monospace" font-size="10.5" fill="#ff8800">standards-drift.md entry</text>
+
+            <!-- Fanout to 4 -->
+            <line x1="230" y1="152" x2="230" y2="172" stroke="#ff5500" stroke-width="1.4"/>
+            <line x1="58" y1="172" x2="402" y2="172" stroke="#ff5500" stroke-width="1.2"/>
+            <line x1="58" y1="172" x2="58" y2="192" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar04)"/>
+            <line x1="172" y1="172" x2="172" y2="192" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar04)"/>
+            <line x1="287" y1="172" x2="287" y2="192" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar04)"/>
+            <line x1="402" y1="172" x2="402" y2="192" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar04)"/>
+
+            <!-- 4 outcome boxes — Apply highlighted positive, others variations -->
+            <g class="outcome-good">
+              <rect x="14" y="198" width="88" height="46" rx="3" fill="rgba(255,85,0,0.14)" stroke="#ff8800" stroke-width="1.4"/>
+              <text x="58" y="216" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#ff8800" font-weight="600">Apply</text>
+              <text x="58" y="232" text-anchor="middle" font-family="'Courier New',monospace" font-size="8.5" fill="#a8a39c">(fix code)</text>
+            </g>
+
+            <rect x="128" y="198" width="88" height="46" rx="3" fill="#1c0003" stroke="#884422" stroke-width="1.2"/>
+            <text x="172" y="216" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#eaeaea">Exempt</text>
+            <text x="172" y="232" text-anchor="middle" font-family="'Courier New',monospace" font-size="8.5" fill="#a8a39c">(exceptions)</text>
+
+            <g class="outcome-good-2">
+              <rect x="243" y="198" width="88" height="46" rx="3" fill="rgba(204,34,0,0.16)" stroke="#cc2200" stroke-width="1.4"/>
+              <text x="287" y="216" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#ff8800" font-weight="600">Promote</text>
+              <text x="287" y="232" text-anchor="middle" font-family="'Courier New',monospace" font-size="8.5" fill="#a8a39c">(ledger)</text>
+            </g>
+
+            <rect x="358" y="198" width="88" height="46" rx="3" fill="#1c0003" stroke="#552200" stroke-width="1.2" stroke-dasharray="3 3"/>
+            <text x="402" y="216" text-anchor="middle" font-family="'Courier New',monospace" font-size="10" fill="#a8a39c">Dismiss</text>
+            <text x="402" y="232" text-anchor="middle" font-family="'Courier New',monospace" font-size="8.5" fill="#a8a39c">(false +)</text>
+
+            <!-- Converge -->
+            <line x1="58" y1="244" x2="58" y2="278" stroke="#ff5500" stroke-width="1" stroke-opacity="0.5"/>
+            <line x1="172" y1="244" x2="172" y2="278" stroke="#ff5500" stroke-width="1" stroke-opacity="0.5"/>
+            <line x1="287" y1="244" x2="287" y2="278" stroke="#ff5500" stroke-width="1" stroke-opacity="0.5"/>
+            <line x1="402" y1="244" x2="402" y2="278" stroke="#ff5500" stroke-width="1" stroke-opacity="0.5"/>
+            <line x1="58" y1="278" x2="402" y2="278" stroke="#ff5500" stroke-width="1" stroke-opacity="0.5"/>
+            <line x1="230" y1="278" x2="230" y2="304" stroke="#ff5500" stroke-width="1.4" marker-end="url(#ar04)"/>
+
+            <!-- Terminal -->
+            <rect x="160" y="306" width="140" height="32" rx="3" fill="rgba(255,85,0,0.18)" stroke="#ff8800" stroke-width="1.5"/>
+            <text x="230" y="326" text-anchor="middle" font-family="'Courier New',monospace" font-size="10.5" font-weight="700" fill="#ff8800" letter-spacing="0.5">sync/drift-log/</text>
+          </svg>
+        </div>
+      </div>
+
+    </div>
+
+    <p class="cap-footnote">
+      Three more lifecycle flows ship with the extensions —
+      <span class="mono" style="color:var(--accent);">Promotions</span>,
+      <span class="mono" style="color:var(--accent);">Lint Issues</span>, and
+      <span class="mono" style="color:var(--accent);">Mapping Diagnostics</span> —
+      surfaced in-editor as on-demand education banners
+    </p>
+  </section>
+
+  <!-- ============================================================
+       Section 05 — Extensions
        ============================================================ -->
   <section id="extensions">
-    <div class="section-label">Section <span class="slash">/</span> 04 <span class="slash">/</span> Extensions</div>
-    <h2 class="section-title">Two editors, one sync surface</h2>
+    <div class="section-label">Section <span class="slash">/</span> 05 <span class="slash">/</span> Extensions</div>
+    <h2 class="section-title reveal">Two editors, one sync surface</h2>
     <p class="section-intro">
       The same MCP server backs companion extensions for VSCode and Obsidian. Both render the queue state
       live — pipeline strip, drift entries with inline verdicts, conform-pending lists, lint diagnostics —
       and route resolution actions back through the MCP.
     </p>
 
-    <div class="ext-grid">
-      <div class="ext-card">
+    <div class="ext-grid reveal-group">
+      <div class="ext-card reveal">
         <div class="ext-head">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
@@ -1128,7 +1666,7 @@
         </ul>
       </div>
 
-      <div class="ext-card">
+      <div class="ext-card reveal">
         <div class="ext-head">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
@@ -1158,16 +1696,16 @@
        Section 05 — Quickstart
        ============================================================ -->
   <section id="quickstart">
-    <div class="section-label">Section <span class="slash">/</span> 05 <span class="slash">/</span> Quickstart</div>
-    <h2 class="section-title">Three steps</h2>
+    <div class="section-label">Section <span class="slash">/</span> 06 <span class="slash">/</span> Quickstart</div>
+    <h2 class="section-title reveal">Three steps</h2>
     <p class="section-intro">
       Get the MCP running locally, point your agent at it, and bootstrap your first <code>knowledge/</code>
       folder. Everything below is verbatim from the README.
     </p>
 
-    <div class="qs-list">
+    <div class="qs-list reveal-group">
 
-      <div class="qs-step">
+      <div class="qs-step reveal">
         <div class="qs-num">1</div>
         <div class="qs-body">
           <h3>Install</h3>
@@ -1177,7 +1715,7 @@
         </div>
       </div>
 
-      <div class="qs-step">
+      <div class="qs-step reveal">
         <div class="qs-num">2</div>
         <div class="qs-body">
           <h3>Configure your agent</h3>
@@ -1195,7 +1733,7 @@
         </div>
       </div>
 
-      <div class="qs-step">
+      <div class="qs-step reveal">
         <div class="qs-num">3</div>
         <div class="qs-body">
           <h3>Bootstrap</h3>
@@ -1215,8 +1753,8 @@ kb_init({ <span class="tok-key">interactive</span>: false, <span class="tok-key"
        Section 06 — Why
        ============================================================ -->
   <section id="why">
-    <div class="section-label">Section <span class="slash">/</span> 06 <span class="slash">/</span> Why</div>
-    <h2 class="section-title">Why this shape</h2>
+    <div class="section-label">Section <span class="slash">/</span> 07 <span class="slash">/</span> Why</div>
+    <h2 class="section-title reveal">Why this shape</h2>
 
     <div class="why-body">
       <p>
@@ -1258,22 +1796,88 @@ kb_init({ <span class="tok-key">interactive</span>: false, <span class="tok-key"
   </footer>
 
   <script>
-    // Mobile nav toggle (the only JS on the page).
     (function () {
-      var btn = document.getElementById('navToggle');
+      'use strict';
+
+      var prefersReducedMotion = window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      /* ---------- Mobile nav toggle ---------- */
+      var navBtn = document.getElementById('navToggle');
       var nav = document.getElementById('primaryNav');
-      if (!btn || !nav) return;
-      btn.addEventListener('click', function () {
-        var open = nav.classList.toggle('open');
-        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-      });
-      // Close the nav after tapping an in-page link on mobile.
-      nav.addEventListener('click', function (e) {
-        if (e.target.tagName === 'A' && nav.classList.contains('open')) {
-          nav.classList.remove('open');
-          btn.setAttribute('aria-expanded', 'false');
+      if (navBtn && nav) {
+        navBtn.addEventListener('click', function () {
+          var open = nav.classList.toggle('open');
+          navBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+        nav.addEventListener('click', function (e) {
+          if (e.target.tagName === 'A' && nav.classList.contains('open')) {
+            nav.classList.remove('open');
+            navBtn.setAttribute('aria-expanded', 'false');
+          }
+        });
+      }
+
+      /* ---------- Scroll-reveal via IntersectionObserver ----------
+       * Each .reveal element fades up the first time it crosses the
+       * viewport threshold; observer then unwatches it. */
+      var reveals = document.querySelectorAll('.reveal');
+      if (reveals.length) {
+        if (prefersReducedMotion || !('IntersectionObserver' in window)) {
+          for (var i = 0; i < reveals.length; i++) reveals[i].classList.add('is-revealed');
+        } else {
+          var revealObs = new IntersectionObserver(function (entries) {
+            entries.forEach(function (entry) {
+              if (entry.isIntersecting) {
+                entry.target.classList.add('is-revealed');
+                revealObs.unobserve(entry.target);
+              }
+            });
+          }, { threshold: 0.12, rootMargin: '0px 0px -60px 0px' });
+          reveals.forEach(function (el) { revealObs.observe(el); });
         }
-      });
+      }
+
+      /* ---------- Stats strip counter ----------
+       * Numbers tick up from 0 → data-target when the strip enters view,
+       * once. Cubic ease-out, ~1.1s. Reduced-motion users see final value. */
+      var stats = document.querySelectorAll('.stat-num[data-target]');
+      function animateStat(el) {
+        var target = parseInt(el.getAttribute('data-target'), 10) || 0;
+        if (prefersReducedMotion) {
+          el.textContent = target;
+          return;
+        }
+        var duration = 1100;
+        var start = null;
+        function tick(now) {
+          if (!start) start = now;
+          var t = Math.min((now - start) / duration, 1);
+          var eased = 1 - Math.pow(1 - t, 3);
+          el.textContent = Math.round(target * eased);
+          if (t < 1) requestAnimationFrame(tick);
+          else el.textContent = target;
+        }
+        el.textContent = '0';
+        requestAnimationFrame(tick);
+      }
+      if (stats.length) {
+        if (!('IntersectionObserver' in window)) {
+          // Fallback: just animate immediately
+          stats.forEach(animateStat);
+        } else {
+          var statsStrip = document.querySelector('.stats-strip');
+          var statsObs = new IntersectionObserver(function (entries) {
+            entries.forEach(function (entry) {
+              if (entry.isIntersecting) {
+                stats.forEach(animateStat);
+                statsObs.disconnect();
+              }
+            });
+          }, { threshold: 0.4 });
+          if (statsStrip) statsObs.observe(statsStrip);
+        }
+      }
     })();
   </script>
 </body>
