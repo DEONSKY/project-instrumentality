@@ -31,9 +31,9 @@ on any part before moving on.
 1. Project-wide standards (standards/)
 2. Domain overview ({{domain}}/_group.md)
 3. Key schemas for this domain (data/schema/)
-4. Shared validations used (validation/)
+4. Shared validations used (data/validation/)
 5. Feature files one at a time — ask which to cover first
-6. Flows that cross this domain (flows/)
+6. Flows that cross this domain (specs/flows/)
 
 ## Tone
 

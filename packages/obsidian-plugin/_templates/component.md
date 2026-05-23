@@ -47,5 +47,5 @@ tags: []
 
 ## Used by
 
-- [[features/{{name}}]]
-- [[flows/{{name}}]]
+- [[specs/features/{{name}}]]
+- [[specs/flows/{{name}}]]

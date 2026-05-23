@@ -47,6 +47,7 @@ export default class InstrumentalityPlugin extends Plugin {
       (leaf) =>
         new InstrumentalityView(leaf, {
           getKbRoot: () => this.detectKbRoot(),
+          getPluginDir: () => this.resolvePluginDir(),
           getDismissedBanners: () => this.dismissedBanners,
           dismissBanner: (kind) => void this.persistDismissedBanner(kind),
           getOpenSection: () => this.openSection,
@@ -151,5 +152,29 @@ export default class InstrumentalityPlugin extends Plugin {
     const basePath = adapter.basePath ?? adapter.getBasePath?.();
     if (!basePath) return null;
     return findKbRoot([basePath]);
+  }
+
+  /**
+   * Absolute path to this plugin's install directory inside the vault
+   * (e.g. `<vault>/.obsidian/plugins/instrumentality/`). Used to locate
+   * the bundled `runner/` directory — `__dirname` doesn't work in
+   * Obsidian because it resolves to Electron's renderer asar path, not
+   * the plugin folder. Returns null on adapters without a base path.
+   */
+  private resolvePluginDir(): string | null {
+    const adapter = this.app.vault.adapter as unknown as {
+      basePath?: string;
+      getBasePath?: () => string;
+    };
+    const basePath = adapter.basePath ?? adapter.getBasePath?.();
+    if (!basePath) return null;
+    // manifest.dir is provided by Obsidian; typed as optional in older
+    // API versions. Fall back to a conventional path under .obsidian.
+    const rel =
+      (this.manifest as unknown as { dir?: string }).dir ??
+      `.obsidian/plugins/${this.manifest.id}`;
+    // Path.join would require importing; basePath uses forward slashes
+    // on every platform the adapter exposes (including Windows).
+    return `${basePath.replace(/[\\/]$/, "")}/${rel.replace(/^[\\/]/, "")}`;
   }
 }

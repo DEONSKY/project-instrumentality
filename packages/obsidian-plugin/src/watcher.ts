@@ -66,13 +66,13 @@ export class SyncWatcher {
     const dir = path.join(this.kbRoot, "knowledge", "sync");
     if (fs.existsSync(dir) && !this.fsWatcher) {
       try {
-        this.fsWatcher = fs.watch(dir, { recursive: true }, () =>
+        this.fsWatcher = this.safeWatch(dir, { recursive: true }, () =>
           this.scheduleFire()
         );
       } catch {
         // recursive may not be supported on some platforms — fall back to non-recursive
         try {
-          this.fsWatcher = fs.watch(dir, () => this.scheduleFire());
+          this.fsWatcher = this.safeWatch(dir, {}, () => this.scheduleFire());
         } catch {
           // give up on fs.watch entirely; rely on poll
         }
@@ -92,16 +92,45 @@ export class SyncWatcher {
   }
 
   /**
-   * Install (or re-install) the always-on recursive watcher on kbRoot.
-   * Noise paths (`.git/`, `node_modules/`, build dirs) are filtered in
-   * the callback so an `npm install` doesn't fire a refresh per file.
+   * fs.watch wrapper that attaches an 'error' handler so a runtime watch
+   * failure (e.g. ENOSPC when the inotify limit is hit, or a deleted
+   * directory) doesn't crash the plugin process. The watcher is closed
+   * on error so subsequent refreshes don't keep re-firing.
+   */
+  private safeWatch(
+    target: string,
+    opts: fs.WatchOptions,
+    listener: fs.WatchListener<string>
+  ): fs.FSWatcher {
+    const w = fs.watch(target, opts, listener);
+    w.on("error", (err) => {
+      // eslint-disable-next-line no-console
+      console.warn(`[instrumentality] watch error on ${target}:`, err);
+      try { w.close(); } catch { /* already closed */ }
+    });
+    return w;
+  }
+
+  /**
+   * Install (or re-install) the always-on recursive watcher. Scoped to
+   * `<kbRoot>/knowledge/` — NOT the project root — because watching the
+   * project root recursively on Linux installs an inotify watch on
+   * every subdirectory, including `.git/modules/<sub>/...` for repos
+   * with submodules. That trivially exhausts `fs.inotify.max_user_watches`
+   * and throws ENOSPC.
+   *
+   * Source-file edits are covered by `setCodePatterns` (one targeted
+   * watcher per code_path_patterns base dir), which is bounded and
+   * predictable.
+   *
    * On platforms where `filename` is null (some macOS versions) the
-   * filter is skipped and we accept extra refresh ticks — the 300ms
+   * filter is skipped and we accept extra refresh ticks — the 500ms
    * debounce makes those harmless.
    */
   private ensureRootFallback(): void {
     if (this.rootFallbackWatcher) return;
-    if (!fs.existsSync(this.kbRoot)) return;
+    const knowledgeDir = path.join(this.kbRoot, "knowledge");
+    if (!fs.existsSync(knowledgeDir)) return;
     const handler = (_event: fs.WatchEventType, filename: string | Buffer | null) => {
       if (filename) {
         const rel = typeof filename === "string" ? filename : filename.toString("utf8");
@@ -114,11 +143,17 @@ export class SyncWatcher {
       this.scheduleFire();
     };
     try {
-      this.rootFallbackWatcher = fs.watch(this.kbRoot, { recursive: true }, handler);
-    } catch {
-      // Recursive not supported on this platform — skip. Per-pattern
-      // watchers from setCodePatterns still cover the common case;
+      this.rootFallbackWatcher = this.safeWatch(
+        knowledgeDir,
+        { recursive: true },
+        handler
+      );
+    } catch (err) {
+      // Recursive not supported, or ENOSPC at install time — skip silently.
+      // Per-pattern watchers from setCodePatterns still cover source edits;
       // the 5s poll catches missed sync-folder events.
+      // eslint-disable-next-line no-console
+      console.warn("[instrumentality] root fallback watcher disabled:", err);
     }
   }
 
@@ -163,11 +198,11 @@ export class SyncWatcher {
     for (const abs of want) {
       if (this.codeRootWatchers.has(abs)) continue;
       try {
-        const w = fs.watch(abs, { recursive: true }, () => this.scheduleFire());
+        const w = this.safeWatch(abs, { recursive: true }, () => this.scheduleFire());
         this.codeRootWatchers.set(abs, w);
       } catch {
         try {
-          const w = fs.watch(abs, () => this.scheduleFire());
+          const w = this.safeWatch(abs, {}, () => this.scheduleFire());
           this.codeRootWatchers.set(abs, w);
         } catch { /* skip — poll fallback will catch it */ }
       }
@@ -188,7 +223,7 @@ export class SyncWatcher {
     for (const p of extraPaths) {
       try {
         if (!fs.existsSync(p)) continue;
-        this.extraWatchers.push(fs.watch(p, () => this.scheduleFire()));
+        this.extraWatchers.push(this.safeWatch(p, {}, () => this.scheduleFire()));
       } catch {
         // file vanished between existsSync and watch — ignore
       }

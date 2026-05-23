@@ -1,7 +1,7 @@
 # ask-sync prompt
 #
 # Used by kb_ask when intent is "sync" — developer resolves a pending drift entry.
-# Trigger: "sync features/user-auth.md" or "sync user-auth"
+# Trigger: "sync specs/features/user-auth.md" or "sync user-auth"
 #
 # Placeholders filled at runtime:
 #   {{feature_id}}   — KB file path or feature name extracted from the question

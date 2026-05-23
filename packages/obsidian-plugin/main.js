@@ -4589,34 +4589,156 @@ var require_status = __commonJS({
         patternAudit: liveOverlay ? liveOverlay.patternAudit : null
       };
     }
+    var resolvedNodeBinary = void 0;
+    function findNodeBinary() {
+      if (resolvedNodeBinary !== void 0)
+        return resolvedNodeBinary;
+      const isWindows = process.platform === "win32";
+      const home = process.env.HOME || process.env.USERPROFILE || "";
+      const candidates = [];
+      if (isWindows) {
+        candidates.push("C:\\Program Files\\nodejs\\node.exe", "C:\\Program Files (x86)\\nodejs\\node.exe");
+        if (home) {
+          candidates.push(path4.join(home, "AppData", "Local", "Volta", "bin", "node.exe"), path4.join(home, "AppData", "Roaming", "fnm", "aliases", "default", "node.exe"), path4.join(home, "AppData", "Local", "Programs", "node", "node.exe"), path4.join(home, "scoop", "shims", "node.exe"));
+        }
+      } else {
+        candidates.push(
+          "/usr/local/bin/node",
+          "/usr/bin/node",
+          "/opt/homebrew/bin/node",
+          // Homebrew on Apple Silicon
+          "/snap/bin/node"
+          // Snap on Linux
+        );
+        if (home) {
+          candidates.push(path4.join(home, ".volta", "bin", "node"), path4.join(home, ".fnm", "aliases", "default", "bin", "node"), path4.join(home, ".asdf", "shims", "node"), path4.join(home, ".local", "bin", "node"));
+        }
+      }
+      for (const c of candidates) {
+        if (fs3.existsSync(c)) {
+          resolvedNodeBinary = c;
+          return c;
+        }
+      }
+      const nvmInfo = home ? isWindows ? {
+        dir: path4.join(process.env.APPDATA || path4.join(home, "AppData", "Roaming"), "nvm"),
+        exe: "node.exe",
+        binSegments: []
+      } : {
+        dir: path4.join(home, ".nvm", "versions", "node"),
+        exe: "node",
+        binSegments: ["bin"]
+      } : null;
+      if (nvmInfo) {
+        try {
+          if (fs3.existsSync(nvmInfo.dir)) {
+            const versions = fs3.readdirSync(nvmInfo.dir).filter((v) => /^v\d/.test(v)).sort((a, b) => {
+              const ap = a.replace(/^v/, "").split(".").map((n) => parseInt(n, 10));
+              const bp = b.replace(/^v/, "").split(".").map((n) => parseInt(n, 10));
+              for (let i = 0; i < Math.max(ap.length, bp.length); i++) {
+                const av = ap[i] ?? 0;
+                const bv = bp[i] ?? 0;
+                if (av !== bv)
+                  return bv - av;
+              }
+              return 0;
+            });
+            for (const v of versions) {
+              const candidate = path4.join(nvmInfo.dir, v, ...nvmInfo.binSegments, nvmInfo.exe);
+              if (fs3.existsSync(candidate)) {
+                resolvedNodeBinary = candidate;
+                return candidate;
+              }
+            }
+          }
+        } catch {
+        }
+      }
+      const shellAttempts = isWindows ? [{ cmd: "cmd.exe", args: ["/c", "where node"] }] : [
+        { cmd: "/bin/bash", args: ["-ic", "command -v node"] },
+        { cmd: "/bin/bash", args: ["-lc", "command -v node"] },
+        { cmd: "/bin/sh", args: ["-lc", "command -v node"] }
+      ];
+      for (const { cmd, args } of shellAttempts) {
+        try {
+          const out = (0, node_child_process_1.execFileSync)(cmd, args, {
+            encoding: "utf8",
+            timeout: 3e3,
+            stdio: ["ignore", "pipe", "ignore"]
+          });
+          const first = out.split(/\r?\n/)[0].trim();
+          if (first && fs3.existsSync(first)) {
+            resolvedNodeBinary = first;
+            return first;
+          }
+        } catch {
+        }
+      }
+      resolvedNodeBinary = null;
+      return null;
+    }
     function runLiveStatus(kbRoot, bundledRunnerPath) {
       const vendored = path4.join(kbRoot, "knowledge", "_mcp", "scripts", "live-status.js");
       let script = null;
-      if (fs3.existsSync(vendored)) {
+      const vendoredExists = fs3.existsSync(vendored);
+      const bundledExists = !!(bundledRunnerPath && fs3.existsSync(bundledRunnerPath));
+      if (vendoredExists) {
         script = vendored;
-      } else if (bundledRunnerPath && fs3.existsSync(bundledRunnerPath)) {
+      } else if (bundledExists) {
         script = bundledRunnerPath;
       }
+      const isElectron = !!process.versions.electron;
+      const binary = isElectron ? findNodeBinary() : process.execPath;
+      console.log("[instrumentality] runLiveStatus resolve:", JSON.stringify({
+        kbRoot,
+        vendored,
+        vendoredExists,
+        bundledRunnerPath: bundledRunnerPath ?? null,
+        bundledExists,
+        chosen: script,
+        isElectron,
+        binary
+      }));
       if (!script)
         return Promise.resolve(null);
+      if (!binary) {
+        console.error("[instrumentality] no node binary found \u2014 install Node.js or launch the host from a shell with `node` on PATH.");
+        return Promise.resolve(null);
+      }
       return new Promise((resolve2) => {
-        const child = (0, node_child_process_1.spawn)(process.execPath, [script], {
+        const child = (0, node_child_process_1.spawn)(binary, [script], {
           cwd: kbRoot,
-          stdio: ["ignore", "pipe", "pipe"]
+          stdio: ["ignore", "pipe", "pipe"],
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }
         });
         let stdout = "";
+        let stderr = "";
         child.stdout.on("data", (chunk) => {
           stdout += chunk.toString("utf8");
         });
-        child.on("error", () => resolve2(null));
-        child.on("close", () => {
+        child.stderr.on("data", (chunk) => {
+          stderr += chunk.toString("utf8");
+        });
+        child.on("error", (err) => {
+          console.error("[instrumentality] live-status spawn error:", err);
+          resolve2(null);
+        });
+        child.on("close", (code) => {
           const trimmed = stdout.trim();
-          if (!trimmed)
+          if (stderr.trim()) {
+            console.warn("[instrumentality] live-status stderr:", stderr.trim());
+          }
+          if (!trimmed) {
+            console.error("[instrumentality] live-status produced no stdout (exit", code, ")");
             return resolve2(null);
+          }
           try {
             const parsed = JSON.parse(trimmed);
-            if (parsed.error)
+            if (parsed.error) {
+              console.error("[instrumentality] live-status error:", parsed.error);
               return resolve2(null);
+            }
+            console.log("[instrumentality] live-status parsed keys:", Object.keys(parsed), "patternAudit=", parsed.patternAudit ? Array.isArray(parsed.patternAudit.findings) ? `findings(${parsed.patternAudit.findings.length})` : "(findings not array)" : "null");
             const tagMode = (entries, mode) => entries.map((e) => ({ ...e, mode }));
             resolve2({
               headSha: parsed.headSha ?? null,
@@ -4627,7 +4749,8 @@ var require_status = __commonJS({
               codePatterns: Array.isArray(parsed.codePatterns) ? parsed.codePatterns : null,
               patternAudit: parsed.patternAudit && Array.isArray(parsed.patternAudit.findings) ? parsed.patternAudit : null
             });
-          } catch {
+          } catch (err) {
+            console.error("[instrumentality] live-status JSON parse failed:", err, "first 500 chars of stdout:", trimmed.slice(0, 500));
             resolve2(null);
           }
         });
@@ -5563,7 +5686,7 @@ var require_tool_catalog_generated = __commonJS({
             "name": "file_path",
             "type": "string",
             "required": true,
-            "hint": "Path to the KB file (e.g. knowledge/features/my-feature.md)"
+            "hint": "Path to the KB file (e.g. knowledge/specs/features/my-feature.md)"
           },
           {
             "name": "content",
@@ -5921,7 +6044,7 @@ var require_tool_catalog_generated = __commonJS({
       {
         "name": "kb_migrate",
         "category": "governance",
-        "shortDescription": "Migrate KB files after _rules.md changes. Manual trigger only.",
+        "shortDescription": "Migrate KB files after _rules.md changes. Returns one prompt per KB file for the calling agent to review; the agent calls kb_write per file if an update is needed. Does not write directly.",
         "whenToUse": "After _rules.md changes, migrate existing KB files to match the new conventions and emit review prompts for the agent.",
         "examplePrompts": [
           "Migrate the KB \u2014 I just updated _rules.md.",
@@ -5932,13 +6055,7 @@ var require_tool_catalog_generated = __commonJS({
             "name": "since",
             "type": "string",
             "required": false,
-            "hint": "Commit SHA to diff _rules.md from. Auto-detected if omitted."
-          },
-          {
-            "name": "dry_run",
-            "type": "boolean",
-            "required": false,
-            "hint": "Preview migration prompts without writing files"
+            "hint": "Commit SHA to diff _rules.md from. Auto-detected by walking git log for the last commit that touched _rules.md and diffing its parent..HEAD."
           }
         ],
         "surfaces": [
@@ -6290,7 +6407,7 @@ var require_tool_catalog_generated = __commonJS({
             "name": "file_path",
             "type": "string",
             "required": false,
-            "hint": 'Path to a single KB file (e.g. knowledge/features/auth.md), or "all" to tag the entire KB. Default: all. Used by fast and review modes.'
+            "hint": 'Path to a single KB file (e.g. knowledge/specs/features/auth.md), or "all" to tag the entire KB. Default: all. Used by fast and review modes.'
           },
           {
             "name": "mode",
@@ -6302,7 +6419,7 @@ var require_tool_catalog_generated = __commonJS({
             "name": "tags",
             "type": "object",
             "required": false,
-            "hint": 'For mode=apply only. Map of file_path to tag array, e.g. { "features/auth.md": ["auth", "session", "jwt"] }.'
+            "hint": 'For mode=apply only. Map of file_path to tag array, e.g. { "specs/features/auth.md": ["auth", "session", "jwt"] }.'
           }
         ],
         "surfaces": [
@@ -6415,7 +6532,7 @@ var require_tool_catalog_generated = __commonJS({
         "whenToUse": "Pull the change history of a KB file \u2014 git commits and drift-log references, optionally with patch bodies.",
         "examplePrompts": [
           "Show me the history of the api-errors standard.",
-          "What drift events have touched knowledge/features/billing.md?"
+          "What drift events have touched knowledge/specs/features/billing.md?"
         ],
         "keyParams": [
           {
@@ -7089,14 +7206,14 @@ var SyncWatcher = class {
     const dir = path2.join(this.kbRoot, "knowledge", "sync");
     if (fs.existsSync(dir) && !this.fsWatcher) {
       try {
-        this.fsWatcher = fs.watch(
+        this.fsWatcher = this.safeWatch(
           dir,
           { recursive: true },
           () => this.scheduleFire()
         );
       } catch {
         try {
-          this.fsWatcher = fs.watch(dir, () => this.scheduleFire());
+          this.fsWatcher = this.safeWatch(dir, {}, () => this.scheduleFire());
         } catch {
         }
       }
@@ -7113,17 +7230,43 @@ var SyncWatcher = class {
     this.ensureRootFallback();
   }
   /**
-   * Install (or re-install) the always-on recursive watcher on kbRoot.
-   * Noise paths (`.git/`, `node_modules/`, build dirs) are filtered in
-   * the callback so an `npm install` doesn't fire a refresh per file.
+   * fs.watch wrapper that attaches an 'error' handler so a runtime watch
+   * failure (e.g. ENOSPC when the inotify limit is hit, or a deleted
+   * directory) doesn't crash the plugin process. The watcher is closed
+   * on error so subsequent refreshes don't keep re-firing.
+   */
+  safeWatch(target, opts, listener) {
+    const w = fs.watch(target, opts, listener);
+    w.on("error", (err) => {
+      console.warn(`[instrumentality] watch error on ${target}:`, err);
+      try {
+        w.close();
+      } catch {
+      }
+    });
+    return w;
+  }
+  /**
+   * Install (or re-install) the always-on recursive watcher. Scoped to
+   * `<kbRoot>/knowledge/` — NOT the project root — because watching the
+   * project root recursively on Linux installs an inotify watch on
+   * every subdirectory, including `.git/modules/<sub>/...` for repos
+   * with submodules. That trivially exhausts `fs.inotify.max_user_watches`
+   * and throws ENOSPC.
+   *
+   * Source-file edits are covered by `setCodePatterns` (one targeted
+   * watcher per code_path_patterns base dir), which is bounded and
+   * predictable.
+   *
    * On platforms where `filename` is null (some macOS versions) the
-   * filter is skipped and we accept extra refresh ticks — the 300ms
+   * filter is skipped and we accept extra refresh ticks — the 500ms
    * debounce makes those harmless.
    */
   ensureRootFallback() {
     if (this.rootFallbackWatcher)
       return;
-    if (!fs.existsSync(this.kbRoot))
+    const knowledgeDir = path2.join(this.kbRoot, "knowledge");
+    if (!fs.existsSync(knowledgeDir))
       return;
     const handler = (_event, filename) => {
       if (filename) {
@@ -7139,8 +7282,13 @@ var SyncWatcher = class {
       this.scheduleFire();
     };
     try {
-      this.rootFallbackWatcher = fs.watch(this.kbRoot, { recursive: true }, handler);
-    } catch {
+      this.rootFallbackWatcher = this.safeWatch(
+        knowledgeDir,
+        { recursive: true },
+        handler
+      );
+    } catch (err) {
+      console.warn("[instrumentality] root fallback watcher disabled:", err);
     }
   }
   /**
@@ -7184,11 +7332,11 @@ var SyncWatcher = class {
       if (this.codeRootWatchers.has(abs))
         continue;
       try {
-        const w = fs.watch(abs, { recursive: true }, () => this.scheduleFire());
+        const w = this.safeWatch(abs, { recursive: true }, () => this.scheduleFire());
         this.codeRootWatchers.set(abs, w);
       } catch {
         try {
-          const w = fs.watch(abs, () => this.scheduleFire());
+          const w = this.safeWatch(abs, {}, () => this.scheduleFire());
           this.codeRootWatchers.set(abs, w);
         } catch {
         }
@@ -7207,7 +7355,7 @@ var SyncWatcher = class {
       try {
         if (!fs.existsSync(p))
           continue;
-        this.extraWatchers.push(fs.watch(p, () => this.scheduleFire()));
+        this.extraWatchers.push(this.safeWatch(p, {}, () => this.scheduleFire()));
       } catch {
       }
     }
@@ -7606,18 +7754,24 @@ var InstrumentalityView = class extends import_obsidian3.ItemView {
   async refresh() {
     const root = this.getKbRoot();
     this.kbRoot = root;
+    console.log("[instrumentality] refresh: kbRoot =", root, "__dirname =", __dirname);
     if (!root) {
       this.status = null;
       this.render();
       return;
     }
     try {
-      const bundledRunnerPath = path3.join(__dirname, "runner", "scripts", "live-status.js");
+      const pluginDir = this.cb.getPluginDir();
+      const bundledRunnerPath = pluginDir ? path3.join(pluginDir, "runner", "scripts", "live-status.js") : void 0;
       this.status = await (0, import_shared3.getStatus)(root, {
         skipLint: true,
         live: true,
         bundledRunnerPath
       });
+      console.log(
+        "[instrumentality] refresh done: patternAudit findings =",
+        this.status?.patternAudit?.findings?.length ?? "null"
+      );
     } catch (err) {
       console.error("[instrumentality] getStatus failed:", err);
       this.status = null;
@@ -9953,6 +10107,7 @@ var InstrumentalityPlugin = class extends import_obsidian4.Plugin {
       VIEW_TYPE_INSTRUMENTALITY,
       (leaf) => new InstrumentalityView(leaf, {
         getKbRoot: () => this.detectKbRoot(),
+        getPluginDir: () => this.resolvePluginDir(),
         getDismissedBanners: () => this.dismissedBanners,
         dismissBanner: (kind) => void this.persistDismissedBanner(kind),
         getOpenSection: () => this.openSection,
@@ -10039,6 +10194,21 @@ var InstrumentalityPlugin = class extends import_obsidian4.Plugin {
     if (!basePath)
       return null;
     return (0, import_shared4.findKbRoot)([basePath]);
+  }
+  /**
+   * Absolute path to this plugin's install directory inside the vault
+   * (e.g. `<vault>/.obsidian/plugins/instrumentality/`). Used to locate
+   * the bundled `runner/` directory — `__dirname` doesn't work in
+   * Obsidian because it resolves to Electron's renderer asar path, not
+   * the plugin folder. Returns null on adapters without a base path.
+   */
+  resolvePluginDir() {
+    const adapter = this.app.vault.adapter;
+    const basePath = adapter.basePath ?? adapter.getBasePath?.();
+    if (!basePath)
+      return null;
+    const rel = this.manifest.dir ?? `.obsidian/plugins/${this.manifest.id}`;
+    return `${basePath.replace(/[\\/]$/, "")}/${rel.replace(/^[\\/]/, "")}`;
   }
 };
 //# sourceMappingURL=main.js.map

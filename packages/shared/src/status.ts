@@ -1,4 +1,4 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { promisify } from "node:util";
@@ -248,34 +248,236 @@ interface LiveOverlay {
   patternAudit: PatternAudit | null;
 }
 
+// Cache the resolved node binary path — looking it up via a login shell
+// is ~50ms on first call but later calls hit this cache. `null` means we
+// successfully looked it up but didn't find one (don't re-search); a
+// string is the resolved absolute path.
+let resolvedNodeBinary: string | null | undefined = undefined;
+
+/**
+ * Find a real Node binary when our own runtime is Electron (Obsidian),
+ * since `process.execPath` points at the Electron app which intercepts
+ * CLI invocations. Tries platform-appropriate install paths and version
+ * managers, then falls back to an interactive shell so version-manager
+ * setup in the user's profile/rc files is honored.
+ *
+ * Supports Linux, macOS, and Windows. Honors nvm / nvm-windows / volta /
+ * fnm / asdf / Homebrew / system installers. Returns null if no node
+ * binary is found anywhere — caller falls back to the disk-read snapshot.
+ */
+function findNodeBinary(): string | null {
+  if (resolvedNodeBinary !== undefined) return resolvedNodeBinary;
+  const isWindows = process.platform === "win32";
+  const home = process.env.HOME || process.env.USERPROFILE || "";
+
+  // Direct path candidates, platform-keyed. Cheapest check.
+  const candidates: string[] = [];
+  if (isWindows) {
+    candidates.push(
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Program Files (x86)\\nodejs\\node.exe"
+    );
+    if (home) {
+      candidates.push(
+        path.join(home, "AppData", "Local", "Volta", "bin", "node.exe"),
+        path.join(home, "AppData", "Roaming", "fnm", "aliases", "default", "node.exe"),
+        path.join(home, "AppData", "Local", "Programs", "node", "node.exe"),
+        path.join(home, "scoop", "shims", "node.exe")
+      );
+    }
+  } else {
+    candidates.push(
+      "/usr/local/bin/node",
+      "/usr/bin/node",
+      "/opt/homebrew/bin/node", // Homebrew on Apple Silicon
+      "/snap/bin/node"          // Snap on Linux
+    );
+    if (home) {
+      candidates.push(
+        path.join(home, ".volta", "bin", "node"),
+        path.join(home, ".fnm", "aliases", "default", "bin", "node"),
+        path.join(home, ".asdf", "shims", "node"),
+        path.join(home, ".local", "bin", "node")
+      );
+    }
+  }
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      resolvedNodeBinary = c;
+      return c;
+    }
+  }
+
+  // nvm-managed installs use a versioned subdir — pick the highest version.
+  // Layout differs by platform: nvm (Unix) → ~/.nvm/versions/node/vX.Y.Z/bin/node,
+  // nvm-windows → %APPDATA%\nvm\vX.Y.Z\node.exe.
+  const nvmInfo = home
+    ? isWindows
+      ? {
+          dir: path.join(process.env.APPDATA || path.join(home, "AppData", "Roaming"), "nvm"),
+          exe: "node.exe",
+          binSegments: [] as string[],
+        }
+      : {
+          dir: path.join(home, ".nvm", "versions", "node"),
+          exe: "node",
+          binSegments: ["bin"],
+        }
+    : null;
+  if (nvmInfo) {
+    try {
+      if (fs.existsSync(nvmInfo.dir)) {
+        const versions = fs
+          .readdirSync(nvmInfo.dir)
+          .filter((v) => /^v\d/.test(v))
+          .sort((a, b) => {
+            const ap = a.replace(/^v/, "").split(".").map((n) => parseInt(n, 10));
+            const bp = b.replace(/^v/, "").split(".").map((n) => parseInt(n, 10));
+            for (let i = 0; i < Math.max(ap.length, bp.length); i++) {
+              const av = ap[i] ?? 0;
+              const bv = bp[i] ?? 0;
+              if (av !== bv) return bv - av; // descending
+            }
+            return 0;
+          });
+        for (const v of versions) {
+          const candidate = path.join(nvmInfo.dir, v, ...nvmInfo.binSegments, nvmInfo.exe);
+          if (fs.existsSync(candidate)) {
+            resolvedNodeBinary = candidate;
+            return candidate;
+          }
+        }
+      }
+    } catch {
+      // nvm dir unreadable — fall through to shell lookup
+    }
+  }
+
+  // Last resort: ask the user's own shell. On Unix we spawn an interactive
+  // bash (so ~/.bashrc is sourced — that's where nvm typically wires
+  // itself). On Windows we use `where node` via cmd.exe.
+  const shellAttempts: { cmd: string; args: string[] }[] = isWindows
+    ? [{ cmd: "cmd.exe", args: ["/c", "where node"] }]
+    : [
+        { cmd: "/bin/bash", args: ["-ic", "command -v node"] },
+        { cmd: "/bin/bash", args: ["-lc", "command -v node"] },
+        { cmd: "/bin/sh", args: ["-lc", "command -v node"] },
+      ];
+  for (const { cmd, args } of shellAttempts) {
+    try {
+      const out = execFileSync(cmd, args, {
+        encoding: "utf8",
+        timeout: 3000,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      // `where` may print multiple matches; take the first.
+      const first = out.split(/\r?\n/)[0].trim();
+      if (first && fs.existsSync(first)) {
+        resolvedNodeBinary = first;
+        return first;
+      }
+    } catch {
+      // shell missing, command failed, or timeout — try next variant
+    }
+  }
+
+  resolvedNodeBinary = null;
+  return null;
+}
+
 function runLiveStatus(
   kbRoot: string,
   bundledRunnerPath: string | undefined
 ): Promise<LiveOverlay | null> {
   const vendored = path.join(kbRoot, "knowledge", "_mcp", "scripts", "live-status.js");
   let script: string | null = null;
-  if (fs.existsSync(vendored)) {
+  const vendoredExists = fs.existsSync(vendored);
+  const bundledExists = !!(bundledRunnerPath && fs.existsSync(bundledRunnerPath));
+  if (vendoredExists) {
     script = vendored;
-  } else if (bundledRunnerPath && fs.existsSync(bundledRunnerPath)) {
-    script = bundledRunnerPath;
+  } else if (bundledExists) {
+    script = bundledRunnerPath!;
   }
+  // Detect whether we're running inside an Electron app (Obsidian plugin
+  // host) versus a plain Node process (VS Code extension host). Obsidian
+  // intercepts CLI invocations of its own binary and prints "Command
+  // line interface is not enabled" instead of executing the script as
+  // Node — even with ELECTRON_RUN_AS_NODE=1, since the env var is
+  // stripped or ignored before reaching the runtime. So when we're in
+  // Electron, shell out to `node` on PATH; otherwise use process.execPath
+  // (which is already Node).
+  const isElectron = !!(process.versions as { electron?: string }).electron;
+  const binary = isElectron ? findNodeBinary() : process.execPath;
+  // eslint-disable-next-line no-console
+  console.log(
+    "[instrumentality] runLiveStatus resolve:",
+    JSON.stringify({
+      kbRoot,
+      vendored,
+      vendoredExists,
+      bundledRunnerPath: bundledRunnerPath ?? null,
+      bundledExists,
+      chosen: script,
+      isElectron,
+      binary,
+    })
+  );
   if (!script) return Promise.resolve(null);
+  if (!binary) {
+    // eslint-disable-next-line no-console
+    console.error(
+      "[instrumentality] no node binary found — install Node.js or launch the host from a shell with `node` on PATH."
+    );
+    return Promise.resolve(null);
+  }
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [script], {
+    const child = spawn(binary, [script], {
       cwd: kbRoot,
       stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
     });
     let stdout = "";
+    let stderr = "";
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");
     });
-    child.on("error", () => resolve(null));
-    child.on("close", () => {
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", (err) => {
+      // eslint-disable-next-line no-console
+      console.error("[instrumentality] live-status spawn error:", err);
+      resolve(null);
+    });
+    child.on("close", (code) => {
       const trimmed = stdout.trim();
-      if (!trimmed) return resolve(null);
+      if (stderr.trim()) {
+        // eslint-disable-next-line no-console
+        console.warn("[instrumentality] live-status stderr:", stderr.trim());
+      }
+      if (!trimmed) {
+        // eslint-disable-next-line no-console
+        console.error("[instrumentality] live-status produced no stdout (exit", code, ")");
+        return resolve(null);
+      }
       try {
         const parsed = JSON.parse(trimmed);
-        if (parsed.error) return resolve(null);
+        if (parsed.error) {
+          // eslint-disable-next-line no-console
+          console.error("[instrumentality] live-status error:", parsed.error);
+          return resolve(null);
+        }
+        // eslint-disable-next-line no-console
+        console.log(
+          "[instrumentality] live-status parsed keys:",
+          Object.keys(parsed),
+          "patternAudit=",
+          parsed.patternAudit
+            ? (Array.isArray(parsed.patternAudit.findings)
+                ? `findings(${parsed.patternAudit.findings.length})`
+                : "(findings not array)")
+            : "null"
+        );
         // Tag standards entries with their mode so the existing merge logic
         // and `mode`-aware UI rendering still works. The runner returns them
         // un-tagged since they come straight from the in-memory state.
@@ -292,7 +494,14 @@ function runLiveStatus(
             ? parsed.patternAudit
             : null,
         });
-      } catch {
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error(
+          "[instrumentality] live-status JSON parse failed:",
+          err,
+          "first 500 chars of stdout:",
+          trimmed.slice(0, 500)
+        );
         resolve(null);
       }
     });

@@ -7,6 +7,7 @@ This project uses a structured Knowledge Base (KB) managed by the KB-MCP server.
 - **Always** call `kb_ask` with the user's question before providing an answer
 - Do not answer from memory or general knowledge when KB documents exist
 - If `kb_ask` returns no context, inform the user and offer to search with different keywords
+- **`kb_ask` vs `kb_get`:** prefer `kb_ask` when starting from a natural-language question — it extracts keywords and classifies intent before retrieval. Reach for `kb_get` directly only when you already have explicit `keywords` or `working_paths` (typically right before a code edit)
 
 ## Before writing or modifying code
 
@@ -49,7 +50,7 @@ When in doubt, prefer `applied` (fix the code) over `exempted` (carve an excepti
 
 - Run `kb_autotag` on the file to extract searchable tags from its content
 - Tags are critical for discoverability — files without tags are invisible to `kb_get` keyword search
-- Example: `kb_autotag({ file_path: "features/user-auth.md" })`
+- Example: `kb_autotag({ file_path: "specs/features/user-auth.md" })`
 
 ## When creating new features or components
 
@@ -66,7 +67,7 @@ When in doubt, prefer `applied` (fix the code) over `exempted` (carve an excepti
 - Feature files describe **what** (fields, rules, constraints) — no code, no endpoints, no class names
 - Flow files describe **who does what** — actor -> action -> outcome steps, no technical wiring
 - Standard files describe **how** (architecture, patterns, code conventions)
-- Match the `type` frontmatter field to the folder (features/ -> feature, flows/ -> flow, etc.)
+- Match the `type` frontmatter field to the folder (specs/features/ -> feature, specs/flows/ -> flow, data/validation/ -> validation, etc.)
 - Fill ALL `{{placeholders}}` before saving — especially in `always_load` files
 - Use `[[folder/file-id]]` wikilinks when referencing other KB documents
 

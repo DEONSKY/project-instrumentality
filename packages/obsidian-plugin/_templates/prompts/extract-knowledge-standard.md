@@ -21,7 +21,7 @@ Good rules: when a feature doc should split into a flow doc, how technical vs.
 business detail is partitioned across feature/standard/decision files, what
 makes a "good" rule description, when to add cross-references.
 
-Bad rules: "must have an `id` field", "must be in features/", "frontmatter must
+Bad rules: "must have an `id` field", "must be in specs/features/", "frontmatter must
 parse" — these are kb_lint's job.
 
 ## Instructions
@@ -48,7 +48,7 @@ For each rule also specify:
 - `id`: kebab-case slug, unique in this standard
 - `title`: short human label
 - `severity`: `warn` by default; `error` only for hard structural rules
-- `applies_to.paths`: glob patterns over `knowledge/**.md` (e.g. `["knowledge/features/**.md"]`)
+- `applies_to.paths`: glob patterns over `knowledge/**.md` (e.g. `["knowledge/specs/features/**.md"]`)
 - `detect.kind`: **default to `llm`** — these rules are about writing quality
   and require judgment. `regex` is reserved for the rare case where the
   decision is purely textual and `kb_lint` doesn't already cover it.

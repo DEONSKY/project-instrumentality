@@ -60,6 +60,8 @@ import { renderInfoBody } from "./view-info";
 
 export interface InstrumentalityViewCallbacks {
   getKbRoot: () => string | null;
+  /** Absolute path to the plugin's install directory (for runner lookup). */
+  getPluginDir: () => string | null;
   getDismissedBanners: () => ReadonlySet<SectionKind>;
   dismissBanner: (kind: SectionKind) => void;
   getOpenSection: () => string | undefined;
@@ -254,6 +256,8 @@ export class InstrumentalityView extends ItemView {
   async refresh(): Promise<void> {
     const root = this.getKbRoot();
     this.kbRoot = root;
+    // eslint-disable-next-line no-console
+    console.log("[instrumentality] refresh: kbRoot =", root, "__dirname =", __dirname);
     if (!root) {
       this.status = null;
       this.render();
@@ -264,14 +268,25 @@ export class InstrumentalityView extends ItemView {
       // committed snapshot so the dashboard reflects working-tree state.
       // Vendored knowledge/_mcp/scripts/live-status.js wins when present;
       // otherwise the bundled runner shipped with this plugin
-      // (__dirname/runner/scripts/live-status.js) is used so vaults that
-      // only have the KB content still get the live overlay.
-      const bundledRunnerPath = path.join(__dirname, "runner", "scripts", "live-status.js");
+      // (<plugin-dir>/runner/scripts/live-status.js) is used so vaults
+      // that only have the KB content still get the live overlay.
+      // NOTE: `__dirname` resolves to Electron's renderer asar path in
+      // Obsidian, not the plugin directory. Use the plugin manifest dir
+      // (passed via getPluginDir) to locate the bundled runner.
+      const pluginDir = this.cb.getPluginDir();
+      const bundledRunnerPath = pluginDir
+        ? path.join(pluginDir, "runner", "scripts", "live-status.js")
+        : undefined;
       this.status = await getStatus(root, {
         skipLint: true,
         live: true,
         bundledRunnerPath,
       });
+      // eslint-disable-next-line no-console
+      console.log(
+        "[instrumentality] refresh done: patternAudit findings =",
+        this.status?.patternAudit?.findings?.length ?? "null"
+      );
     } catch (err: any) {
       console.error("[instrumentality] getStatus failed:", err);
       this.status = null;

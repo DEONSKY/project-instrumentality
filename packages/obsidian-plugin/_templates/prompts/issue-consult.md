@@ -24,7 +24,7 @@ Analyze the proposed issue against the knowledge base context and provide:
 4. **Suggested Labels & Priority** — Based on the KB context (affected components, related standards, scope of impact), suggest appropriate labels, component assignment, and priority level.
 
 5. **Enriched Description** — Draft an improved issue description that incorporates KB context. Include:
-   - Links to related KB documents (use relative paths like `knowledge/features/xxx.md`)
+   - Links to related KB documents (use relative paths like `knowledge/specs/features/xxx.md`)
    - Relevant business rules or constraints from KB
    - Known dependencies or related features
 
