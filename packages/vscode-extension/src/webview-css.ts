@@ -827,9 +827,13 @@ body[data-mode="sidebar"] .section-card[data-open="true"] > .banner.education.hi
 /* ── Submodules card + hooks badge ─────────────────────────────────── */
 .sidebar-ribbon {
   display: flex;
-  gap: 6px;
+  gap: 8px;
+  align-items: center;
   margin-bottom: 8px;
+  font-size: 0.88em;
 }
+.sidebar-head-line { color: var(--muted); }
+.sidebar-head-line code { color: var(--fg); }
 .hooks-badge { cursor: help; }
 .btn-danger {
   background: var(--error);
@@ -898,7 +902,10 @@ body[data-mode="sidebar"] .section-card[data-open="true"] > .banner.education.hi
 .submodule-dot-aligned  { color: var(--vscode-charts-green, #4caf50); }
 .submodule-dot-blocking { color: var(--vscode-charts-red,   #e51400); }
 .submodule-dot-advisory { color: var(--vscode-charts-blue,  #4a90e2); }
-.submodule-dot-detached { color: var(--muted); }
+/* Detached HEAD — amber so the state is visually distinct from aligned/
+ * blocking/advisory. Previously this used --muted, which rendered the same
+ * as the row's border and disabled-text color and looked like "no state". */
+.submodule-dot-detached { color: var(--vscode-charts-yellow, #d9b400); }
 .submodules-pinned-meta {
   margin-left: auto;
   font-size: 0.82em;
@@ -936,7 +943,7 @@ body[data-mode="sidebar"] .submodule-pinned-body {
 .submodule-row-aligned  { border-left-color: var(--vscode-charts-green,  #4caf50); }
 .submodule-row-blocking { border-left-color: var(--vscode-charts-red,    #e51400); }
 .submodule-row-advisory { border-left-color: var(--vscode-charts-blue,   #4a90e2); }
-.submodule-row-detached { border-left-color: var(--muted); }
+.submodule-row-detached { border-left-color: var(--vscode-charts-yellow, #d9b400); }
 
 .submodule-main { flex: 1 1 auto; min-width: 0; }
 .submodule-title { display: flex; align-items: center; gap: 6px; font-size: 0.95em; }

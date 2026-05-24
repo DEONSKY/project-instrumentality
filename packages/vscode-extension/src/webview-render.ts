@@ -387,7 +387,7 @@ export function renderHtml(
     </div>
   </header>`
       : status
-      ? `<div class="sidebar-ribbon">${renderHooksBadge(status)}</div>`
+      ? `<div class="sidebar-ribbon"><span class="sidebar-head-line">HEAD: <code>${escapeHtml(head)}</code></span> ${renderHooksBadge(status)}</div>`
       : ""
   }
 
@@ -427,7 +427,7 @@ export function renderHtml(
 
   <div class="section-grid">
     ${groupedBody}
-    ${status ? renderPatternAuditCard(status) : ""}
+    ${status && filter.viewMode !== "activity" ? renderPatternAuditCard(status) : ""}
   </div>
   `
   }
@@ -795,18 +795,32 @@ export function renderHtml(
       const sectionHeader = target.closest(".section-card > header");
       if (sectionHeader) {
         const card = sectionHeader.closest(".section-card");
-        const key = card && card.getAttribute("data-section");
+        // Pending cards use data-section; Activity groups use
+        // data-activity-group. Either signals "this is an accordion card".
+        const sectionKey = card && card.getAttribute("data-section");
+        const activityKey = card && card.getAttribute("data-activity-group");
+        const key = sectionKey || activityKey;
         if (!key) return;
         // If the user clicked something inside the header (a button,
         // chip, etc.), let that handle it instead of switching the
         // accordion underneath them.
         if (target.closest("button, a, input, .chip, [data-action]")) return;
         if (card.getAttribute("data-open") === "true") return;
+        // Scope the close-others sweep to the same accordion group —
+        // Activity groups and Pending sections are visually exclusive
+        // anyway (different viewMode), but scoping by attribute prevents
+        // a cross-tab race if both are ever rendered together.
+        const scopeAttr = sectionKey ? "data-section" : "data-activity-group";
         document
-          .querySelectorAll('.section-card[data-open="true"]')
+          .querySelectorAll('.section-card[' + scopeAttr + '][data-open="true"]')
           .forEach((el) => el.removeAttribute("data-open"));
         card.setAttribute("data-open", "true");
-        vscode.postMessage({ command: "setOpenSection", section: key });
+        // Persist Pending state only — Activity's open card is ephemeral
+        // (it resets to first-group on each refresh, matching how Activity
+        // group-by works).
+        if (sectionKey) {
+          vscode.postMessage({ command: "setOpenSection", section: sectionKey });
+        }
         return;
       }
     });
@@ -1061,11 +1075,16 @@ function renderActivityBody(status: StatusSummary, filter: DashboardFilter): str
       : a.localeCompare(b)
   );
 
+  // Accordion behavior mirrors the Pending view: one activity group open
+  // at a time so its body gets the full available height. With multiple
+  // groups all open simultaneously in sidebar mode, flex-shrink chopped
+  // each body so entry detail panels showed only partially.
   const groupCards = sortedKeys
-    .map((k) => {
+    .map((k, i) => {
       const arr = groups.get(k)!;
       const rows = arr.map((e) => activityRow(e)).join("");
-      return `<section class="section-card activity-group" data-activity-group="${escapeAttr(k)}">
+      const openAttr = i === 0 ? ' data-open="true"' : "";
+      return `<section class="section-card activity-group" data-activity-group="${escapeAttr(k)}"${openAttr}>
         <header><h2>${escapeHtml(k)} <span class="count">${arr.length}</span></h2></header>
         <div class="body">${rows}</div>
       </section>`;
@@ -1097,6 +1116,8 @@ function activityEventLabel(t: string): string {
       return "Drift resolved";
     case "drift-dismissed":
       return "Drift dismissed";
+    case "drift-acknowledged":
+      return "Acknowledged";
     case "re-bootstrap":
       return "Re-bootstrap";
     default:
@@ -1111,6 +1132,7 @@ function activityBadgeClass(t: string, isSystem: boolean): string {
     return "event-exempted";
   if (t === "conformed-promoted" || t === "closed-promotion") return "event-promoted";
   if (t === "drift-resolved") return "event-applied";
+  if (t === "drift-acknowledged") return "event-acknowledged";
   return "event-other";
 }
 
@@ -1756,8 +1778,12 @@ function renderLintCard(
 ): string {
   const v = status.lint.violations;
   const badge = !status.lint.ran ? `<span class="badge sev-info">unavailable</span>` : "";
+  // F16: when the lint subprocess didn't run, point the user at the
+  // `instrumentality.lint.command` override. The extension bundles a
+  // standalone lint script and tries that automatically; this hint covers
+  // the case where the bundled script can't spawn (no node on PATH, etc).
   const body = !status.lint.ran
-    ? `<div class="placeholder">${escapeHtml(status.lint.error || "Lint subprocess unavailable in this workspace")}</div>`
+    ? `<div class="placeholder">${escapeHtml(status.lint.error || "Lint subprocess unavailable in this workspace.")} Configure <code>instrumentality.lint.command</code> in settings to point at your own lint binary if the bundled standalone script can't run.</div>`
     : v.length === 0
     ? `<div class="placeholder">No lint issues</div>`
     : v.map((violation, i) => lintRow(violation, i)).join("");
@@ -2023,6 +2049,12 @@ function submoduleRow(e: SubmoduleEntry, parentBranch: string | null): string {
     e.type === "shared"
       ? `<span class="badge sev-info" title="kb-shared = true in .gitmodules">shared</span>`
       : `<span class="badge" title="owned by this superproject">owned</span>`;
+  // F9: explicit detached badge alongside type so a checked-out-by-SHA
+  // submodule is unmistakable. The classifyBranch return + CSS color the
+  // row, but a badge survives screenshot scaling and matches §1.1's badge list.
+  const detachedBadge = align === "detached"
+    ? `<span class="badge sev-warn" title="Submodule HEAD is detached — no branch to compare against parent.">detached</span>`
+    : "";
 
   const branchChipTitle =
     align === "aligned"
@@ -2058,7 +2090,7 @@ function submoduleRow(e: SubmoduleEntry, parentBranch: string | null): string {
   return `<div class="submodule-row submodule-row-${align}">
     <div class="submodule-main">
       <div class="submodule-title">
-        <code>${escapeHtml(e.path)}</code> ${typeBadge} ${pointerDot}
+        <code>${escapeHtml(e.path)}</code> ${typeBadge} ${detachedBadge} ${pointerDot}
       </div>
       <div class="submodule-meta">on ${branchHtml} ${stateHtml}</div>
     </div>

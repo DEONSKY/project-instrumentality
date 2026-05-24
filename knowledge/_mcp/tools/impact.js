@@ -88,15 +88,33 @@ const SHORT_KEEP = new Set([
 const STOP_WORDS = new Set(['the', 'and', 'for', 'that', 'this', 'with', 'from', 'when', 'will', 'should'])
 
 function extractKeywords(text) {
-  return text
-    .toLowerCase()
-    .split(/[\s,;.]+/)
-    .filter(w => w.length > 3 || SHORT_KEEP.has(w))
+  const rawTokens = String(text).split(/[\s,;.]+/)
+  const out = []
+  for (const raw of rawTokens) {
+    if (!raw) continue
+    // Always include the lowercased original so existing matches keep working.
+    out.push(raw.toLowerCase())
+    // Also split camelCase / PascalCase tokens so renaming "linestopMail"
+    // matches files referencing "linestop" or "mail" alone. Two passes handle
+    // both camelCase ("aB" → "a B") and adjacent caps with a trailing lower
+    // ("HTMLParser" → "HTML Parser"). When the token is purely lowercase the
+    // split is a no-op and we don't double-emit it.
+    const split = raw
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+      .toLowerCase()
+      .split(/\s+/)
+    if (split.length > 1) out.push(...split)
+  }
+  return out
+    .filter(w => w && (w.length > 3 || SHORT_KEEP.has(w)))
     .filter(w => !STOP_WORDS.has(w))
 }
 
 module.exports = {
   runTool,
+  // Exposed for tests; not part of the MCP surface.
+  extractKeywords,
   definition: {
     name: 'kb_impact',
     description: 'Analyze impact of a change across the KB dependency graph. Returns proposals — does not write.',

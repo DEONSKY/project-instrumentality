@@ -20,7 +20,14 @@ async function runTool(args) {
   const { getStatus } = loadShared()
   const kbRoot = path.resolve(process.cwd())
   const skipLint = args && args.skip_lint === true
-  return await getStatus(kbRoot, { skipLint })
+  // F16: when the consumer project doesn't vendor knowledge/_mcp/ in tree,
+  // the runLint default-resolution path is empty and lint.ran stays false.
+  // Point at kb-mcp's own bundled lint-standalone.js so a direct kb_status
+  // call from the agent populates Lint section in consumer repos.
+  // __dirname here = .../knowledge/_mcp/tools, so ../scripts/lint-standalone.js
+  // is always next to the MCP server source.
+  const bundledLintScriptPath = path.join(__dirname, '..', 'scripts', 'lint-standalone.js')
+  return await getStatus(kbRoot, { skipLint, bundledLintScriptPath })
 }
 
 module.exports = {

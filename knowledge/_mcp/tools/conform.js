@@ -68,6 +68,14 @@ const TOTAL_LINE_CAP = 6000
 // Per-file content cap when sampling for the LLM judge. Keeps the prompt
 // bounded; the agent can always re-read the full file via Read if it needs to.
 const PER_FILE_CHAR_CAP = 8000
+// Total cap across all files in one Phase 1 prompt. Without this, a sweep
+// with many evaluations multiplied PER_FILE_CHAR_CAP by N and blew past the
+// MCP response budget (observed at 165KB on a real consumer repo). Tuned to
+// 32KB so the prompt + diffs (capped separately) + envelope land under the
+// ~64KB MCP response budget on most setups. When exceeded, remaining files
+// emit a stub pointing the agent at `cat` so it can fetch on demand without
+// losing the requested_evaluations list.
+const TOTAL_CONTENT_CHAR_CAP = 32000
 
 
 // ── Git helpers ──────────────────────────────────────────────────────────────
@@ -252,7 +260,11 @@ async function resolveBootstrapRef(git) {
 // ── Phase 1 detect ────────────────────────────────────────────────────────────
 
 async function detect(opts) {
-  const { mode = 'current', scope, since, includeDiffs = true, path_filter, readonly = false } = opts
+  const { mode = 'current', scope, since, includeDiffs = true, path_filter, readonly = false, includeWorkingTree = false } = opts
+  // Readonly callers (live overlay) always want working-tree visibility so the
+  // panel previews drift before commit. Explicit opt-in (`include_working_tree`)
+  // unlocks the same behavior for write-mode callers.
+  const wantWorkingTree = readonly || includeWorkingTree
   // Forbid path_filter in current mode: current-mode Phase 1 advances baseline
   // to HEAD on success, so a filtered sweep would silently skip files that fall
   // outside the filter on the next run.
@@ -351,23 +363,39 @@ async function detect(opts) {
       }
     }
     const tracked = await listTrackedFiles(git)
+    const candidates = new Map() // path → 'committed' | 'working-tree'
+    for (const rel of tracked) candidates.set(rel, 'committed')
+    // F18: include uncommitted (untracked-non-ignored + tracked-modified) when
+    // the caller opted in via `include_working_tree` or is a readonly live
+    // overlay. Untracked first so a path showing up both ways still gets a
+    // sensible source tag.
+    if (wantWorkingTree) {
+      try {
+        const untrackedOut = await git.raw(['ls-files', '--others', '--exclude-standard'])
+        for (const rel of untrackedOut.split('\n').map(l => l.trim()).filter(Boolean)) {
+          if (!candidates.has(rel)) candidates.set(rel, 'working-tree')
+        }
+      } catch { /* leave empty */ }
+    }
     const collected = new Set()
-    for (const rel of tracked) {
+    const sourceByPath = new Map()
+    for (const [rel, src] of candidates) {
       if (!ruleGlobs.some(g => globMatch(rel, g))) continue
       if (filterGlobs && !filterGlobs.some(g => globMatch(rel, g))) continue
       collected.add(rel)
+      sourceByPath.set(rel, src)
     }
     if (filterGlobs && collected.size === 0) {
       return { error: `path_filter ${JSON.stringify(path_filter)} produced no candidates inside standard "${stdEntry.id}" (intersection with applies_to.paths is empty)` }
     }
-    candidateFiles = [...collected].map(p => ({ status: 'A', path: p }))
+    candidateFiles = [...collected].map(p => ({ status: 'A', path: p, _source: sourceByPath.get(p) || 'committed' }))
   } else {
-    // Current-diff mode: changed files between baseline and HEAD. In readonly
-    // mode (live overlay for the extensions) also union the working tree so
-    // the sidebar can preview standards drift before commit. The write path
-    // keeps `baseline..HEAD` semantics, matching today's published-queue
-    // behavior.
-    candidateFiles = await getChangedFiles(git, baseline, { includeWorkingTree: readonly })
+    // Current-diff mode: changed files between baseline and HEAD. When the
+    // caller opted in (`include_working_tree`) or is a readonly live overlay,
+    // also union the working tree so the sidebar / agent can preview standards
+    // drift before commit. The default write path keeps `baseline..HEAD`
+    // semantics, matching today's published-queue behavior.
+    candidateFiles = await getChangedFiles(git, baseline, { includeWorkingTree: wantWorkingTree })
     if (scope) {
       candidateFiles = candidateFiles.filter(f => globMatch(f.path, scope) || (f.oldPath && globMatch(f.oldPath, scope)))
     }
@@ -671,39 +699,62 @@ function buildRuleSpecsTable(requested, index) {
 function buildFileContentsBlock(requested, contents) {
   const seen = new Set()
   const blocks = []
+  let total = 0
   for (const r of requested) {
     if (seen.has(r.file)) continue
     seen.add(r.file)
+    if (total >= TOTAL_CONTENT_CHAR_CAP) {
+      // F13: stop embedding content past the total cap — the agent can fetch
+      // these files on demand. Preserves the requested_evaluations list so
+      // Phase 1.5 still validates submissions against the full set.
+      blocks.push(`### ${r.file}\n\n_(content omitted — total cap reached; run: \`cat ${r.file}\` or use Read)_`)
+      continue
+    }
     const c = contents.get(r.file) || ''
-    const truncated = c.length > PER_FILE_CHAR_CAP
-    const body = truncated ? c.slice(0, PER_FILE_CHAR_CAP) + `\n\n// … (truncated; ${c.length - PER_FILE_CHAR_CAP} more chars)` : c
+    const remaining = TOTAL_CONTENT_CHAR_CAP - total
+    const cap = Math.min(PER_FILE_CHAR_CAP, remaining)
+    const truncated = c.length > cap
+    const body = truncated ? c.slice(0, cap) + `\n\n// … (truncated; ${c.length - cap} more chars — run \`cat ${r.file}\` for the rest)` : c
     blocks.push(`### ${r.file}\n\n\`\`\`\n${body}\n\`\`\``)
+    total += body.length
   }
   return blocks.join('\n\n')
 }
 
+// F13: char cap for the _diffs array. Line caps alone allowed a 6000-line
+// budget to balloon to 100+ KB when lines were long. Once the char cap is
+// hit we still emit the file entry with `dropped: ...` so the agent sees
+// every file in the queue, just without the diff content.
+const TOTAL_DIFF_CHAR_CAP = 40_000
+
 async function prefetchDiffs(git, baseline, files) {
   let totalLines = 0
+  let totalChars = 0
   const out = []
   for (const file of files) {
-    if (totalLines >= TOTAL_LINE_CAP) {
+    if (totalLines >= TOTAL_LINE_CAP || totalChars >= TOTAL_DIFF_CHAR_CAP) {
       out.push({ file, cmd: `git diff ${baseline}..HEAD -- ${file}`, dropped: 'total cap reached' })
       continue
     }
     try {
       const diff = await git.diff([`${baseline}..HEAD`, '--', file])
       const lines = diff.split('\n')
+      let emittedDiff
       if (lines.length > PER_FILE_LINE_CAP) {
-        out.push({
-          file,
-          cmd: `git diff ${baseline}..HEAD -- ${file}`,
-          diff: lines.slice(0, PER_FILE_LINE_CAP).join('\n') + `\n... (${lines.length - PER_FILE_LINE_CAP} more lines truncated)`
-        })
+        emittedDiff = lines.slice(0, PER_FILE_LINE_CAP).join('\n') + `\n... (${lines.length - PER_FILE_LINE_CAP} more lines truncated)`
         totalLines += PER_FILE_LINE_CAP
       } else {
-        out.push({ file, cmd: `git diff ${baseline}..HEAD -- ${file}`, diff })
+        emittedDiff = diff
         totalLines += lines.length
       }
+      // Per-file char cap mirrors the line cap so a single huge file can't
+      // blow the total before any other file gets a chance.
+      const perFileCharCap = Math.max(1, TOTAL_DIFF_CHAR_CAP - totalChars)
+      if (emittedDiff.length > perFileCharCap) {
+        emittedDiff = emittedDiff.slice(0, perFileCharCap) + `\n... (truncated at total-char cap; run the command above for full diff)`
+      }
+      out.push({ file, cmd: `git diff ${baseline}..HEAD -- ${file}`, diff: emittedDiff })
+      totalChars += emittedDiff.length
     } catch (e) {
       out.push({ file, cmd: `git diff ${baseline}..HEAD -- ${file}`, error: e.message })
     }
@@ -1222,7 +1273,8 @@ async function runTool(args = {}) {
     force_baseline,
     purge,
     include_diffs = true,
-    readonly = false
+    readonly = false,
+    include_working_tree = false
   } = args
 
   if (force_baseline || purge) return forceBaseline({ force_baseline, purge, mode })
@@ -1264,7 +1316,7 @@ async function runTool(args = {}) {
   if (Array.isArray(promoted)) return resolvePromoted(promoted, mode)
   if (Array.isArray(dismissed)) return resolveDismissed(dismissed, mode)
   if (Array.isArray(closed_promotion)) return resolveClosedPromotion(closed_promotion)
-  return detect({ since, mode, scope, path_filter, includeDiffs: include_diffs, readonly })
+  return detect({ since, mode, scope, path_filter, includeDiffs: include_diffs, readonly, includeWorkingTree: include_working_tree })
 }
 
 module.exports = {
@@ -1311,7 +1363,8 @@ module.exports = {
         force_baseline: { type: 'string', description: 'Admin: reset baseline to a SHA or "HEAD"' },
         purge: { type: 'boolean', description: 'Admin: with force_baseline, also clear all entries' },
         include_diffs: { type: 'boolean', description: 'Phase 1: pre-fetch diffs into result._diffs (default: true)' },
-        readonly: { type: 'boolean', description: 'Compute results in memory but skip every fs write. Used by the live watcher in the extension and the soft-mode CI check.' }
+        readonly: { type: 'boolean', description: 'Compute results in memory but skip every fs write. Used by the live watcher in the extension and the soft-mode CI check.' },
+        include_working_tree: { type: 'boolean', description: 'Phase 1: also evaluate uncommitted/untracked files matching the standard\'s applies_to (default: false). In current mode this unions working-tree changes with the committed diff. In aspirational mode it unions git-tracked files with untracked-non-ignored files. Useful when you want a verdict on a file before committing.' }
       }
     }
   }

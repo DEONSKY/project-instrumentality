@@ -76,6 +76,13 @@ const SHORT_KEEP = new Set([
   'aws', 'gcp', 'k8s', 'cli', 'sdk', 'orm', 'dto', 'dao', 'rbac', 'acl'
 ])
 
+// Total-context cap for the embedded KB material in an `kb_ask` prompt.
+// Empirically the response cap is around ~64KB before MCP truncates — at
+// 32KB the agent still has room for its own response payload. The agent can
+// always re-read a full KB file via kb_get when it needs more depth.
+const ASK_TOTAL_CHAR_CAP = 32_000
+const ASK_PER_FILE_CHAR_CAP = 8_000
+
 async function loadContext(question) {
   const keywords = question
     .toLowerCase()
@@ -88,7 +95,28 @@ async function loadContext(question) {
 }
 
 function buildKbContext(files) {
-  return files.map(f => `<!-- ${f.path} -->\n${f.content}`).join('\n\n---\n\n')
+  // F13: per-file truncate then accumulate against a total cap so the prompt
+  // can't blow past the MCP response budget when kb_get returns many large
+  // files. Surface truncation in the inline comment so the agent knows to
+  // re-read via kb_get if the omitted content matters.
+  const parts = []
+  let total = 0
+  for (const f of files) {
+    if (total >= ASK_TOTAL_CHAR_CAP) {
+      parts.push(`<!-- ${f.path} -->\n_(content omitted — total context cap reached; run kb_get with this file's keywords for the full text)_`)
+      continue
+    }
+    const remaining = ASK_TOTAL_CHAR_CAP - total
+    const cap = Math.min(ASK_PER_FILE_CHAR_CAP, remaining)
+    const raw = f.content || ''
+    const truncated = raw.length > cap
+    const body = truncated
+      ? raw.slice(0, cap) + `\n\n<!-- … (${raw.length - cap} more chars truncated; run kb_get to fetch full file) -->`
+      : raw
+    parts.push(`<!-- ${f.path} -->\n${body}`)
+    total += body.length
+  }
+  return parts.join('\n\n---\n\n')
 }
 
 function buildPromptVars(question, intent, context) {

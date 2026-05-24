@@ -731,7 +731,10 @@
 .submodule-dot-aligned  { color: var(--color-green, #2da44e); }
 .submodule-dot-blocking { color: var(--text-error, #e51400); }
 .submodule-dot-advisory { color: var(--color-blue, #4a90e2); }
-.submodule-dot-detached { color: var(--text-muted); }
+/* Detached HEAD — amber so the state is visually distinct from aligned/
+ * blocking/advisory. Previously this used --text-muted, which looked like
+ * "no state" against the row's border. */
+.submodule-dot-detached { color: var(--color-yellow, #d9b400); }
 
 .instrumentality-submodules-pinned .submodules-pinned-meta {
   margin-left: auto;
@@ -787,7 +790,7 @@
 .submodule-row-aligned  { border-left-color: var(--color-green, #2da44e); }
 .submodule-row-blocking { border-left-color: var(--text-error, #e51400); }
 .submodule-row-advisory { border-left-color: var(--color-blue, #4a90e2); }
-.submodule-row-detached { border-left-color: var(--text-muted); }
+.submodule-row-detached { border-left-color: var(--color-yellow, #d9b400); }
 
 .submodule-main {
   flex: 1 1 auto;

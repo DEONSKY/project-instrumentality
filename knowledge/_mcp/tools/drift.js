@@ -195,6 +195,12 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
   let kbEntriesNew = 0
   let kbEntriesReDetected = 0
   const stalePatterns = []
+  // F17: track submodules whose pointer hasn't moved but whose working tree
+  // has uncommitted changes — those edits are invisible to a non-readonly
+  // kb_drift call, which surprises users (their visible code change doesn't
+  // produce a code-drift entry). Surface as a warning on the response so the
+  // agent can prompt the user to bump the pointer or include working tree.
+  const submoduleUnbumped = []
 
   // ── code→KB pass (B_code, main + submodules, non-KB files only) ───────────
   const submodules = await detectSubmodules()
@@ -244,7 +250,22 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
         // Pointer hasn't moved → parent doesn't see any committed submodule
         // drift. In readonly mode keep going so we can still surface the
         // author's uncommitted edits inside the submodule.
-        if (!refs.pointerMoved && !includeWorkingTree) continue
+        if (!refs.pointerMoved && !includeWorkingTree) {
+          // F17: cheap probe — does the submodule have uncommitted changes
+          // that the user likely cares about? If so, surface as a warning.
+          // Only checks the parent's view; misses changes that aren't yet
+          // visible to the submodule's git repo (rare).
+          try {
+            const subStatus = await refs.subGit.raw(['status', '--porcelain'])
+            if (subStatus && subStatus.trim().length > 0) {
+              submoduleUnbumped.push({
+                path: sub.path,
+                reason: 'submodule has uncommitted changes; the parent pointer has not been bumped, so kb_drift in write mode cannot see them. Bump the parent pointer (commit the submodule, then commit the parent) or call kb_drift({readonly: true}) to preview.'
+              })
+            }
+          } catch { /* non-fatal */ }
+          continue
+        }
 
         const subFiles = await getChangedFiles(refs.subGit, refs.subRef, refs.subHeadRef, { includeWorkingTree })
         const subIndex = await buildCommitIndex(refs.subGit, refs.subRef, refs.subHeadRef)
@@ -422,6 +443,7 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
     submodules_owned: ownedSubs,
     submodules_shared: sharedSubs,
     ...(stalePatterns.length > 0 && { stale_patterns: stalePatterns }),
+    ...(submoduleUnbumped.length > 0 && { submodule_unbumped: submoduleUnbumped }),
     ...(rebootstrapEvents.length > 0 && { re_bootstrapped: rebootstrapEvents }),
     message: noDrift
       ? `No drift detected.${subInfo}`

@@ -10,7 +10,7 @@
     "build:catalog": "node scripts/build-tool-catalog.cjs",
     "build": "npm run build:catalog && tsc",
     "watch": "npm run build:catalog && tsc --watch",
-    "test": "node --test --import tsx test/contract.test.ts test/prompts.test.ts test/standards-parser.test.ts test/grouping.test.ts",
+    "test": "node --test --import tsx test/contract.test.ts test/prompts.test.ts test/standards-parser.test.ts test/grouping.test.ts test/drift-log.test.ts",
     "clean": "rm -rf dist"
   },
   "dependencies": {

@@ -47,7 +47,7 @@ async function runTool({ depth = 4, write_drafts = false } = {}) {
       if (result) draftsWritten.push(result)
     }
     return {
-      inventory,
+      inventory: capInventorySize(inventory),
       drafts_written: draftsWritten,
       total_source_files: sourceFiles.length,
       total_groups: inventory.length,
@@ -56,12 +56,38 @@ async function runTool({ depth = 4, write_drafts = false } = {}) {
   }
 
   return {
-    inventory,
+    inventory: capInventorySize(inventory),
     total_source_files: sourceFiles.length,
     total_groups: inventory.length,
     unmatched_count: grouped.get('_unmatched') ? grouped.get('_unmatched').files.length : 0,
     _instruction: 'Review the inventory. Call kb_analyze with write_drafts=true to create draft KB files, or use kb_scaffold to create specific files.'
   }
+}
+
+// F13: cap the serialized inventory size. The previous behavior emitted
+// every group with up to 10 sample_files, which on large monorepos pushed
+// the response past ~60KB and tripped MCP truncation. When the cap is hit
+// we keep the first-N groups in full and drop sample_files from the rest
+// (file_count is preserved so the agent still sees scale).
+const ANALYZE_TOTAL_CHAR_CAP = 40_000
+function capInventorySize(inventory) {
+  let running = JSON.stringify({ inventory: [] }).length
+  const out = []
+  let truncatedFrom = -1
+  for (let i = 0; i < inventory.length; i++) {
+    const item = inventory[i]
+    const itemSize = JSON.stringify(item).length + 1
+    if (running + itemSize > ANALYZE_TOTAL_CHAR_CAP && truncatedFrom === -1) {
+      truncatedFrom = i
+    }
+    if (truncatedFrom !== -1) {
+      out.push({ ...item, sample_files: [], truncated: true })
+    } else {
+      out.push(item)
+    }
+    running += itemSize
+  }
+  return out
 }
 
 function collectSourceFiles(rootDir, maxDepth) {

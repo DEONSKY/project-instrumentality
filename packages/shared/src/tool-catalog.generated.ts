@@ -266,6 +266,12 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
         "type": "boolean",
         "required": false,
         "hint": "Compute results in memory but skip every fs write. Used by the live watcher in the extension and the soft-mode CI check."
+      },
+      {
+        "name": "include_working_tree",
+        "type": "boolean",
+        "required": false,
+        "hint": "Phase 1: also evaluate uncommitted/untracked files matching the standard's applies_to (default: false). In current mode this unions working-tree changes with the committed diff. In aspirational mode it unions git-tracked files with untracked-non-ignored files. Useful when you want a verdict on a file before committing."
       }
     ],
     "surfaces": [

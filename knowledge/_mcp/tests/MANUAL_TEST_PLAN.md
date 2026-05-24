@@ -132,11 +132,12 @@ Sources (kb-mcp source paths — informational): `packages/shared/src/prompts/` 
 
 ### §A.1 Sanity (read-only)
 
-- `FYI:` agent calls `kb_status` and asserts the response contains all of: `head_sha`, `hooks_state` (one of `managed/partial/missing`), `code_drift.count`, `kb_drift.count`, `standards_drift.count`, `conform_pending.count`, `promotions.count`, `lint.errors`, `lint.warnings`.
+- `FYI:` agent calls `kb_status` and asserts the response contains all of: `currentHeadShort`, `hooks.health` (one of `managed/partial/missing`), `codeDrift.entries[]`, `kbDrift.entries[]`, `standardsDrift.entries[]`, `conformPending.{current,aspirational}`, `promotions[]`, `lint.violations[]`, `lint.ran`, `totals.{lintErrors,lintWarnings,drifts,conformPending,promotions,grand}`, `patternAudit`.
+  - **Note:** `patternAudit` is `null` unless the caller passed `live: true` (extensions do this automatically via the live-status runner) or `kb_drift` has populated the on-disk queue since the last commit. Both behaviors are expected — `kb_status` is a queue-state aggregator, not a live drift detector. To see fresh mapping diagnostics from a standalone `kb_status` call, run `kb_drift` first or have the watcher fire.
 - `FYI:` `kb_inventory` returns `stale_rules`, `uncovered_files`, `pending_promotions`.
-- `FYI:` `kb_get({ keywords: ["drift"], working_paths: ["<PICK_A_DIR>"] })` — `<PICK_A_DIR>` is any directory in your project that is covered by a code pattern in `knowledge/_rules.md` (open `_rules.md` and pick one). Assert `rules_in_scope` is a non-empty array.
-- `FYI:` `kb_get({ keywords: ["glossary"] })` — assert `glossary.md` is returned.
-- `FYI:` `kb_get({ keywords: ["agent"] })` — assert `agent-rules.md` and `CLAUDE.md` returned where applicable.
+- `FYI:` `kb_get({ keywords: ["drift"], working_paths: ["<PICK_A_TARGET>"] })` — `<PICK_A_TARGET>` is a **file path** that matches the `applies_to.paths` of at least one standard's rule (not just a `code_path_patterns` glob target). Open `knowledge/_index.yaml` and find a rule's `applies_to.paths`; pick any file under one of those globs. Assert `rules_in_scope` is a non-empty array. (Passing a *directory* that's only covered by a `code_path_patterns` glob — e.g. `**/controller/**` — typically returns `[]`; `rules_in_scope` matches rule-level `applies_to`, not pattern coverage.)
+- `FYI:` `kb_get({ keywords: ["glossary"] })` — if `knowledge/glossary.md` exists, assert it is returned. Otherwise assert the response is non-empty (typically `global.md`). These optional KB files are not required.
+- `FYI:` `kb_get({ keywords: ["agent"] })` — if `knowledge/agent-rules.md` or repo-root `CLAUDE.md` exist, assert they are returned where applicable. Both are optional.
 
 ### §A.2 MCP tool coverage
 
@@ -173,6 +174,8 @@ For each row: agent prints the call and the (truncated) response. CONFIRM only o
 | 27 | `kb_upgrade` | expect no-op on current version | **CONFIRM** if writes occur |
 
 (`kb_issue consult` and `kb_init` idempotency are covered in §B.6 and §B.1.3 respectively — not duplicated here.)
+
+> **Submodule note for rows 21–23:** If `<TARGET_CODE>` lives inside a git submodule, `kb_drift` in write mode (the publish path) only surfaces the change at the parent level once you also bump the parent's submodule pointer (i.e. commit the parent so `git submodule status` reports a new SHA for that path). The extensions' live overlay uses `kb_drift({readonly: true, includeWorkingTree: true})` and **will** show the in-submodule edit even when the pointer hasn't moved — so the panel may show a code-drift entry that an explicit `kb_drift` Phase 1 call does not. This is expected; pick a non-submodule `<TARGET_CODE>` if you want the published-queue path to also surface the change.
 
 ### §A.3 Git hooks lifecycle (all four hooks)
 
@@ -240,6 +243,8 @@ For each row: agent prints the call and the (truncated) response. CONFIRM only o
    🛑 **CONFIRM A.7.4** — on reload, filter + group-by + open section persist; banners stay dismissed. Verdict-form draft persistence is best-effort — note observed behaviour.
 
 ### §A.8 Mapping diagnostics trigger
+
+> **Note on counts:** The `pattern_audit.unmapped_kb_group.count` and `unmapped_code_group.count` values reflect whatever happens to live in `.obsidian/`, `node_modules/`, or other unmapped directories at the moment `kb_drift` ran. The **number of findings** (e.g. 9 categories) is stable across runs in a given project, but the per-entry counts shift with environmental state. Treat the shape as stable, the numbers as informational.
 
 1. Edit `knowledge/_rules.md` to add a code pattern matching no files (e.g. `src/nonexistent/**.js`).
    🛑 **CONFIRM A.8.1** — Mapping Diagnostics section gains an `orphan_pattern` entry.
@@ -346,6 +351,7 @@ diff /tmp/parity-vscode-<kind>.txt /tmp/parity-obsidian-<kind>.txt
 3. **Depth policy violation** — attempt `kb_write` at a path deeper than `_rules.md` allows (e.g. `specs/features/a/b/c/d/too-deep.md`).
    🛑 **CONFIRM A.16.3** — write rejected with a clear error citing the depth rule; no file created.
 4. `FYI:` secret detection covered by `lint.test.js` (not retested via UI).
+5. `FYI:` `kb_extract` Phase 2 returns `lint_errors: N` on its response (it lints the file it just wrote). This is a tool-response signal only — it does **not** propagate to the extension's Lint section. The Lint section is fed by the `kb_status.lint.violations` pipeline (which runs `lint-standalone.js`). If you want a `kb_extract`-written file's violations to appear in the Lint section, run `kb_status` (or wait for the next watcher tick) after the write.
 
 ### §A.17 MCP-down panel resilience
 
@@ -356,11 +362,16 @@ diff /tmp/parity-vscode-<kind>.txt /tmp/parity-obsidian-<kind>.txt
 
 ### §A.18 Cleanup
 
+> **Submodule note:** If your `_rules.md` code patterns target paths inside a submodule (common in monorepo-style consumer projects), the parent's `git checkout -- <TARGET_CODE>` only restores the submodule **pointer**, not the in-submodule edits or commits. Before §A.4, capture each affected submodule's SHA with `git -C <submodule> rev-parse HEAD`. Then during cleanup, run `git -C <submodule> reset --hard <captured-sha>` for each, and `git -C <submodule> stash drop` if §A.2 row 21 left stashed edits inside the submodule.
+
 ```bash
 # Revert intentional edits (substitute the actual paths you picked earlier)
 git checkout -- <TARGET_CODE>          # from §A.2 row 21 / §A.4
 git checkout -- <TARGET_KB>            # from §A.2 row 22
 git checkout -- knowledge/_rules.md    # if §A.8 left changes
+
+# Submodule cleanup (only if TARGET_CODE was inside a submodule)
+# git -C <submodule-path> reset --hard <captured-pre-test-sha>
 
 # Remove scratch files created during the run
 rm -f knowledge/specs/features/__test-only.md

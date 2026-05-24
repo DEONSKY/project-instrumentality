@@ -87,6 +87,13 @@ export interface GetStatusOptions {
   /** Override lint command (e.g. "npx kb-lint") for consumer projects. */
   lintCommand?: string;
   /**
+   * Absolute path to a fallback lint-standalone.js to spawn when neither
+   * `lintCommand` nor the vendored script exists. The extensions pass their
+   * bundled copy here so consumer projects without `knowledge/_mcp/` still
+   * get lint diagnostics in the Lint section.
+   */
+  bundledLintScriptPath?: string;
+  /**
    * Live mode — instead of reading the committed `knowledge/sync/*.md` files,
    * spawn the live-status runner which calls `drift.runTool({ readonly: true })`
    * and `conform.runTool({ readonly: true })` and overlays the in-memory
@@ -138,7 +145,7 @@ export async function getStatus(
     Promise.resolve(readDriftLog(kbRoot, currentAndPreviousMonth())),
     opts.skipLint
       ? Promise.resolve({ violations: [], ran: false })
-      : runLint(kbRoot, { commandOverride: opts.lintCommand }),
+      : runLint(kbRoot, { commandOverride: opts.lintCommand, bundledScriptPath: opts.bundledLintScriptPath }),
     getCurrentHeadShort(kbRoot),
     getSubmoduleStatus(kbRoot).catch(() => null),
     getHooksStatus(kbRoot).catch(() => null),

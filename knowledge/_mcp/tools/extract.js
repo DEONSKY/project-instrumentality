@@ -1,5 +1,6 @@
 const fs = require('fs')
 const path = require('path')
+const { execFileSync } = require('child_process')
 const { resolvePrompt } = require('../lib/prompts')
 const { runTool: write } = require('./write')
 const { KB_ROOT, resolveFilePath } = require('../lib/kb-paths')
@@ -52,14 +53,25 @@ async function runTool({ source, target_id, target_group, paths, app_scope = 'al
     sampledContent = readCodeFiles(sampleFiles)
   } else {
     const folder = typeof paths === 'string' ? paths : null
+    // Validate folder existence up-front so the error message is actionable —
+    // the prior behavior walked a missing path and fell through to a generic
+    // "Run kb_init first" hint that didn't help when paths was actually passed.
+    if (folder) {
+      const kbRootAbs = path.join(process.cwd(), KB_ROOT)
+      const folderAbs = path.join(kbRootAbs, folder)
+      if (!fs.existsSync(folderAbs) || !fs.statSync(folderAbs).isDirectory()) {
+        const available = listKbSubfolders(kbRootAbs)
+        return { error: `Folder not found: ${path.join(KB_ROOT, folder)}. Available subfolders: ${available.join(', ') || '(none)'}` }
+      }
+    }
     sampleFiles = sampleKbFiles(folder)
     sampledContent = readKbFiles(sampleFiles)
   }
 
   if (sampleFiles.length === 0) {
     const hint = source === 'code'
-      ? 'No source files found. Ensure source code exists and is not in an excluded directory (node_modules, dist, build, etc.).'
-      : 'No KB files found. Run kb_init first, or pass paths="features" to specify a subfolder.'
+      ? 'No source files found. Ensure source code exists and is tracked by git (use `git add -A` first if needed); submodule-resident files are included via `git ls-files --recurse-submodules`.'
+      : 'No KB files found. Run kb_init first, or pass paths="<subfolder>" to specify a subfolder.'
     return { error: hint }
   }
 
@@ -208,7 +220,38 @@ function readKbFiles(files) {
 
 // --- Source file helpers (mirrored from analyze.js) ---
 
+/**
+ * Collect tracked source files via `git ls-files --recurse-submodules`. This
+ * replaces the prior fs.walk because the walker stopped at submodule
+ * boundaries (SKIP_SCAN treats `.git` as cut), missing all code in monorepos
+ * whose code lives in submodules. Falls back to fs.walk if git is unavailable
+ * (e.g. project not yet `git init`-ed) so kb_extract still works in fresh
+ * directories.
+ */
 function collectSourceFiles(rootDir, maxDepth) {
+  try {
+    const out = execFileSync('git', ['ls-files', '--recurse-submodules'], {
+      cwd: rootDir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 64 * 1024 * 1024
+    })
+    return out
+      .split('\n')
+      .filter(Boolean)
+      .filter(rel => {
+        // Reuse the SKIP_SCAN guards so build/dep paths don't pollute samples
+        // even if they're tracked (rare but happens with vendored deps).
+        const segments = rel.split('/')
+        if (segments.some(seg => SKIP_SCAN.has(seg))) return false
+        return isSourceFile(path.basename(rel))
+      })
+  } catch {
+    return collectSourceFilesFs(rootDir, maxDepth)
+  }
+}
+
+function collectSourceFilesFs(rootDir, maxDepth) {
   const files = []
 
   function walk(dir, depth) {
@@ -229,6 +272,17 @@ function collectSourceFiles(rootDir, maxDepth) {
 
   walk(rootDir, 0)
   return files
+}
+
+function listKbSubfolders(kbRootAbs) {
+  try {
+    return fs.readdirSync(kbRootAbs, { withFileTypes: true })
+      .filter(e => e.isDirectory() && !e.name.startsWith('_') && !KB_SKIP.has(e.name))
+      .map(e => e.name)
+      .sort()
+  } catch {
+    return []
+  }
 }
 
 function isSourceFile(filename) {

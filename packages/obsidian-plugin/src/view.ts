@@ -112,6 +112,8 @@ function activityEventLabel(t: string): string {
       return "Drift resolved";
     case "drift-dismissed":
       return "Drift dismissed";
+    case "drift-acknowledged":
+      return "Acknowledged";
     case "re-bootstrap":
       return "Re-bootstrap";
     default:
@@ -125,6 +127,7 @@ function activityBadgeClass(t: string, isSystem: boolean): string {
   if (t === "conformed-exempted" || t === "dismissed-conform" || t === "drift-dismissed")
     return "event-exempted";
   if (t === "conformed-promoted" || t === "closed-promotion") return "event-promoted";
+  if (t === "drift-acknowledged") return "event-acknowledged";
   return "event-other";
 }
 
@@ -277,10 +280,19 @@ export class InstrumentalityView extends ItemView {
       const bundledRunnerPath = pluginDir
         ? path.join(pluginDir, "runner", "scripts", "live-status.js")
         : undefined;
+      // F16: bundled lint-standalone.js path so the Lint section can run in
+      // consumer projects without vendored knowledge/_mcp/. Currently skipped
+      // in Obsidian because the lint subprocess uses process.execPath which
+      // resolves to Electron — needs a node-binary lookup to actually run.
+      // TODO: extend findNodeBinary to lint.ts so this works in Obsidian too.
+      const bundledLintScriptPath = pluginDir
+        ? path.join(pluginDir, "runner", "scripts", "lint-standalone.js")
+        : undefined;
       this.status = await getStatus(root, {
         skipLint: true,
         live: true,
         bundledRunnerPath,
+        bundledLintScriptPath,
       });
       // eslint-disable-next-line no-console
       console.log(
@@ -1518,9 +1530,14 @@ export class InstrumentalityView extends ItemView {
       SECTION_GUIDE.lint.what
     );
     if (!ran) {
+      // F16: when the lint subprocess didn't run, point the user at how to
+      // configure it. The plugin bundles a standalone lint script and tries
+      // it automatically; this hint covers cases where it can't spawn (no
+      // node on PATH, etc).
       return this.placeholder(
         body,
-        this.status!.lint.error || "Lint subprocess unavailable in this workspace"
+        (this.status!.lint.error || "Lint subprocess unavailable in this workspace.") +
+          " Vendor knowledge/_mcp/scripts/lint-standalone.js in your project to enable inline lint, or configure your own lint binary."
       );
     }
     if (v.length === 0) return this.placeholder(body, "No lint issues");
@@ -1810,6 +1827,16 @@ export class InstrumentalityView extends ItemView {
         cls: "badge",
         text: "owned",
         attr: { title: "owned by this superproject" },
+      });
+    }
+    // F9: explicit detached badge alongside type so a checked-out-by-SHA
+    // submodule is unmistakable. Mirrors the VS Code extension.
+    if (align === "detached") {
+      title.appendText(" ");
+      title.createSpan({
+        cls: "badge sev-warn",
+        text: "detached",
+        attr: { title: "Submodule HEAD is detached — no branch to compare against parent." },
       });
     }
     if (e.pointerChanged) {
@@ -2848,16 +2875,36 @@ export class InstrumentalityView extends ItemView {
         : a.localeCompare(b)
     );
 
-    for (const k of sortedKeys) {
+    // Accordion behavior mirrors the Pending view: one group open at a
+    // time so its body gets the full available height (no flex-shrink
+    // squeeze that previously cut detail panels off mid-line). Default-open
+    // = the first sorted group (newest date / first alpha).
+    const cards: HTMLElement[] = [];
+    for (let i = 0; i < sortedKeys.length; i++) {
+      const k = sortedKeys[i];
       const arr = groups.get(k)!;
       const card = grid.createDiv({
         cls: "instrumentality-section-card activity-group",
-        attr: { "data-activity-group": k },
+        attr: {
+          "data-activity-group": k,
+          ...(i === 0 ? { "data-open": "true" } : {}),
+        },
       });
+      cards.push(card);
       const header = card.createEl("header");
       const h2 = header.createEl("h2");
       h2.createSpan({ text: k });
       h2.createSpan({ cls: "count", text: String(arr.length) });
+      // Header click swaps the open card. Clicking the currently-open
+      // header is a no-op (matches Pending — collapsing all would leave
+      // an empty view). Skip clicks on inner controls.
+      header.addEventListener("click", (ev) => {
+        const target = ev.target as HTMLElement;
+        if (target.closest("button, a, input")) return;
+        if (card.getAttribute("data-open") === "true") return;
+        for (const other of cards) other.removeAttribute("data-open");
+        card.setAttribute("data-open", "true");
+      });
       const body = card.createDiv({ cls: "body" });
       for (const e of arr) this.renderActivityRow(body, e);
     }
@@ -2936,7 +2983,14 @@ export class InstrumentalityView extends ItemView {
       r.createEl("strong", { text: "Note: " });
       r.appendText(e.note);
     }
-    summary.addEventListener("click", () => row.toggleClass("open", !row.hasClass("open")));
+    // Toggle the detail panel on summary click. Use the DOM API directly
+    // — Obsidian's `toggleClass(name, force)` had a reported case where
+    // the force arg wasn't honored, leaving the entry stuck "open" with
+    // no way to close it.
+    summary.addEventListener("click", () => {
+      if (row.classList.contains("open")) row.classList.remove("open");
+      else row.classList.add("open");
+    });
   }
 
 }

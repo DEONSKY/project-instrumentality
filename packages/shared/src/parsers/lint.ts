@@ -28,13 +28,28 @@ export interface RunLintOptions {
    * parsed the same way.
    */
   commandOverride?: string;
+  /**
+   * Absolute path to a fallback lint-standalone.js to spawn when the
+   * consumer project doesn't vendor `knowledge/_mcp/` in tree. The VS Code
+   * extension and Obsidian plugin both bundle a copy under
+   * `<extensionPath>/dist/runner/scripts/lint-standalone.js` and pass that
+   * path here so the Lint section works in any project, vendored or not.
+   * Vendored path always wins when both exist — it matches the consumer's
+   * own kb-mcp version.
+   */
+  bundledScriptPath?: string;
 }
 
 /**
- * Run lint and parse violations from stderr. Default behavior:
- *   - look for `<kbRoot>/knowledge/_mcp/scripts/lint-standalone.js`;
- *   - if missing, return `{ ran: false }` (consumer projects don't ship it).
- * With `commandOverride`, run that command instead.
+ * Run lint and parse violations from stderr. Resolution order:
+ *   1. `commandOverride` (user-configured `instrumentality.lint.command`)
+ *   2. vendored `<kbRoot>/knowledge/_mcp/scripts/lint-standalone.js`
+ *   3. `bundledScriptPath` (extension-shipped copy)
+ *   4. otherwise: `{ ran: false }` (no script available)
+ *
+ * lint-standalone.js is self-contained — it only reads `<cwd>/knowledge/`
+ * and inlines its own rules loader, so spawning a bundled copy with
+ * cwd=kbRoot works in consumer projects that don't ship kb-mcp source.
  *
  * Always exits 0 on the lint side; violations are on stderr.
  */
@@ -45,11 +60,14 @@ export function runLint(
   if (opts.commandOverride && opts.commandOverride.trim().length > 0) {
     return runShell(opts.commandOverride.trim(), kbRoot);
   }
-  const script = path.join(kbRoot, "knowledge", "_mcp", "scripts", "lint-standalone.js");
-  if (!fs.existsSync(script)) {
-    return Promise.resolve({ violations: [], ran: false });
+  const vendored = path.join(kbRoot, "knowledge", "_mcp", "scripts", "lint-standalone.js");
+  if (fs.existsSync(vendored)) {
+    return runProcess(process.execPath, [vendored], kbRoot);
   }
-  return runProcess(process.execPath, [script], kbRoot);
+  if (opts.bundledScriptPath && fs.existsSync(opts.bundledScriptPath)) {
+    return runProcess(process.execPath, [opts.bundledScriptPath], kbRoot);
+  }
+  return Promise.resolve({ violations: [], ran: false });
 }
 
 function runShell(

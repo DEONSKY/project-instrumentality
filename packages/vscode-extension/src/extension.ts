@@ -489,7 +489,13 @@ async function fetchStatus(): Promise<StatusSummary> {
   const bundledRunnerPath = extContext
     ? path.join(extContext.extensionPath, "dist", "runner", "scripts", "live-status.js")
     : undefined;
-  return getStatus(kbRoot!, { lintCommand, live: true, bundledRunnerPath });
+  // F16: consumer projects that install kb-mcp via npm don't ship
+  // lint-standalone.js — bundle a copy so the Lint section works without
+  // requiring the user to set instrumentality.lint.command.
+  const bundledLintScriptPath = extContext
+    ? path.join(extContext.extensionPath, "dist", "runner", "scripts", "lint-standalone.js")
+    : undefined;
+  return getStatus(kbRoot!, { lintCommand, live: true, bundledRunnerPath, bundledLintScriptPath });
 }
 
 function applyStatus(status: StatusSummary): void {

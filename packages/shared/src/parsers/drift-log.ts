@@ -11,13 +11,24 @@ import { kbSyncPath } from "../kb-root.js";
 //   ## 2026-04-27 · CLOSED-PROMOTION
 //   ## 2026-04-27 · AUTO-CLOSED-PROMOTION · rule changed
 //   ## 2026-04-17 · RESOLVED · kb→code
-const HEADING_RE = /^##\s+(\d{4}-\d{2}-\d{2})\s+·\s+(.+)$/;
+// `m` flag is load-bearing: blocks split by splitHeaderAndBlocks are
+// multi-line (the heading + the - **Field:** bullets that follow), and
+// without /m the trailing `$` only anchors at end-of-string, so the regex
+// never matched and every drift-log parsed to zero events. This is the
+// actual F19 root cause — the ACKNOWLEDGED switch was a downstream symptom.
+const HEADING_RE = /^##\s+(\d{4}-\d{2}-\d{2})\s+·\s+(.+)$/m;
 
 function classifyHeading(rest: string): {
   type: DriftLogEventType;
   isSystem: boolean;
 } {
   const upper = rest.toUpperCase();
+  // F19: ACKNOWLEDGED was missing from this switch — events fell through to
+  // "unknown" and rendered as "Unknown" in the Activity tab, making the tab
+  // look empty when it actually contained acknowledged entries. The writer
+  // (conform/queue.js appendToDriftLog) emits `## <date> · ACKNOWLEDGED ·
+  // standards-drift` for the 'acknowledged' event type.
+  if (upper.startsWith("ACKNOWLEDGED")) return { type: "drift-acknowledged", isSystem: false };
   if (upper.startsWith("CONFORMED")) {
     if (upper.includes("APPLIED")) return { type: "conformed-applied", isSystem: false };
     if (upper.includes("EXEMPTED")) return { type: "conformed-exempted", isSystem: false };
@@ -114,7 +125,22 @@ export function readDriftLog(kbRoot: string, monthKeys: string[]): DriftLogEvent
   for (const month of monthKeys) {
     const file = kbSyncPath(kbRoot, "drift-log", `${month}.md`);
     if (!fs.existsSync(file)) continue;
-    all.push(...parseDriftLog(fs.readFileSync(file, "utf8")));
+    const content = fs.readFileSync(file, "utf8");
+    const parsed = parseDriftLog(content);
+    // F19: surface parse failures (non-empty file → zero events) so any
+    // future heading-shape change is loud instead of silently emptying the
+    // Activity tab. Cheap one-line warn; doesn't fire on the common case.
+    if (parsed.length === 0 && content.trim().length > 0) {
+      const firstHeadings = content
+        .split("\n")
+        .filter((l) => l.startsWith("## "))
+        .slice(0, 3);
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[drift-log] parsed 0 events from ${file} (${content.length} chars). First headings: ${JSON.stringify(firstHeadings)}`
+      );
+    }
+    all.push(...parsed);
   }
   // Sort newest-first by date string (lexicographic works for YYYY-MM-DD).
   all.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
