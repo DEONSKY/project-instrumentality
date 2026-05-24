@@ -1,11 +1,6 @@
 node_modules/
 dist/
 
-# Build artifact of packages/obsidian-plugin/esbuild.config.mjs.
-# Regenerated from knowledge/_mcp/ by scripts/bundle-runner.mjs on each
-# `npm run build`. Source of truth is knowledge/_mcp/.
-packages/obsidian-plugin/runner/
-
 # Transient capture dir for knowledge/_mcp/tests/fixtures/verify.sh.
 # Wiped and regenerated on every run; diffed against baseline/.
 knowledge/_mcp/tests/fixtures/current/

@@ -3,10 +3,12 @@
 // Bundles the kb-mcp live-status runner alongside the Obsidian plugin so
 // vaults that don't vendor knowledge/_mcp/ still get the live overlay.
 // Mirrors packages/vscode-extension/scripts/bundle-runner.js — same source
-// tree, same three runtime deps. The plugin's main.js loads from
-// <vault>/.obsidian/plugins/instrumentality/main.js; `__dirname` at runtime
-// resolves to that directory, so the runner ships under runner/ and the
-// templates under _templates/ at the package root.
+// tree, same three runtime deps. Outputs live under dist/ so the whole
+// install-ready directory is a single gitignored tree, matching the
+// VS Code extension layout. The installed plugin folder
+// (<vault>/.obsidian/plugins/instrumentality/) ends up flat because
+// install copies the contents of dist/, so the runner sits at
+// runner/ and templates at _templates/ relative to main.js at runtime.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -15,12 +17,13 @@ import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.resolve(SCRIPT_DIR, "..");
+const DIST_DIR = path.join(PKG_ROOT, "dist");
 const REPO_ROOT = path.resolve(PKG_ROOT, "..", "..");
 const MCP_DIR = path.join(REPO_ROOT, "knowledge", "_mcp");
 const TEMPLATES_DIR = path.join(REPO_ROOT, "knowledge", "_templates");
 
-const RUNNER_OUT = path.join(PKG_ROOT, "runner");
-const TEMPLATES_OUT = path.join(PKG_ROOT, "_templates");
+const RUNNER_OUT = path.join(DIST_DIR, "runner");
+const TEMPLATES_OUT = path.join(DIST_DIR, "_templates");
 
 const RUNTIME_DEPS = {
   "simple-git": "^3.22.0",
@@ -73,6 +76,7 @@ if (!fs.existsSync(MCP_DIR)) {
 }
 rmrf(RUNNER_OUT);
 rmrf(TEMPLATES_OUT);
+fs.mkdirSync(DIST_DIR, { recursive: true });
 fs.mkdirSync(RUNNER_OUT, { recursive: true });
 
 for (const dir of COPY_DIRS) {

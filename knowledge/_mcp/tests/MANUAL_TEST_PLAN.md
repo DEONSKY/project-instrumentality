@@ -936,13 +936,14 @@ ls -la dist/extension.js                                    # newer than src/*.t
 cd ../obsidian-plugin
 node -e "console.log(require('./manifest.json').version)"  # expect: 0.2.0
 npm install && node esbuild.config.mjs
-ls -la main.js                                              # newer than src/*.ts
+ls -la dist/main.js                                         # newer than src/*.ts
 
 # A.5 Reinstall freshly built artifacts
 # VS Code:  vsce package, then `code --install-extension instrumentality-0.3.0.vsix`
 #           — or for dev: symlink/copy dist/ into ~/.vscode/extensions/instrumentality-0.3.0/
 #             and run "Developer: Reload Window"
-# Obsidian: copy main.js + manifest.json + styles.css into <vault>/.obsidian/plugins/instrumentality/,
+# Obsidian: copy the contents of dist/ (main.js + manifest.json + styles.css + runner/ + _templates/)
+#           into <vault>/.obsidian/plugins/instrumentality/,
 #           then Settings → Community plugins → toggle Instrumentality off + on
 ```
 
