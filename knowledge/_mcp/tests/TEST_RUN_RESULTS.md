@@ -16,21 +16,21 @@ Live log. Untracked. Delete on cleanup (§A.18) or move out of repo when done.
 | §A.0 Targets | PASS with notes | Targets locked; F2 resolved on re-check; new F8/F9 from CONFIRM A.0 panel review |
 | §A.1 | PASS | F4 (kb_status field-name shape); F10 (optional KB files absent — not blocking); F11 (rules_in_scope requires exact applies_to match) |
 | §A.2 | PASS with notes | All 27 rows exercised. Findings: F13 (large responses), F14 (kb_impact false-negative), F15 (kb_extract submodule), F16 (lint not surfacing), F17 (drift target ambiguity), F18 (kb_conform ignores uncommitted), F19 (Activity tab disconnected from drift-log). MCP version confirmed 1.1.1 (row 27). |
-| §A.3 | pending | |
-| §A.4 | pending | |
-| §A.5 | pending | |
-| §A.6 | pending | |
-| §A.7 | pending | |
-| §A.8 | pending | |
-| §A.9 | pending | |
-| §A.10 | pending | |
-| §A.11 | pending | |
-| §A.12 | pending | |
-| §A.13 | pending | |
-| §A.14 | pending | |
-| §A.15 | pending | |
-| §A.16 | pending | |
-| §A.17 | pending | |
+| §A.3 | PASS with notes | All 6 sub-confirms exercised. Hooks (pre-commit/pre-push/post-merge/post-checkout) fire correctly. Findings: F20 (pre-push submodule guard blocked full auto-commit chain; plan didn't mention this precondition). pre-commit is WARN-not-BLOCK on lint errors. |
+| §A.4 | PASS with notes | Preview→Published transition tested. Findings: F23 (plan assumes non-submodule code; 2-state model doesn't fit submodule case), F24 (bucket semantics are queue-file based, not git-commit based — plan §1.1 wording misleading). |
+| §A.5 | PASS with notes | Aspirational sweep on admin-be.controller-delegates-to-service. 16 evaluations → 1 fail (HealthController) → dismissed. Findings: F25 (resolution verbs default to mode=current; aspirational backlog needs explicit mode arg). Plan A.5.1 expectation about immediate backlog population was wrong (same Phase 1→1.5→backlog flow as current). |
+| §A.6 | PARTIAL | A.6.1–A.6.3 PASS (search, severity, group-by); A.6.4–A.6.6 BLOCKED at the time by F19 (Activity empty) — verifiable now that F19 fixed but not re-tested. Findings: F26 RESOLVED (empty section headers now hide on filter). Severity not shown per-entry — by design per §1.1 entry-badge list. |
+| §A.7 | PASS with notes | A.7.1 banner+Got-it dismiss ✓, A.7.2 "?" re-show ✓, A.7.4 filter persists across reload. Findings: F27 RESOLVED (Obsidian grouping parity). Verdict-form draft persistence is "best-effort" per plan; not deeply tested. |
+| §A.8 | PASS | Adding orphan pattern → 2 mapping-diagnostics entries (orphan_pattern + ghost_target) rather than 1 — better-than-spec detection. Removing pattern → entries cleared. |
+| §A.9 | PASS | All 6 verbs exercised: Apply (admin-fe), Exempt (__test-fail), Promote (__test-fail-2), Dismiss (__test-fail-3), Acknowledge (kb-drift __test-only via kb_drift.acknowledge), Close promotion. Required ~10 commits to recreate fail entries between verbs. Activity tab shows all 6 events (F19 fixed). |
+| §A.10 | PARTIAL | 4 verbs called: summaries ✓, reverted ✓, kb_confirmed ✓, dismissed ✓. Activity tab shows only 3 of 4 events — summaries event not visible in Activity OR drift-log for today. Recording as F28. |
+| §A.11 | PARTIAL | A.11.1/2/5 pass; A.11.3/4 fail in VS Code (F29/F30); A.11.6 fails in Obsidian for standards-drift entries (F31); A.11.7 minor copy issue in Obsidian (F32); A.11.3 minor YAML editing limitation in Obsidian (F33). |
+| §A.12 | PASS | Copy Prompt parity verified across all entry kinds (Code Drift target-missing, KB Drift, Standards Drift, Standards Backlog, Promotion, Lint, Mapping Diagnostic). Skipped "Code Drift target-exists" — couldn't generate one in this repo. |
+| §A.13 | PARTIAL | A.13.1-A.13.4 pass (Capabilities panel, copy prompts, MCP snippets, Obsidian Info tab parity). A.13.5 fail: F35 (VS Code Publish Drift Queue command missing entirely). A.13.6 fail: F34 (Obsidian Publish button silently does nothing). |
+| §A.14 | PASS | All 3 backends (clipboard, terminal, command) work as documented. Reverted to clipboard after. |
+| §A.15 | PASS | A.15.1 verified: notifications.enabled toast appears with View button focusing sidebar. refreshIntervalSeconds + lint.command not retested (FYI per plan). |
+| §A.16 | PASS with notes | A.16.1 pass on VS Code; F36 (Obsidian shows subset of lint entries, timing unclear). A.16.2 lint clears after fix. A.16.3: kb_write does not hard-reject illegal depth — depth surfaces as lint warn instead. Per user, this is acceptable behavior; plan wording could be loosened. |
+| §A.17 | SKIPPED | MCP-down resilience test skipped per user — low priority. |
 | §A.18 | pending | |
 
 ## Findings
@@ -106,19 +106,13 @@ Live log. Untracked. Delete on cleanup (§A.18) or move out of repo when done.
 - Implication: `rules_in_scope` resolution is by exact rule-level applies_to match, not by code_path_patterns coverage and not by directory containment. Plan should clarify that PICK_A_DIR / working_paths must match a *rule's* applies_to, not a `_rules.md` code-pattern target.
 - Status: open — plan wording fix needed; possibly also a `rules_in_scope` behavior question (should directory containment match rules whose applies_to is below the directory?).
 
-### F8 — VS Code header does not display HEAD short SHA — NEW
-- Severity: UI parity break
-- Spec basis: §1.1 line 2: "Header: title · `HEAD: <short-sha>` · hooks badge..." applies to BOTH extensions.
-- Observed: Obsidian header correctly shows `HEAD: 9840356`. VS Code header shows the branch name (`__test/extension-plan`) but no short-SHA element.
-- Implication: Users on VS Code cannot quickly verify HEAD at-a-glance. Also breaks CONFIRM A.4.2 / A.3.2 verifications which read "HEAD short SHA updated in header".
-- Status: open — UI fix needed in VS Code extension. Plan should clarify whether branch name + SHA both render, or one in place of the other.
+### F8 — VS Code header does not display HEAD short SHA — RESOLVED
+- Severity: was UI parity break; resolved by user fix.
+- Status: RESOLVED — VS Code header now shows the short SHA matching Obsidian.
 
-### F9 — Detached submodule renders with no color — NEW
-- Severity: UX gap
-- Spec basis: §4 says "`advisory` and `detached` submodule alignment — covered by `kb_sub` unit tests; UI rendering uses identical mechanism to `aligned`/`blocking`."
-- Observed: `ms-linestop-admin-fe` (`branch: null` per `kb_status`, i.e. detached HEAD) renders in both panels with no color/alignment indicator. Other owned submodules (mismatched branch) render red. Shared submodules also render red.
-- Implication: The "identical mechanism" claim doesn't hold — detached needs its own color/badge (`detached`) like §1.1 line 9 lists as an entry-row badge.
-- Status: open — either color-render for detached needs implementing, or §4 statement needs revising.
+### F9 — Detached submodule renders with no color — RESOLVED
+- Severity: was UX gap; resolved by user fix.
+- Status: RESOLVED — detached submodule now renders with distinct color/badge.
 
 ### F13 — Multiple tools return prompts that exceed MCP response token limit — NEW (expanded)
 - Severity: tool usability bug
@@ -156,19 +150,13 @@ Live log. Untracked. Delete on cleanup (§A.18) or move out of repo when done.
 - Implication: User's working-tree edits aren't validated by `kb_conform` until commit, so issues only surface late. Conform should support a preview bucket like drift does, OR the plan should clarify that conform is committed-only.
 - Status: open — server-side enhancement.
 
-### F19 — Activity tab does not display drift-log events — NEW
-- Severity: UI/data-flow gap (blocks §A.9.7 and §A.10.5 verification)
-- Spec basis: §A.9.7 / §A.10.5: "all six events present in Activity tab" / "all four events present".
-- Observed: After `kb_conform({applied: [...]})` succeeded and appended a `2026-05-23 · CONFORMED · applied` event to `knowledge/sync/drift-log/2026-05.md`, the Activity tab in both panels stayed empty. Pre-existing historic events from 2026-05-16 (`ACKNOWLEDGED`, `DISMISSED-CONFORM`) — already on disk in drift-log — are also not surfaced.
-- Implication: Both panels are not reading drift-log into Activity. §A.9 and §A.10 round-trip verifications cannot complete without this. Either the panels read from a different file, or the drift-log subscription is broken.
-- Status: open — UI fix needed.
+### F19 — Activity tab does not display drift-log events — RESOLVED
+- Severity: was UI/data-flow gap (blocked §A.9.7 / §A.10.5); resolved by user fix.
+- Status: RESOLVED — Activity tab now lists historical drift-log events. §A.9 and §A.10 round-trip verifications unblocked.
 
-### F16 — Lint errors reported by `kb_extract` do not surface in extension Lint sections — NEW
-- Severity: UI/data-flow gap
-- Symptom: `kb_extract` Phase 2 write of `standards/code/__test-extract.md` returned `lint_errors: 16` in its response. After auto-refresh, both extensions show the new file in KB Drift (correct), but Lint section remains empty in both panels.
-- Implication: Lint issues only get displayed via certain trigger paths (likely `kb_status` with lint enabled, `kb_reindex`, or pre-commit hook), and `kb_extract`'s internal lint result is informational only — not persisted to whatever sync file the UI reads.
-- Cross-check: prior `kb_status` calls returned `lint: { violations: [], ran: false }` — the `ran: false` flag suggests the lint subprocess may not be actually running even when not skipped.
-- Status: open — needs §A.16 failure-paths re-test and / or maintainer triage.
+### F16 — Lint errors reported by `kb_extract` do not surface in extension Lint sections — RESOLVED
+- Severity: was UI/data-flow gap; resolved by user fix.
+- Status: RESOLVED — Lint section now displays entries (verified after user fix).
 
 ### F15 — `kb_extract` does not traverse submodule paths, and `source=knowledge` `paths` filter is broken — NEW
 - Severity: tool bug (blocks §A.2 row 10/11 on this consumer repo)
@@ -176,6 +164,94 @@ Live log. Untracked. Delete on cleanup (§A.18) or move out of repo when done.
 - Symptom B (knowledge source): `kb_extract({source: "knowledge", paths: "features"})` returned `"No KB files found. Run kb_init first, or pass paths=\"features\" to specify a subfolder."` — but `paths: "features"` is what I passed. Tried `paths: "specs/features"` — same error. The `paths` parameter appears broken for `source=knowledge`.
 - Implication: Plan §A.2 rows 10–11 (`kb_extract` P1 and P2) cannot be exercised in this consumer repo. Workaround would require a non-submodule code path or fixing tool.
 - Status: open — kb_extract needs submodule support and a working `paths` filter for `source=knowledge`.
+
+### F26 — Accordion section headers remain visible when filter empties them — RESOLVED
+- Severity: was minor UX nit; resolved by user fix.
+- Status: RESOLVED — empty section headers now hide when search filter has no matches in that section.
+
+### F27 — Obsidian grouping by Standard hid kb-drift entries while VS Code showed them — RESOLVED
+- Severity: was cross-extension parity break; resolved by user fix.
+- Status: RESOLVED — Obsidian now shows the same entries as VS Code under "no standard" group.
+
+### F20 — Plan §A.3.2 doesn't mention submodule branch-guard precondition — NEW
+- Severity: plan documentation gap
+- Spec basis: §A.3.2: "pre-push runs kb_drift P1, writes to sync/code-drift.md, auto-commits chore(kb): update drift queue".
+- Observed: On this repo (parent branch `__test/extension-plan`, submodules on `kb-mcp-boundary-validation`), pre-push hook blocked the push with "Submodule branch mismatch — push blocked." before reaching the kb_drift / auto-commit phase. This is the submodule branch guard at the top of the hook.
+- Implication: Plan §A.3.2 expected behavior is only reachable when submodules are aligned with parent branch. For repos where submodules don't follow parent branch, the full auto-commit chain is untestable without aligning them.
+- Also: per the hook source, the auto-commit only fires on **protected branches** (default main|master). On feature branches, pre-push runs detection in readonly mode — no fs writes, no auto-commit. Plan §A.3.2 conflates both code paths.
+- Status: open — plan wording fix.
+
+### F21 — VS Code reactive refresh appears slower than Obsidian (soft observation)
+- Severity: uncertain — observation, not confirmed bug
+- Symptom: After post-merge hook fired in §A.3.3, user noted VS Code may have needed manual refresh while Obsidian updated reactively. User uncertain.
+- Status: observation only — not blocking. Could be timing-dependent.
+
+### F23 — Plan §A.4 assumes non-submodule code; submodule case has 3 transitions
+- Severity: plan documentation gap
+- Spec basis: §A.4 specifies 2 states (preview → published) via 1 commit.
+- Observed: For submodule-resident TARGET_CODE, the actual flow needs THREE git ops to fully transition: (1) edit in submodule, (2) commit in submodule, (3) commit submodule pointer bump in parent. Plan's 2-step model can't be applied directly.
+- Status: open — plan should cover the submodule variant or scope itself to non-submodule code.
+
+### F24 — Bucket semantics are queue-file based, not git-commit based — NEW
+- Severity: plan-vs-implementation semantic mismatch
+- Spec basis: §1.1 line 8: "Bucket headers inside Drift sections: 'Uncommitted preview' (working tree) vs 'Published' (committed)."
+- Observed: A plain `git commit` of a KB or code file does NOT transition the preview entry to Published. The entry only moves to Published once `kb_drift` writes the entry to the queue file. Multiple sections (§A.2 row 22, §A.4.2) hit this — committing didn't change bucket placement; running `kb_drift` did.
+- Refined definition: **Uncommitted preview** = drift detected by live-compute, not yet persisted to `sync/code-drift.md` or `sync/kb-drift.md`. **Published** = drift entry exists in the queue file (regardless of whether the queue file itself is committed to git).
+- Implication: Plan §1.1 wording is misleading. Plan should redefine the buckets in terms of queue-file persistence, not git-commit state.
+- Status: open — plan wording fix.
+
+### F25 — kb_conform resolution verbs default to mode=current — NEW (minor)
+- Severity: usability quirk (mitigated by good error message)
+- Symptom: Calling `kb_conform({dismissed: [...]})` without `mode: "aspirational"` to close a backlog entry returned "No pending evaluations found for mode 'current'. Did you mean mode: 'aspirational'?" The error hint is helpful but the API requires explicit mode.
+- Status: open — could be improved with automatic mode detection from queue_key, but not blocking.
+
+### F28 — summaries event not surfaced in Activity tab / drift-log — NEW
+- Severity: UI gap
+- Spec basis: §A.10 specifies 4 events visible in Activity tab.
+- Observed: After running `kb_drift({summaries: [{kb_target, summary}]})` in A.10.1, response showed `closed: [...]` and `filesChanged.written: [drift-log/2026-05.md]`. But Activity tab only shows 3 events (reverted, kb_confirmed, dismissed) for today; summaries event missing. Inspection of drift-log/2026-05.md shows only 3 entries dated 2026-05-26 — the summaries-only event isn't there.
+- Possible cause: summaries verb may consolidate with subsequent close events on same kb_target (we ran summaries then reverted on health.md, both close the same target). Or the drift-log entry format may not generate an Activity tab card.
+- Status: open — needs maintainer triage on whether summaries should emit its own event.
+
+### F29 — VS Code "Edit Rule" button returns "entry not found (try refreshing)" — NEW
+- Severity: UI bug
+- Spec basis: §1.2 entry actions table: Standards Drift entries get "Edit Rule" button. §A.11.3: clicking should open standard file AND scroll to rule block.
+- Observed: VS Code Edit Rule on `admin-be.controller-delegates-to-service` entry → error toast: "Instrumentality: entry not found (try refreshing)". Refresh doesn't fix. Obsidian's same button works (opens file but doesn't scroll to rule block, see F33).
+- Status: open — VS Code UI fix needed.
+
+### F30 — VS Code "Refine with Agent" button returns "entry not found (try refreshing)" — NEW
+- Severity: UI bug (same root cause as F29 likely)
+- Spec basis: §1.2 entry actions; §A.11.4: clicking should put `kb_write` prompt for the standard into clipboard.
+- Observed: VS Code Refine with Agent on standards-drift entry → "entry not found (try refreshing)". Obsidian works and copies a well-formed prompt with rule context, triggering files, drift reason, existing rule body, and task instructions.
+- Status: open — likely same fix as F29.
+
+### F31 — Obsidian "Show diff" on standards-drift entries fails with "bad revision" — NEW
+- Severity: UI bug
+- Spec basis: §A.11.6: expanding Show diff disclosure should load diff content matching `git diff <since>..HEAD`.
+- Observed: Obsidian Show diff on `admin-be.controller-delegates-to-service` entry shows error: `error: Command failed: git diff --no-color 13e665e^ -- ... HealthController.java\nfatal: bad revision 13e665e`. The base SHA `13e665e` is invalid in the `git -C` context (likely passed without the right repo prefix for submodule files). VS Code works correctly for the same entry.
+- Diff works on non-standards entries (code-drift, kb-drift) for both extensions.
+- Status: open — Obsidian's diff command construction for standards-drift entries uses wrong base resolution.
+
+### F32 — Obsidian "Show prompt" disclosure doesn't support direct text copy — NEW (minor)
+- Severity: minor UX
+- Symptom: Show prompt disclosure renders the prompt text but the user cannot select-and-copy directly from the rendered text. Workaround: use the Copy Prompt button (works).
+- Status: open — minor selectability fix.
+
+### F33 — Obsidian Edit Rule doesn't preserve custom YAML rule format — NEW (minor)
+- Severity: minor UX
+- Symptom: User reports that editing rules in Obsidian via Edit Rule doesn't gracefully handle the rules block's YAML structure (which uses a specific schema). Details limited.
+- Status: open — needs reproduction + maintainer triage.
+
+### F34 — Obsidian "Publish" header button silently does nothing — NEW
+- Severity: UI bug
+- Spec basis: §A.13.6: "Obsidian: click header 'Publish' button — same publish behaviour observed (as VS Code Publish Drift Queue command — auto-commit appears in git log)."
+- Observed: Obsidian's Publish button is visible in the header. Clicking it produces no toast, no error, no commit, no observable effect. Compare to VS Code where the publish command is missing entirely (F35).
+- Status: open — Obsidian publish handler needs implementation/wiring.
+
+### F35 — VS Code "Publish Drift Queue" command not registered — NEW
+- Severity: UI bug
+- Spec basis: §1.3: VS Code commands list includes `instrumentality.publishDrift`. §A.13.5: Command Palette → "Instrumentality: Publish Drift Queue" should run pipeline and auto-commit.
+- Observed: User searched Command Palette for "Publish" / "Instrumentality: Publish" — no matches. The command appears not to be registered with VS Code at all.
+- Status: open — VS Code extension needs to register the publishDrift command.
 
 ### F7 — Plan §A.18 cleanup doesn't account for submodule-resident code targets
 - Severity: plan gap

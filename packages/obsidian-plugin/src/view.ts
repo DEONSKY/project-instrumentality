@@ -2930,13 +2930,14 @@ export class InstrumentalityView extends ItemView {
     });
     summaryRow.createSpan({ cls: "activity-subject", text: subject });
     summaryRow.createSpan({ cls: "activity-date", text: e.date });
-    const line = summary.createDiv({ cls: "activity-line" });
+    // Only render the reason line when there's a real reason. The previous
+    // "(no reason recorded)" placeholder doubled the height of every reason-
+    // less row, making the list feel sparser than the Pending view.
     if (e.reason) {
+      const line = summary.createDiv({ cls: "activity-line" });
       line.appendText(
-        " — " + (e.reason.length > 100 ? e.reason.slice(0, 100) + "…" : e.reason)
+        "— " + (e.reason.length > 100 ? e.reason.slice(0, 100) + "…" : e.reason)
       );
-    } else {
-      line.createEl("em", { text: "(no reason recorded)" });
     }
 
     const detail = row.createDiv({ cls: "entry-detail" });

@@ -775,8 +775,10 @@ body[data-mode="sidebar"] .section-card[data-open="true"] > .banner.education.hi
 .activity-entry .entry-summary {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
+/* Matches Pending's .meta sizing so the rhythm between rows is identical. */
+.activity-entry .activity-line { font-size: 0.83em; }
 .activity-summary {
   display: flex;
   align-items: center;

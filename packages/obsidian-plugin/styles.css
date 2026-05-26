@@ -617,8 +617,10 @@
 .activity-entry .entry-summary {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
+/* Match Pending's .meta sizing so the row rhythm is identical. */
+.activity-entry .activity-line { font-size: 0.8em; }
 .activity-summary {
   display: flex;
   align-items: center;

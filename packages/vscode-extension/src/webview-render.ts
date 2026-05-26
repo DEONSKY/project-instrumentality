@@ -1140,13 +1140,17 @@ function activityRow(e: import("@instrumentality/shared").DriftLogEvent): string
   const id = `${e.date}:${e.queueKey ?? e.kbTarget ?? e.kbFile ?? ""}:${e.eventType}`;
   const badgeClass = activityBadgeClass(e.eventType, e.isSystem);
   const subject = e.queueKey ?? e.kbTarget ?? e.kbFile ?? "(unattributed)";
-  const reasonShort = e.reason ? ` — ${escapeHtml(e.reason.slice(0, 100))}${e.reason.length > 100 ? "…" : ""}` : "";
+  // Only render the reason line when there's a real reason. Previously the
+  // empty-state filler "(no reason recorded)" added a full text-line to
+  // every reason-less row, making the list feel twice as tall as Pending.
+  const reasonLine = e.reason
+    ? `<div class="activity-line">— ${escapeHtml(e.reason.slice(0, 100))}${e.reason.length > 100 ? "…" : ""}</div>`
+    : "";
   const summary = `<div class="activity-summary">
     <span class="badge ${badgeClass}">${escapeHtml(activityEventLabel(e.eventType))}</span>
     <span class="activity-subject">${escapeHtml(subject)}</span>
     <span class="activity-date">${escapeHtml(e.date)}</span>
-  </div>
-  <div class="activity-line">${reasonShort || "<em>(no reason recorded)</em>"}</div>`;
+  </div>${reasonLine}`;
   const detail = activityDetail(e);
   // Reuse .entry shell so existing click-to-expand JS works. No verdict
   // buttons / verdicts on activity rows — they're historical, not actionable.
