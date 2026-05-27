@@ -58,6 +58,7 @@ const actionCtx: ActionContext = {
   getLastStatus: () => lastStatus,
   setSpinner: (b) => setSpinner(b),
   refresh: () => refresh(),
+  getExtensionPath: () => extContext?.extensionPath ?? null,
 };
 
 let sidebarProvider: SidebarViewProvider;

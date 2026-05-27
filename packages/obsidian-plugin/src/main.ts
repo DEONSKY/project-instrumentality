@@ -1,4 +1,13 @@
-import { Plugin, WorkspaceLeaf, addIcon, TAbstractFile, TFile } from "obsidian";
+import {
+  Plugin,
+  PluginSettingTab,
+  Setting,
+  WorkspaceLeaf,
+  addIcon,
+  App,
+  TAbstractFile,
+  TFile,
+} from "obsidian";
 import { findKbRoot, type SectionKind } from "@instrumentality/shared";
 import { InstrumentalityView, VIEW_TYPE_INSTRUMENTALITY, ICON_ID } from "./view";
 
@@ -6,6 +15,13 @@ interface InstrumentalityPluginData {
   dismissedBanners?: SectionKind[];
   openSection?: string;
   submodulesCollapsed?: boolean;
+  /**
+   * Override path for kb-mcp tools used by Publish Drift Queue.
+   * Accepts either the kb-mcp repo root or a direct path to
+   * `.../knowledge/_mcp/tools`. Empty = fall back to env / workspace /
+   * node_modules / bundled-with-plugin.
+   */
+  kbMcpPath?: string;
 }
 
 // Same SVG as the VSCode activity-bar icon. Obsidian renders it with
@@ -23,6 +39,7 @@ export default class InstrumentalityPlugin extends Plugin {
   private dismissedBanners: Set<SectionKind> = new Set();
   private openSection: string | undefined = undefined;
   private submodulesCollapsed = false;
+  private kbMcpPath = "";
 
   async onload(): Promise<void> {
     addIcon(ICON_ID, ICON_SVG);
@@ -41,6 +58,9 @@ export default class InstrumentalityPlugin extends Plugin {
     if (data && data.submodulesCollapsed === true) {
       this.submodulesCollapsed = true;
     }
+    if (data && typeof data.kbMcpPath === "string") {
+      this.kbMcpPath = data.kbMcpPath;
+    }
 
     this.registerView(
       VIEW_TYPE_INSTRUMENTALITY,
@@ -48,6 +68,7 @@ export default class InstrumentalityPlugin extends Plugin {
         new InstrumentalityView(leaf, {
           getKbRoot: () => this.detectKbRoot(),
           getPluginDir: () => this.resolvePluginDir(),
+          getKbMcpPath: () => this.kbMcpPath,
           getDismissedBanners: () => this.dismissedBanners,
           dismissBanner: (kind) => void this.persistDismissedBanner(kind),
           getOpenSection: () => this.openSection,
@@ -57,6 +78,8 @@ export default class InstrumentalityPlugin extends Plugin {
             void this.persistSubmodulesCollapsed(flag),
         })
     );
+
+    this.addSettingTab(new InstrumentalitySettingTab(this.app, this));
 
     this.addRibbonIcon(ICON_ID, "Instrumentality", () => void this.activateView());
 
@@ -114,11 +137,23 @@ export default class InstrumentalityPlugin extends Plugin {
     await this.persistAll();
   }
 
+  async setKbMcpPath(value: string): Promise<void> {
+    const next = value.trim();
+    if (this.kbMcpPath === next) return;
+    this.kbMcpPath = next;
+    await this.persistAll();
+  }
+
+  getKbMcpPathValue(): string {
+    return this.kbMcpPath;
+  }
+
   private async persistAll(): Promise<void> {
     await this.saveData({
       dismissedBanners: [...this.dismissedBanners],
       openSection: this.openSection,
       submodulesCollapsed: this.submodulesCollapsed,
+      kbMcpPath: this.kbMcpPath || undefined,
     } satisfies InstrumentalityPluginData);
   }
 
@@ -176,5 +211,31 @@ export default class InstrumentalityPlugin extends Plugin {
     // Path.join would require importing; basePath uses forward slashes
     // on every platform the adapter exposes (including Windows).
     return `${basePath.replace(/[\\/]$/, "")}/${rel.replace(/^[\\/]/, "")}`;
+  }
+}
+
+class InstrumentalitySettingTab extends PluginSettingTab {
+  private readonly plugin: InstrumentalityPlugin;
+
+  constructor(app: App, plugin: InstrumentalityPlugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+
+  display(): void {
+    const { containerEl } = this;
+    containerEl.empty();
+
+    new Setting(containerEl)
+      .setName("kb-mcp path")
+      .setDesc(
+        "Override the kb-mcp install used by 'Publish Drift Queue'. Accepts either the kb-mcp repo root or a direct path to '.../knowledge/_mcp/tools'. Leave empty to fall back to $KB_MCP_HOME, the vault's node_modules, or the bundled copy shipped with this plugin."
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("/abs/path/to/kb-mcp")
+          .setValue(this.plugin.getKbMcpPathValue())
+          .onChange((value) => void this.plugin.setKbMcpPath(value))
+      );
   }
 }

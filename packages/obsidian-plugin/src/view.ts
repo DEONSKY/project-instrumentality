@@ -64,6 +64,11 @@ export interface InstrumentalityViewCallbacks {
   getKbRoot: () => string | null;
   /** Absolute path to the plugin's install directory (for runner lookup). */
   getPluginDir: () => string | null;
+  /**
+   * User-configured kb-mcp path from plugin settings. Empty string means
+   * "not set" — fall back to env / workspace / node_modules / bundled.
+   */
+  getKbMcpPath: () => string;
   getDismissedBanners: () => ReadonlySet<SectionKind>;
   dismissBanner: (kind: SectionKind) => void;
   getOpenSection: () => string | undefined;
@@ -2066,12 +2071,25 @@ export class InstrumentalityView extends ItemView {
       new Notice("Instrumentality: knowledge base not detected.");
       return;
     }
-    const fs = await import("node:fs");
-    const resolved = resolveKbMcp(this.kbRoot);
+    // Obsidian's renderer can't resolve bare module specifiers via
+    // dynamic import() — esbuild strips the `node:` prefix and the
+    // resulting `import("fs")` throws. Use require() instead; Obsidian's
+    // sandbox provides it. Same pattern as the live-status path above.
+    const fs = require("node:fs") as typeof import("node:fs");
+    const explicitPath = (this.cb.getKbMcpPath() ?? "").trim();
+    const pluginDir = this.cb.getPluginDir();
+    const bundledToolsDir = pluginDir
+      ? path.join(pluginDir, "runner", "tools")
+      : undefined;
+    const resolveOptions = {
+      explicitPath: explicitPath || undefined,
+      bundledToolsDir,
+    };
+    const resolved = resolveKbMcp(this.kbRoot, resolveOptions);
     if (!resolved) {
-      const paths = describePathsChecked(this.kbRoot).join("\n  • ");
+      const paths = describePathsChecked(this.kbRoot, resolveOptions).join("\n  • ");
       new Notice(
-        `Instrumentality: publish couldn't find kb-mcp tools.\nChecked:\n  • ${paths}\n\nInstall kb-mcp (npm install kb-mcp), set $KB_MCP_HOME to its checkout, or include it under your workspace's node_modules.`,
+        `Instrumentality: publish couldn't find kb-mcp tools.\nChecked:\n  • ${paths}\n\nSet the kb-mcp path in plugin settings, install kb-mcp (npm install kb-mcp), or set $KB_MCP_HOME.`,
         15000
       );
       return;

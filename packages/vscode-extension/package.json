@@ -79,6 +79,11 @@
           "type": "string",
           "default": "",
           "description": "Override the lint command. Default tries '<kbRoot>/knowledge/_mcp/scripts/lint-standalone.js'. Set to e.g. 'npx kb-lint' or '/abs/path/to/lint-standalone.js' if your project uses an installed kb-mcp."
+        },
+        "instrumentality.kbMcpPath": {
+          "type": "string",
+          "default": "",
+          "description": "Override the kb-mcp install location for 'Publish Drift Queue'. Accepts either the kb-mcp repo root or a direct path to '.../knowledge/_mcp/tools'. Leave empty to fall back to $KB_MCP_HOME, the workspace, node_modules, or the bundled copy shipped with the extension."
         }
       }
     }

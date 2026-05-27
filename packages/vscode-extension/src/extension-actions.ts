@@ -31,6 +31,13 @@ export interface ActionContext {
   getLastStatus: () => StatusSummary | null;
   setSpinner: (spinning: boolean) => void;
   refresh: () => Promise<void> | void;
+  /**
+   * Absolute path to the extension's install directory. Used to locate the
+   * bundled kb-mcp runner at `<extensionPath>/dist/runner/tools/` so Publish
+   * works without any user-side install. Optional for back-compat with
+   * callers that don't have an ExtensionContext handy.
+   */
+  getExtensionPath?: () => string | null;
 }
 
 // ── Submodule sync ──────────────────────────────────────────────────────────
@@ -202,12 +209,25 @@ export async function handlePublishDrift(ctx: ActionContext): Promise<void> {
     void vscode.window.showWarningMessage("Instrumentality: knowledge base not detected.");
     return;
   }
-  const resolved = resolveKbMcp(kbRoot);
+  const explicitPath = (
+    vscode.workspace
+      .getConfiguration("instrumentality")
+      .get<string>("kbMcpPath") ?? ""
+  ).trim();
+  const extensionPath = ctx.getExtensionPath?.() ?? null;
+  const bundledToolsDir = extensionPath
+    ? path.join(extensionPath, "dist", "runner", "tools")
+    : undefined;
+  const resolveOptions = {
+    explicitPath: explicitPath || undefined,
+    bundledToolsDir,
+  };
+  const resolved = resolveKbMcp(kbRoot, resolveOptions);
   if (!resolved) {
-    const paths = describePathsChecked(kbRoot).join("\n  • ");
+    const paths = describePathsChecked(kbRoot, resolveOptions).join("\n  • ");
     void vscode.window.showWarningMessage(
       `Instrumentality: publish couldn't find kb-mcp tools. Checked:\n  • ${paths}\n\n` +
-        `Install kb-mcp (npm install kb-mcp), set $KB_MCP_HOME to its checkout, or include it under your workspace's node_modules.`,
+        `Set instrumentality.kbMcpPath in Settings, install kb-mcp (npm install kb-mcp), or set $KB_MCP_HOME to a checkout.`,
       { modal: true }
     );
     return;

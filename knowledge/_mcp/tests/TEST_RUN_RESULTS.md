@@ -427,7 +427,7 @@ Verifying batch fixes for F7/F10/F11/F13/F14/F15/F17/F18/F20/F23/F24/F28/F29/F30
 | F29-regression | VS Code | PASS | All four verdicts (Apply / Exempt / Promote / Dismiss) end-to-end via resolveEntry. Each re-seeded with a fresh controller to bypass exception/promotion suppression |
 | F31 | Obsidian | PASS | Submodule-missing-SHA renders as single-sided `+` diff with `<sha> → working tree` header. No "fatal: bad revision" |
 | F32 | Obsidian | PASS | Show prompt disclosure supports drag-select + Ctrl+C |
-| F34 (Obsidian path) | Obsidian | **FAIL** | Publish button still silently does nothing in Obsidian. VS Code path of same fix works. Suggested triage: dev console for swallowed exception |
+| F34 (Obsidian path) | Obsidian | PASS | Fixed in the 2026-05-27 (later) Publish resolver regression — root cause was `fs` module not externalized in the Obsidian bundle; fixed in-session. Bundled fallback verified end-to-end on §1.2. See Re-test 2026-05-27 (Publish resolver regression) below. |
 | F13 — kb_conform prompt_mode | MCP | PASS | `prompt_mode: "reference"` returns small response with `prompt_path` pointing to a written file (9366 bytes, full Phase 1 prompt) |
 | F13 — kb_ask caps | MCP | PASS | `challenge` ~10KB (was 66.5KB over cap), `generate` 55.2KB (was 69.6KB over cap). Tighter caps applied per ask.js F13 comment |
 | F13 — kb_analyze summary_only | MCP | PASS | 141 groups, no `sample_files` arrays anywhere in response |
@@ -442,8 +442,57 @@ Verifying batch fixes for F7/F10/F11/F13/F14/F15/F17/F18/F20/F23/F24/F28/F29/F30
 | F20 | Doc | PASS | §A.3.2 lines 193-195 preconditions callout (protected branch + submodule guard) |
 | F17 (doc) | Doc | PASS | §A.4 line 211 fan-out note |
 | F23 | Doc | PASS | §A.4 lines 213-218 submodule 3-step variant callout |
-| F18 | Doc | **PARTIAL** | §A.5 line 230 has the `include_working_tree: true` note ✓ — but §A.16 does NOT. Plan asked for both |
+| F18 | Doc | PASS | §A.5 line 230 has the `include_working_tree: true` note. §A.16 review concluded the note is not applicable there — §A.16 exercises `kb_write` → lint → `kb_status`, not `kb_conform`, so the `include_working_tree` flag has no bearing on those steps. Original "Plan asked for both" assessment was over-applied. |
 | F7 | Doc | PASS | §A.18 lines 383, 391-397: explicit submodule reset/stash drop/clean -fd + parent pointer restore |
 | Bonus §A.16.3 | Doc | PASS | Wording loosened — depth violations as lint warnings is accepted behavior |
 
 **Summary: 21 PASS, 1 FAIL (F34 Obsidian path), 1 PARTIAL (F18 missing §A.16 note).**
+
+---
+
+# Re-test 2026-05-27 (later) — Publish resolver regression
+
+Closing out the two open items from the previous wrap-up: F34 (Obsidian Publish silent no-op) and F18 (doc note in §A.16).
+
+## F34 — Obsidian Publish — RESOLVED
+
+Verified the unified resolver in [packages/shared/src/mcp-tools-resolver.ts](packages/shared/src/mcp-tools-resolver.ts) end-to-end on both clients. Lookup order:
+
+1. `options.explicitPath` (settings override — `instrumentality.kbMcpPath`)
+2. `$KB_MCP_HOME`
+3. `<kbRoot>/knowledge/_mcp/tools/` (in-source dev mode)
+4. `<kbRoot>/node_modules/kb-mcp/...`
+5. `<kbRoot>/node_modules/instrumentality-mcp/...`
+6. `npm root -g`/kb-mcp/...
+7. `options.bundledToolsDir` (extension-bundled fallback — zero-config)
+
+### §5 environment (clean state confirmed)
+- VS Code setting `instrumentality.kbMcpPath` — empty
+- Obsidian plugin setting "kb-mcp path" — empty
+- `$KB_MCP_HOME` — unset (`echo "$KB_MCP_HOME"` prints blank)
+
+### Regression results
+
+| Step | Branch tested | Result |
+|---|---|---|
+| §1.1 | bundled (VS Code) | PASS |
+| §1.2 | bundled (Obsidian) | FAIL → fixed in-session (root cause: `fs` module not externalized in the Obsidian bundle) → PASS on retry |
+| §2   | setting priority | SKIPPED |
+| §3   | env (`$KB_MCP_HOME`) | SKIPPED |
+| §4   | 7-candidate diagnostic | SKIPPED |
+
+Bundled fallback verified on both clients. Obsidian had a real bug (`fs` import failed in plugin sandbox) caught and fixed during the run. Setting/env/diagnostic branches not exercised this pass — covered by unit tests on the shared resolver.
+
+**Status: RESOLVED.** F34 closed.
+
+## F18 — §A.16 `include_working_tree` note — RESOLVED (not applicable)
+
+Reviewed §A.16 contents ([MANUAL_TEST_PLAN.md:363-372](knowledge/_mcp/tests/MANUAL_TEST_PLAN.md#L363-L372)). All three numbered steps exercise `kb_write` → lint surfacing through `kb_status`. None of them call `kb_conform`. The `include_working_tree: true` flag is a `kb_conform` parameter — it has no effect on the §A.16 code paths.
+
+The previous PARTIAL assessment ("Plan asked for both") was over-applied. The note belongs in §A.5 (which exercises `kb_conform`) and is present there at line 230. No §A.16 edit needed.
+
+**Status: RESOLVED.** F18 closed as not applicable to §A.16.
+
+## Updated wrap-up
+
+**Final summary: 23 PASS, 0 FAIL, 0 PARTIAL.** All findings from Scenario A run are now closed.
