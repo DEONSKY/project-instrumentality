@@ -249,8 +249,12 @@ export function buildEntryIndex(status: StatusSummary | null): Map<string, Index
 
   status.standardsDrift.entries.forEach((e, i) =>
     push({
+      // Mode folded into the seed so current/aspirational entries sharing a
+      // queueKey resolve to distinct ids — must match standardsDriftRow's
+      // data-entry-id construction. Otherwise resolveEntry returns undefined
+      // for clicks on these rows ("entry not found").
       section: "standards-drift",
-      id: stableEntryId(e.queueKey, i),
+      id: stableEntryId(`${e.mode}:${e.queueKey}`, i),
       promptInput: { kind: "standards-drift", entry: e },
       sourceFile: Object.values(e.filesByParty).flat()[0]?.path,
       standardId: e.standardId,
@@ -1224,7 +1228,7 @@ function renderEntryByHandle(
       return kbDriftRow(e, i, kbRoot, e.source === "working-tree");
     }
     case "standards-drift": {
-      const i = status.standardsDrift.entries.findIndex((e) => stableEntryId(e.queueKey, status.standardsDrift.entries.indexOf(e)) === h.id);
+      const i = status.standardsDrift.entries.findIndex((e) => stableEntryId(`${e.mode}:${e.queueKey}`, status.standardsDrift.entries.indexOf(e)) === h.id);
       if (i < 0) return "";
       const e = status.standardsDrift.entries[i];
       return standardsDriftRow(e, i, kbRoot, e.source === "working-tree");

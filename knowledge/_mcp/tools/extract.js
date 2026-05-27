@@ -271,6 +271,45 @@ function collectSourceFilesFs(rootDir, maxDepth) {
   }
 
   walk(rootDir, 0)
+
+  // Submodule fallback: SKIP_SCAN excludes `.git` so the walker stops at the
+  // top of each submodule. Find submodule paths via `git submodule status` and
+  // walk each as its own root, then map results back to rootDir-relative paths.
+  // This is the parity fallback for the `git ls-files --recurse-submodules`
+  // primary path in `collectSourceFiles` — when git fails (or the ls-files
+  // call returns nothing useful), this path is the only way submodule-resident
+  // code reaches kb_extract.
+  try {
+    const out = execFileSync('git', ['submodule', 'status', '--recursive'], {
+      cwd: rootDir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 4 * 1024 * 1024
+    })
+    const submodulePaths = out
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      // Format: " <sha> <path> (<branch-or-tag>)" — strip leading status char
+      // and split. Path is the second field.
+      .map(line => {
+        const m = line.match(/^[\s+\-U]?[0-9a-f]+\s+(\S+)/)
+        return m ? m[1] : null
+      })
+      .filter(Boolean)
+    for (const subRel of submodulePaths) {
+      const subAbs = path.join(rootDir, subRel)
+      // Sub-walk with the same depth budget. Results from this sub-walk are
+      // sub-relative; re-relativize them against `rootDir` before pushing.
+      const subFiles = collectSourceFilesFs(subAbs, maxDepth)
+      for (const f of subFiles) {
+        files.push(path.relative(rootDir, path.join(subAbs, f)))
+      }
+    }
+  } catch {
+    // No submodules, or git unavailable — both fine.
+  }
+
   return files
 }
 

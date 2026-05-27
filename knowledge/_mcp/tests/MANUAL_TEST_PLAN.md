@@ -72,7 +72,10 @@ Extensions render the same data using the same shared prompt generators (kb-mcp 
 5. **Filter bar — Pending:** search · severity chips `error/warn/info` · group-by `Section / File / Standard / Lifecycle` · Clear.
 6. **Filter bar — Activity:** group-by `Date / Queue key / Event type` · "Show system events" toggle.
 7. **Section accordion** (one open at a time): Code Drift · KB Drift · Standards Drift · Standards Backlog · Conform Pending · Promotions · Lint · Mapping Diagnostics · Submodules (pinned).
-8. **Bucket headers inside Drift sections:** "Uncommitted preview" (working tree) vs "Published" (committed).
+8. **Bucket headers inside Drift sections:** "Uncommitted preview" vs "Published" — keyed on queue-file persistence, not git-commit state:
+   - **Uncommitted preview**: drift detected by the live-compute overlay (`kb_drift({readonly: true, includeWorkingTree: true})`) but NOT yet persisted to `knowledge/sync/code-drift.md` or `knowledge/sync/kb-drift.md`.
+   - **Published**: an entry exists in the queue file (regardless of whether the queue file itself is committed to git).
+   - A plain `git commit` of a KB or code file does NOT transition a preview entry to Published. Only `kb_drift` Phase 1 in write mode — invoked explicitly, by the pre-push hook on a protected branch, or by the Publish action — writes to the queue file and creates the transition.
 9. **Entry row:** title + badges (`shared`, `preview`, `missing`, `stale`, `acknowledged`) + meta + chevron.
 10. **Expanded entry:** detail, code files list with author badges, sync/branch info for submodule entries, **Show diff** disclosure, **Show prompt** disclosure.
 11. **Education banner** + "Got it" + header "?" re-show.
@@ -136,8 +139,8 @@ Sources (kb-mcp source paths — informational): `packages/shared/src/prompts/` 
   - **Note:** `patternAudit` is `null` unless the caller passed `live: true` (extensions do this automatically via the live-status runner) or `kb_drift` has populated the on-disk queue since the last commit. Both behaviors are expected — `kb_status` is a queue-state aggregator, not a live drift detector. To see fresh mapping diagnostics from a standalone `kb_status` call, run `kb_drift` first or have the watcher fire.
 - `FYI:` `kb_inventory` returns `stale_rules`, `uncovered_files`, `pending_promotions`.
 - `FYI:` `kb_get({ keywords: ["drift"], working_paths: ["<PICK_A_TARGET>"] })` — `<PICK_A_TARGET>` is a **file path** that matches the `applies_to.paths` of at least one standard's rule (not just a `code_path_patterns` glob target). Open `knowledge/_index.yaml` and find a rule's `applies_to.paths`; pick any file under one of those globs. Assert `rules_in_scope` is a non-empty array. (Passing a *directory* that's only covered by a `code_path_patterns` glob — e.g. `**/controller/**` — typically returns `[]`; `rules_in_scope` matches rule-level `applies_to`, not pattern coverage.)
-- `FYI:` `kb_get({ keywords: ["glossary"] })` — if `knowledge/glossary.md` exists, assert it is returned. Otherwise assert the response is non-empty (typically `global.md`). These optional KB files are not required.
-- `FYI:` `kb_get({ keywords: ["agent"] })` — if `knowledge/agent-rules.md` or repo-root `CLAUDE.md` exist, assert they are returned where applicable. Both are optional.
+- `FYI:` `kb_get({ keywords: ["glossary"] })` — if `knowledge/glossary.md` exists, assert it is returned; otherwise assert the response is non-empty (typically `global.md`). The glossary is optional.
+- `FYI:` `kb_get({ keywords: ["agent"] })` — if `knowledge/agent-rules.md` or repo-root `CLAUDE.md` exist, assert they are returned where applicable. Both are optional. `CLAUDE.md` lives at repo root, structurally outside `kb_get`'s `knowledge/` scope — for repos that keep it there it WILL NOT appear in `kb_get` output even though agents read it directly.
 
 ### §A.2 MCP tool coverage
 
@@ -187,6 +190,10 @@ For each row: agent prints the call and the (truncated) response. CONFIRM only o
 3. **pre-push:** make a tracked code change without KB update → commit → push to a sandbox branch (or `git push --dry-run` if the hook supports it).
    🛑 **CONFIRM A.3.2** — pre-push runs `kb_drift` P1, writes to `sync/code-drift.md`, auto-commits `chore(kb): update drift queue`; new entry visible in both extensions; HEAD short SHA updated in header.
 
+   > **Preconditions for the full auto-commit chain:**
+   > 1. **Protected branch only.** The auto-commit step (writing to `sync/*.md` then committing `chore(kb): update drift queue`) fires only on protected branches (defaults to `main` / `master`). On feature branches, pre-push runs `kb_drift` in **readonly** mode — no filesystem writes, no auto-commit. If your sandbox branch isn't protected, expect detection output without the queue write.
+   > 2. **Submodule branch alignment.** If your repo has submodules that don't follow the parent branch, pre-push's submodule branch guard runs FIRST and may block the push with "Submodule branch mismatch — push blocked" before reaching `kb_drift`. Align the submodule branches with the parent (or disable the guard for this test) to exercise the full chain.
+
 4. **post-merge:** `git checkout -b __merge-test`, edit a KB file, commit; `git checkout -` ; `git merge __merge-test`.
    🛑 **CONFIRM A.3.3** — post-merge fires; extensions refresh; if KB changed, kb-drift recomputed.
 
@@ -201,15 +208,26 @@ For each row: agent prints the call and the (truncated) response. CONFIRM only o
 
 ### §A.4 Live state transitions
 
-1. Edit `<TARGET_CODE>` (same file you used in §A.2 row 21, or any other code file under a `_rules.md` pattern; add another comment line; do **not** commit yet).
+> **Note on fan-out:** when a code file matches multiple `_rules.md` patterns mapping to *different* `kb_target`s, `kb_drift` Phase 1 creates one code-drift entry **per distinct kb_target** (intentional — covered by the `P0 fan-out` tests in `drift.test.js`). Two patterns resolving to the same kb_target dedup to one entry. If the extension panel UI shows the entry under a different kb_target than `kb_drift`'s raw response surfaces, that's a separate report-shape question — not a precedence bug.
+
+> **Submodule variant:** if `<TARGET_CODE>` lives inside a git submodule, the simple two-step "edit → commit" flow expands to three git operations:
+> 1. Edit the file inside the submodule (working tree of the submodule).
+> 2. Commit inside the submodule (`git -C <submodule> commit -am "…"`).
+> 3. Commit the parent's submodule-pointer bump (`git commit -am "bump <submodule>"`).
+>
+> Per the bucket semantics in §1.1, the live-overlay preview entry appears after step 1 (working-tree change). The Published transition only follows once `kb_drift` Phase 1 runs in write mode AGAINST the parent's new state — which requires step 3 (pointer bump). Skipping step 3 leaves the entry in Uncommitted preview indefinitely.
+
+1. Edit `<TARGET_CODE>` (same file you used in §A.2 row 21, or any other code file under a `_rules.md` pattern; add another comment line; do **not** commit yet). If `<TARGET_CODE>` is in a submodule, this is step 1 of the three-step variant above.
    🛑 **CONFIRM A.4.1** — Code Drift section gains an entry under "Uncommitted preview" within ~500 ms; entry shows `preview` badge.
 
-2. Commit the change.
-   🛑 **CONFIRM A.4.2** — same entry moves to "Published"; `preview` badge gone; HEAD short SHA updated.
+2. Commit the change. For submodule-resident targets, also commit the pointer bump in the parent.
+   🛑 **CONFIRM A.4.2** — same entry moves to "Published" after the next `kb_drift` Phase 1 (write mode) runs. Per §1.1: a plain `git commit` alone does NOT transition buckets; the queue file has to be written. Run `kb_drift` explicitly to force the transition if needed.
 
 (Branch-switch refresh is already exercised in §A.3.4–5.)
 
 ### §A.5 Aspirational sweep
+
+> **Note on committed-vs-working-tree evaluation:** `kb_conform` Phase 1 evaluates **committed** files by default. To also evaluate uncommitted files (your in-progress working-tree edits) against the standard, pass `include_working_tree: true` (defaults to `false`). Without this flag, a brand-new scratch file you just wrote will NOT appear in the Phase 1 evaluations even if it matches the rule's `applies_to.paths`.
 
 1. VS Code: click "Rerun Phase 1" → choose **Aspirational**. Obsidian: copy the equivalent prompt from the "?" / Info area and paste into the agent.
 2. Agent runs `kb_conform` aspirational pass.
@@ -349,7 +367,7 @@ diff /tmp/parity-vscode-<kind>.txt /tmp/parity-obsidian-<kind>.txt
 2. Fix the frontmatter via another `kb_write`.
    🛑 **CONFIRM A.16.2** — Lint section clears.
 3. **Depth policy violation** — attempt `kb_write` at a path deeper than `_rules.md` allows (e.g. `specs/features/a/b/c/d/too-deep.md`).
-   🛑 **CONFIRM A.16.3** — write rejected with a clear error citing the depth rule; no file created.
+   🛑 **CONFIRM A.16.3** — write does NOT need to hard-reject; depth violations surface as **lint warnings** on the written file (accepted behavior). Confirm the file is created AND a lint entry appears in both extensions citing the depth rule. If you'd prefer a hard reject for your project, that's a server-side policy change, not a UI gap.
 4. `FYI:` secret detection covered by `lint.test.js` (not retested via UI).
 5. `FYI:` `kb_extract` Phase 2 returns `lint_errors: N` on its response (it lints the file it just wrote). This is a tool-response signal only — it does **not** propagate to the extension's Lint section. The Lint section is fed by the `kb_status.lint.violations` pipeline (which runs `lint-standalone.js`). If you want a `kb_extract`-written file's violations to appear in the Lint section, run `kb_status` (or wait for the next watcher tick) after the write.
 
@@ -362,7 +380,7 @@ diff /tmp/parity-vscode-<kind>.txt /tmp/parity-obsidian-<kind>.txt
 
 ### §A.18 Cleanup
 
-> **Submodule note:** If your `_rules.md` code patterns target paths inside a submodule (common in monorepo-style consumer projects), the parent's `git checkout -- <TARGET_CODE>` only restores the submodule **pointer**, not the in-submodule edits or commits. Before §A.4, capture each affected submodule's SHA with `git -C <submodule> rev-parse HEAD`. Then during cleanup, run `git -C <submodule> reset --hard <captured-sha>` for each, and `git -C <submodule> stash drop` if §A.2 row 21 left stashed edits inside the submodule.
+> **Submodule note:** If your `_rules.md` code patterns target paths inside a submodule (common in monorepo-style consumer projects), the parent's `git checkout -- <TARGET_CODE>` only restores the submodule **pointer**, not the in-submodule edits or commits. Before §A.4, capture each affected submodule's SHA with `git -C <submodule> rev-parse HEAD`. During cleanup, run `git -C <submodule> reset --hard <captured-sha>` for each, plus `git -C <submodule> stash drop` if §A.2 row 21 left stashed edits inside the submodule, plus `git -C <submodule> clean -fd` if untracked scratch files were created there.
 
 ```bash
 # Revert intentional edits (substitute the actual paths you picked earlier)
@@ -370,8 +388,13 @@ git checkout -- <TARGET_CODE>          # from §A.2 row 21 / §A.4
 git checkout -- <TARGET_KB>            # from §A.2 row 22
 git checkout -- knowledge/_rules.md    # if §A.8 left changes
 
-# Submodule cleanup (only if TARGET_CODE was inside a submodule)
-# git -C <submodule-path> reset --hard <captured-pre-test-sha>
+# Submodule cleanup (only if TARGET_CODE was inside a submodule).
+# Substitute <SUBMODULE_PATH> with the actual path (e.g. ms-linestop-admin-be)
+# and <CAPTURED_SHA> with the SHA you captured in §A.0 before testing.
+# git -C <SUBMODULE_PATH> reset --hard <CAPTURED_SHA>
+# git -C <SUBMODULE_PATH> stash drop     # if §A.2 row 21 stashed inside submodule
+# git -C <SUBMODULE_PATH> clean -fd      # if scratch files were created there
+# git checkout -- <SUBMODULE_PATH>       # restore parent's submodule pointer
 
 # Remove scratch files created during the run
 rm -f knowledge/specs/features/__test-only.md
@@ -380,7 +403,8 @@ rm -f knowledge/standards/code/__test-extract.md
 # Remove temp branches
 git branch -D __test-branch __merge-test 2>/dev/null
 
-git status   # must be clean
+git status                              # parent must be clean
+# git -C <SUBMODULE_PATH> status        # each touched submodule must be clean too
 ```
 
 🛑 **CONFIRM A.18** — both panels return to baseline; `git status` is clean.
@@ -766,13 +790,20 @@ EXECUTE in order:
   promotions.count, lint.errors, lint.warnings). Print as FYI.
 - Call kb_inventory; print stale_rules / uncovered_files / pending_promotions
   as FYI.
-- Ask the user for <PICK_A_DIR> (any directory in this project covered by a
-  code pattern in _rules.md). Call
-    kb_get({keywords:["drift"], working_paths:["<PICK_A_DIR>"]}).
+- Ask the user for <PICK_A_TARGET> — a **file path** (NOT a directory) that
+  matches the applies_to.paths of at least one standard's rule in
+  knowledge/_index.yaml. A directory covered only by a _rules.md
+  code_path_patterns glob (e.g. **/controller/**) typically returns
+  rules_in_scope: [] — rules_in_scope matches rule-level applies_to, not
+  pattern coverage. Call
+    kb_get({keywords:["drift"], working_paths:["<PICK_A_TARGET>"]}).
   Assert non-empty rules_in_scope. FYI.
-- Call kb_get({keywords:["glossary"]}); assert glossary.md returned. FYI.
-- Call kb_get({keywords:["agent"]}); assert agent-rules.md / CLAUDE.md where
-  applicable. FYI.
+- Call kb_get({keywords:["glossary"]}); if knowledge/glossary.md exists
+  assert it is returned, otherwise assert the response is non-empty
+  (typically global.md). FYI.
+- Call kb_get({keywords:["agent"]}); if knowledge/agent-rules.md exists
+  assert it is returned. CLAUDE.md lives at repo root, structurally outside
+  kb_get's knowledge/ scope and WILL NOT appear in kb_get output. FYI.
 
 §A.2 MCP tool coverage
 - Walk rows 1–27 of the §A.2 table in <PLAN_FILE>. For each disk

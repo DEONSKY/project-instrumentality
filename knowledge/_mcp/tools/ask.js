@@ -82,6 +82,14 @@ const SHORT_KEEP = new Set([
 // always re-read a full KB file via kb_get when it needs more depth.
 const ASK_TOTAL_CHAR_CAP = 32_000
 const ASK_PER_FILE_CHAR_CAP = 8_000
+// F13: `challenge` and `generate` intents add significant generated-prose
+// scaffolding on top of the embedded context (lifecycle of issues, plan
+// templates, etc.) — empirically they ran 66-70KB and exceeded the response
+// cap while other intents fit under 64KB. Use tighter caps for those two so
+// the embedded context leaves room for the rest of the prompt.
+const ASK_TIGHT_TOTAL_CHAR_CAP = 16_000
+const ASK_TIGHT_PER_FILE_CHAR_CAP = 4_000
+const TIGHT_INTENTS = new Set(['challenge', 'generate'])
 
 async function loadContext(question) {
   const keywords = question
@@ -94,20 +102,23 @@ async function loadContext(question) {
   return result.files || []
 }
 
-function buildKbContext(files) {
+function buildKbContext(files, intent) {
   // F13: per-file truncate then accumulate against a total cap so the prompt
   // can't blow past the MCP response budget when kb_get returns many large
   // files. Surface truncation in the inline comment so the agent knows to
   // re-read via kb_get if the omitted content matters.
+  const tight = TIGHT_INTENTS.has(intent)
+  const totalCap = tight ? ASK_TIGHT_TOTAL_CHAR_CAP : ASK_TOTAL_CHAR_CAP
+  const perFileCap = tight ? ASK_TIGHT_PER_FILE_CHAR_CAP : ASK_PER_FILE_CHAR_CAP
   const parts = []
   let total = 0
   for (const f of files) {
-    if (total >= ASK_TOTAL_CHAR_CAP) {
+    if (total >= totalCap) {
       parts.push(`<!-- ${f.path} -->\n_(content omitted — total context cap reached; run kb_get with this file's keywords for the full text)_`)
       continue
     }
-    const remaining = ASK_TOTAL_CHAR_CAP - total
-    const cap = Math.min(ASK_PER_FILE_CHAR_CAP, remaining)
+    const remaining = totalCap - total
+    const cap = Math.min(perFileCap, remaining)
     const raw = f.content || ''
     const truncated = raw.length > cap
     const body = truncated
@@ -120,7 +131,7 @@ function buildKbContext(files) {
 }
 
 function buildPromptVars(question, intent, context) {
-  const base = { question, kb_context: buildKbContext(context) }
+  const base = { question, kb_context: buildKbContext(context, intent) }
 
   if (intent === 'sync' || intent === 'generate') {
     // Extract the first path/identifier after the intent keyword

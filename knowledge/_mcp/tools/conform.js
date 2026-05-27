@@ -1,5 +1,6 @@
 const fs = require('fs')
 const path = require('path')
+const crypto = require('crypto')
 const matter = require('gray-matter')
 const simpleGit = require('simple-git')
 const yaml = require('js-yaml')
@@ -260,7 +261,7 @@ async function resolveBootstrapRef(git) {
 // ── Phase 1 detect ────────────────────────────────────────────────────────────
 
 async function detect(opts) {
-  const { mode = 'current', scope, since, includeDiffs = true, path_filter, readonly = false, includeWorkingTree = false } = opts
+  const { mode = 'current', scope, since, includeDiffs = true, path_filter, readonly = false, includeWorkingTree = false, promptMode = 'inline' } = opts
   // Readonly callers (live overlay) always want working-tree visibility so the
   // panel previews drift before commit. Explicit opt-in (`include_working_tree`)
   // unlocks the same behavior for write-mode callers.
@@ -660,10 +661,37 @@ async function detect(opts) {
     if (!readonly) writeQueue(queuePath, queueState.header, queueState.entries)
   }
 
+  // Phase 1 prompts can blow the MCP response cap (~64-105KB observed on
+  // larger sweeps). `prompt_mode: "reference"` writes the prompt to disk and
+  // returns a `prompt_path` for the agent to Read instead — keeps the
+  // response small while preserving the same prompt content.
+  let promptPath = null
+  let inlinePrompt = prompt
+  if (promptMode === 'reference' && prompt && !readonly) {
+    try {
+      const promptsDir = path.join(KB_ROOT, 'sync', '.prompts')
+      if (!fs.existsSync(promptsDir)) fs.mkdirSync(promptsDir, { recursive: true })
+      // Deterministic filename so re-runs overwrite rather than accumulating
+      // — the prompt content hash keys it; same content → same file.
+      const hash = crypto.createHash('sha1').update(prompt).digest('hex').slice(0, 12)
+      const filename = `conform-phase1-${mode}-${hash}.md`
+      const fullPath = path.join(promptsDir, filename)
+      fs.writeFileSync(fullPath, prompt, 'utf8')
+      promptPath = path.relative(process.cwd(), fullPath)
+      inlinePrompt = null
+    } catch (e) {
+      // If the write fails, fall back to inline so the caller still gets a
+      // usable response. Surface the failure in the response so it's debuggable.
+      promptPath = null
+      inlinePrompt = prompt
+    }
+  }
+
   return {
     mode,
     requested_evaluations: requestedEvaluations,
-    prompt,
+    prompt: inlinePrompt,
+    ...(promptPath && { prompt_path: promptPath }),
     files_checked: candidateFiles.filter(f => f.status !== 'D').length,
     n_a_count: naCount.count,
     sprawl_warnings: sprawlWarnings,
@@ -1274,7 +1302,8 @@ async function runTool(args = {}) {
     purge,
     include_diffs = true,
     readonly = false,
-    include_working_tree = false
+    include_working_tree = false,
+    prompt_mode = 'inline'
   } = args
 
   if (force_baseline || purge) return forceBaseline({ force_baseline, purge, mode })
@@ -1316,7 +1345,7 @@ async function runTool(args = {}) {
   if (Array.isArray(promoted)) return resolvePromoted(promoted, mode)
   if (Array.isArray(dismissed)) return resolveDismissed(dismissed, mode)
   if (Array.isArray(closed_promotion)) return resolveClosedPromotion(closed_promotion)
-  return detect({ since, mode, scope, path_filter, includeDiffs: include_diffs, readonly, includeWorkingTree: include_working_tree })
+  return detect({ since, mode, scope, path_filter, includeDiffs: include_diffs, readonly, includeWorkingTree: include_working_tree, promptMode: prompt_mode })
 }
 
 module.exports = {
@@ -1364,7 +1393,8 @@ module.exports = {
         purge: { type: 'boolean', description: 'Admin: with force_baseline, also clear all entries' },
         include_diffs: { type: 'boolean', description: 'Phase 1: pre-fetch diffs into result._diffs (default: true)' },
         readonly: { type: 'boolean', description: 'Compute results in memory but skip every fs write. Used by the live watcher in the extension and the soft-mode CI check.' },
-        include_working_tree: { type: 'boolean', description: 'Phase 1: also evaluate uncommitted/untracked files matching the standard\'s applies_to (default: false). In current mode this unions working-tree changes with the committed diff. In aspirational mode it unions git-tracked files with untracked-non-ignored files. Useful when you want a verdict on a file before committing.' }
+        include_working_tree: { type: 'boolean', description: 'Phase 1: also evaluate uncommitted/untracked files matching the standard\'s applies_to (default: false). In current mode this unions working-tree changes with the committed diff. In aspirational mode it unions git-tracked files with untracked-non-ignored files. Useful when you want a verdict on a file before committing.' },
+        prompt_mode: { type: 'string', enum: ['inline', 'reference'], description: 'Phase 1 only. "inline" (default): the agent-facing prompt is included in the response — can exceed the MCP response cap on sweeps with many evaluations. "reference": the prompt is written to knowledge/sync/.prompts/conform-phase1-<mode>-<hash>.md and a `prompt_path` field is returned instead; the agent reads the file directly. Use this when the inline response is being truncated.' }
       }
     }
   }

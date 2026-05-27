@@ -84,8 +84,11 @@ export function buildEntryHandles(status: StatusSummary): EntryHandle[] {
 
   status.standardsDrift.entries.forEach((e, i) =>
     out.push({
+      // Mode folded into the seed so current/aspirational entries sharing a
+      // queueKey resolve to distinct ids — matches the consumer row renderers
+      // in both extensions (Obsidian view.ts:1130, VSCode webview-render.ts:1622).
       section: "standards-drift",
-      id: stableEntryId(e.queueKey, i),
+      id: stableEntryId(`${e.mode}:${e.queueKey}`, i),
       sourceFile: Object.values(e.filesByParty).flat()[0]?.path,
       standardId: e.standardId,
       lifecycle: "drift",

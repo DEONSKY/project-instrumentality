@@ -16,7 +16,7 @@ const SKIP_SCAN = new Set([
  * Groups source files by their KB target (using code_path_patterns from _rules.md)
  * and optionally writes draft KB files for uncovered groups.
  */
-async function runTool({ depth = 4, write_drafts = false } = {}) {
+async function runTool({ depth = 4, write_drafts = false, summary_only = false } = {}) {
   const rules = loadRules(KB_ROOT)
   const raw = rules.getRaw()
 
@@ -47,7 +47,7 @@ async function runTool({ depth = 4, write_drafts = false } = {}) {
       if (result) draftsWritten.push(result)
     }
     return {
-      inventory: capInventorySize(inventory),
+      inventory: summary_only ? summarizeInventory(inventory) : capInventorySize(inventory),
       drafts_written: draftsWritten,
       total_source_files: sourceFiles.length,
       total_groups: inventory.length,
@@ -56,7 +56,7 @@ async function runTool({ depth = 4, write_drafts = false } = {}) {
   }
 
   return {
-    inventory: capInventorySize(inventory),
+    inventory: summary_only ? summarizeInventory(inventory) : capInventorySize(inventory),
     total_source_files: sourceFiles.length,
     total_groups: inventory.length,
     unmatched_count: grouped.get('_unmatched') ? grouped.get('_unmatched').files.length : 0,
@@ -68,8 +68,23 @@ async function runTool({ depth = 4, write_drafts = false } = {}) {
 // every group with up to 10 sample_files, which on large monorepos pushed
 // the response past ~60KB and tripped MCP truncation. When the cap is hit
 // we keep the first-N groups in full and drop sample_files from the rest
-// (file_count is preserved so the agent still sees scale).
-const ANALYZE_TOTAL_CHAR_CAP = 40_000
+// (file_count is preserved so the agent still sees scale). Cap tightened
+// from 40KB → 24KB after observed responses still hit MCP truncation; the
+// agent can always re-run with `summary_only: true` for an even tighter
+// scan when group count is the signal it needs, not per-file samples.
+const ANALYZE_TOTAL_CHAR_CAP = 24_000
+
+// summary_only: collapse each group to counts only — no sample_files, no
+// suggested_action prose. For large monorepos where even the truncated
+// inventory hits the cap.
+function summarizeInventory(inventory) {
+  return inventory.map(item => ({
+    kb_target: item.kb_target,
+    file_count: item.file_count,
+    existing_kb_file: item.existing_kb_file || null,
+    suggested_action: item.suggested_action
+  }))
+}
 function capInventorySize(inventory) {
   let running = JSON.stringify({ inventory: [] }).length
   const out = []
@@ -271,7 +286,8 @@ module.exports = {
       type: 'object',
       properties: {
         depth: { type: 'number', description: 'Max directory depth to scan (default: 4)', default: 4 },
-        write_drafts: { type: 'boolean', description: 'Write draft KB files for uncovered groups', default: false }
+        write_drafts: { type: 'boolean', description: 'Write draft KB files for uncovered groups', default: false },
+        summary_only: { type: 'boolean', description: 'Return only kb_target, file_count, existing_kb_file, and suggested_action per group — no sample_files. Use when the inventory is hitting the response cap and you only need group-level shape.', default: false }
       }
     }
   }

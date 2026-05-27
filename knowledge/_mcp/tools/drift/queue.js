@@ -618,7 +618,15 @@ function appendToDriftLog(entries) {
       block += `\n- **Reason:** ${entry.reason}\n`
       continue
     }
-    block += `\n## ${date} · RESOLVED · ${entry.direction}\n`
+    // Fold `resolution` into the heading so summaries vs reverted vs
+    // kb_confirmed events on the same date+direction get distinct headings.
+    // Without this, both summaries (resolution: kb-updated) and reverted
+    // (resolution: code-reverted) produce identical `## DATE · RESOLVED · code→kb`
+    // headings on the same day, and the Activity tab consolidates them.
+    // Parser at packages/shared/src/parsers/drift-log.ts:48 still classifies
+    // any `RESOLVED ...` heading as `drift-resolved`, so this stays backwards-compat.
+    const subDisc = entry.resolution ? ` · ${entry.resolution.toUpperCase()}` : ''
+    block += `\n## ${date} · RESOLVED · ${entry.direction}${subDisc}\n`
     if (entry.kb_target) block += `\n- **KB target:** \`${entry.kb_target}\``
     if (entry.kb_file) block += `\n- **KB file:** \`${entry.kb_file}\``
     if (entry.code_file) block += `\n- **Code file:** \`${entry.code_file}\``

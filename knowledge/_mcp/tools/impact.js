@@ -16,10 +16,30 @@ async function runTool({ change_description } = {}) {
   const graph = loadGraph(KB_ROOT)
   const keywords = extractKeywords(change_description)
   const affectedEntries = new Map()
+  // F14: cache file body reads so the metadata+body scoring loop here and the
+  // top-N prompt-building loop below don't re-read the same file twice.
+  const bodyCache = new Map()
+  function readBody(fp) {
+    if (bodyCache.has(fp)) return bodyCache.get(fp)
+    const fullPath = path.join(KB_ROOT, fp)
+    let content = null
+    try {
+      if (fs.existsSync(fullPath)) content = fs.readFileSync(fullPath, 'utf8')
+    } catch { /* unreadable — treat as empty */ }
+    bodyCache.set(fp, content)
+    return content
+  }
 
-  // Keyword match across graph metadata
+  // F14: search both frontmatter metadata AND body text. Metadata hits score
+  // at full weight (1.0) — a file that owns a term in its tags / depends_on
+  // is canonically about that term. Body hits score at half weight (0.5) so
+  // files that merely mention the term in passing don't outrank files that
+  // own it. Before this change only metadata was searched, which caused
+  // false negatives like kb_impact({change_description: "rename linestopMail
+  // ..."}) returning [] even though user-definition-contract.md's body
+  // explicitly references UserDefinitionRecord and linestopMail.
   Object.entries(graph.files || {}).forEach(([fp, entry]) => {
-    const searchText = [
+    const metaText = [
       fp,
       entry.id || '',
       entry.type || '',
@@ -27,12 +47,20 @@ async function runTool({ change_description } = {}) {
       (entry.affects_flows || []).join(' '),
       (entry.tags || []).join(' ')
     ].join(' ').toLowerCase()
+    const metaScore = keywords.reduce((s, kw) => s + (metaText.includes(kw) ? 1 : 0), 0)
 
-    const score = keywords.reduce((s, kw) => s + (searchText.includes(kw) ? 1 : 0), 0)
+    const body = readBody(fp)
+    const bodyText = body ? body.toLowerCase() : ''
+    const bodyScore = bodyText
+      ? keywords.reduce((s, kw) => s + (bodyText.includes(kw) ? 0.5 : 0), 0)
+      : 0
+
+    const score = metaScore + bodyScore
     if (score > 0) affectedEntries.set(fp, { entry, score })
   })
 
-  // Also include dependents of matching files
+  // Also include dependents of matching files. Dependents get a fixed 0.5
+  // score (kept as-is) so they sort below any file that matched directly.
   for (const [fp] of affectedEntries) {
     const id = (graph.files[fp] || {}).id
     if (id) {
@@ -55,10 +83,8 @@ async function runTool({ change_description } = {}) {
   const affected_files = []
 
   for (const [fp] of sorted) {
-    const fullPath = path.join(KB_ROOT, fp)
-    if (!fs.existsSync(fullPath)) continue
-
-    const fileContent = fs.readFileSync(fullPath, 'utf8')
+    const fileContent = readBody(fp)
+    if (fileContent === null) continue
 
     const prompt = resolvePrompt('impact-proposal', {
       change_description,

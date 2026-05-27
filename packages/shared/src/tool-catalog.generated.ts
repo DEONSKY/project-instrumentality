@@ -272,6 +272,12 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
         "type": "boolean",
         "required": false,
         "hint": "Phase 1: also evaluate uncommitted/untracked files matching the standard's applies_to (default: false). In current mode this unions working-tree changes with the committed diff. In aspirational mode it unions git-tracked files with untracked-non-ignored files. Useful when you want a verdict on a file before committing."
+      },
+      {
+        "name": "prompt_mode",
+        "type": "enum(inline|reference)",
+        "required": false,
+        "hint": "Phase 1 only. \"inline\" (default): the agent-facing prompt is included in the response — can exceed the MCP response cap on sweeps with many evaluations. \"reference\": the prompt is written to knowledge/sync/.prompts/conform-phase1-<mode>-<hash>.md and a `prompt_path` field is returned instead; the agent reads the file directly. Use this when the inline response is being truncated."
       }
     ],
     "surfaces": [
@@ -600,6 +606,12 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
         "type": "boolean",
         "required": false,
         "hint": "Write draft KB files for uncovered groups"
+      },
+      {
+        "name": "summary_only",
+        "type": "boolean",
+        "required": false,
+        "hint": "Return only kb_target, file_count, existing_kb_file, and suggested_action per group — no sample_files. Use when the inventory is hitting the response cap and you only need group-level shape."
       }
     ],
     "surfaces": [

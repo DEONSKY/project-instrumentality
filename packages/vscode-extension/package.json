@@ -46,7 +46,8 @@
       "view/title": [
         { "command": "instrumentality.refresh", "when": "view == instrumentality.tree", "group": "navigation@1" },
         { "command": "instrumentality.openDashboard", "when": "view == instrumentality.tree", "group": "navigation@2" },
-        { "command": "instrumentality.openCapabilities", "when": "view == instrumentality.tree", "group": "navigation@3" }
+        { "command": "instrumentality.openCapabilities", "when": "view == instrumentality.tree", "group": "navigation@3" },
+        { "command": "instrumentality.publishDrift", "when": "view == instrumentality.tree", "group": "navigation@4" }
       ]
     },
     "configuration": {

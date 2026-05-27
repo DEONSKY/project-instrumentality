@@ -39,6 +39,8 @@ import {
   hasUpstream,
   listRemotes,
   detectPushRemote,
+  resolveKbMcp,
+  describePathsChecked,
   type StatusSummary,
   type CodeDriftEntry,
   type KbDriftEntry,
@@ -2064,31 +2066,34 @@ export class InstrumentalityView extends ItemView {
       new Notice("Instrumentality: knowledge base not detected.");
       return;
     }
-    const scriptDrift = path.join(this.kbRoot, "knowledge", "_mcp", "tools", "drift.js");
-    const scriptConform = path.join(this.kbRoot, "knowledge", "_mcp", "tools", "conform.js");
     const fs = await import("node:fs");
-    if (!fs.existsSync(scriptDrift)) {
+    const resolved = resolveKbMcp(this.kbRoot);
+    if (!resolved) {
+      const paths = describePathsChecked(this.kbRoot).join("\n  • ");
       new Notice(
-        "Instrumentality: publish requires knowledge/_mcp/tools/drift.js (missing in this workspace)."
+        `Instrumentality: publish couldn't find kb-mcp tools.\nChecked:\n  • ${paths}\n\nInstall kb-mcp (npm install kb-mcp), set $KB_MCP_HOME to its checkout, or include it under your workspace's node_modules.`,
+        15000
       );
       return;
     }
+    const { driftScript, conformScript, source } = resolved;
     const ok = await confirmModal(this.app, {
       title: "Publish drift queue?",
       detail:
-        "Runs drift + conform detection in write mode, then commits any changes to knowledge/sync/*.md as `chore(kb): publish drift queue`. Does not push.",
+        `Runs drift + conform detection in write mode, then commits any changes to knowledge/sync/*.md as \`chore(kb): publish drift queue\`. Does not push.\n\nResolved kb-mcp via: ${source}`,
       confirmLabel: "Publish",
     });
     if (!ok) return;
 
     try {
-      await this.runNodeTool(scriptDrift, this.kbRoot);
-      if (fs.existsSync(scriptConform)) {
-        await this.runNodeTool(scriptConform, this.kbRoot);
+      await this.runNodeTool(driftScript, this.kbRoot);
+      if (fs.existsSync(conformScript)) {
+        await this.runNodeTool(conformScript, this.kbRoot);
       }
     } catch (err: any) {
       new Notice(
-        `Instrumentality: drift detection failed: ${err?.message ?? err}`
+        `Instrumentality: drift detection failed (${driftScript}): ${err?.message ?? err}`,
+        10000
       );
       return;
     }
@@ -2143,7 +2148,7 @@ export class InstrumentalityView extends ItemView {
       return;
     }
     new Notice(
-      `Instrumentality: published drift queue (${
+      `Instrumentality: published drift queue via ${source} (${
         stagedNames.split("\n").length
       } file(s)). Push when ready.`
     );
@@ -2327,6 +2332,10 @@ export class InstrumentalityView extends ItemView {
     const disclosure = detail.createEl("details", { cls: "prompt-disclosure" });
     disclosure.createEl("summary", { text: "Show prompt" });
     const promptPre = disclosure.createEl("pre", { cls: "entry-prompt" });
+    // Obsidian's webview defaults block text selection; opt the prompt body
+    // in so the user can manually copy a fragment without using Copy Prompt.
+    promptPre.style.userSelect = "text";
+    (promptPre.style as unknown as { webkitUserSelect: string }).webkitUserSelect = "text";
     const indexed = this.entryIndex.get(`${opts.section}:${opts.id}`);
     promptPre.appendText(indexed?.prompt ?? "(no prompt available)");
 
@@ -2662,9 +2671,6 @@ export class InstrumentalityView extends ItemView {
     // `sinceCommit` is the FIRST post-baseline commit that touched the file,
     // so the change introduced BY it is part of the drift. Diff from its
     // parent (`<since>^`) — not from `<since>` — to capture that change.
-    const range = f.latestCommit
-      ? `${f.sinceCommit}^..${f.latestCommit}`
-      : `${f.sinceCommit}^`; // diff against working tree when no latest
     // The KB may be a superproject with submodules. Resolve the actual repo
     // containing this file so the SHA range is valid for `git diff`.
     const absPath = path.isAbsolute(f.relPath)
@@ -2672,6 +2678,33 @@ export class InstrumentalityView extends ItemView {
       : path.join(this.kbRoot, f.relPath);
     const repoRoot = await this.resolveRepoRoot(absPath);
     const relInRepo = path.relative(repoRoot, absPath);
+
+    // Probe whether `<since>^` resolves in this repo before running `git diff`.
+    // Standards-drift entries on submodule-resident files often carry a SHA
+    // recorded by `kb_conform` against the PARENT repo — it doesn't exist in
+    // the submodule, and `git diff` fails with "fatal: bad revision". When
+    // that happens, fall back to showing the file's current content as a
+    // single-sided addition (matches VS Code's stageRevisionOrEmpty pattern).
+    const baseRef = `${f.sinceCommit}^`;
+    const baseExists = await this.shaExistsIn(repoRoot, baseRef);
+    if (!baseExists) {
+      const rightContent = await this.readRightSide(repoRoot, relInRepo, f.latestCommit);
+      // Synthesize a unified-diff-shaped "all-added" patch so renderDiffText
+      // colors every line as `+`. The header is informational only.
+      const lines = rightContent.split("\n");
+      const header = [
+        `diff --no-color (baseline ${f.sinceCommit.slice(0, 7)}^ unknown in repo) — showing current as addition`,
+        `--- /dev/null`,
+        `+++ b/${relInRepo}`,
+        `@@ -0,0 +1,${lines.length} @@`,
+      ].join("\n");
+      const body = lines.map((line) => `+${line}`).join("\n");
+      return `${header}\n${body}`;
+    }
+
+    const range = f.latestCommit
+      ? `${baseRef}..${f.latestCommit}`
+      : baseRef; // diff against working tree when no latest
     return new Promise((resolve, reject) => {
       execFile(
         "git",
@@ -2686,6 +2719,48 @@ export class InstrumentalityView extends ItemView {
         }
       );
     });
+  }
+
+  private shaExistsIn(repoRoot: string, ref: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      execFile(
+        "git",
+        ["cat-file", "-e", ref],
+        { cwd: repoRoot },
+        (err) => resolve(!err)
+      );
+    });
+  }
+
+  private readRightSide(
+    repoRoot: string,
+    relInRepo: string,
+    latestCommit?: string
+  ): Promise<string> {
+    // If a latest commit was recorded, use that exact tree state. Otherwise
+    // read the working-tree file (or fall back to empty if unreadable).
+    if (latestCommit) {
+      return new Promise((resolve) => {
+        execFile(
+          "git",
+          ["show", `${latestCommit}:${relInRepo}`],
+          { cwd: repoRoot, maxBuffer: 8 * 1024 * 1024 },
+          (err, stdout) => resolve(err ? "" : stdout)
+        );
+      });
+    }
+    const abs = path.join(repoRoot, relInRepo);
+    return Promise.resolve(
+      (() => {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const fs = require("node:fs") as typeof import("node:fs");
+          return fs.readFileSync(abs, "utf8");
+        } catch {
+          return "";
+        }
+      })()
+    );
   }
 
   private resolveRepoRoot(absPath: string): Promise<string> {

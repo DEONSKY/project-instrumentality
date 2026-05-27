@@ -18,6 +18,8 @@ import {
   hasUpstream,
   listRemotes,
   detectPushRemote,
+  resolveKbMcp,
+  describePathsChecked,
   type StatusSummary,
 } from "@instrumentality/shared";
 import type { DashboardAction } from "./dashboard";
@@ -200,20 +202,23 @@ export async function handlePublishDrift(ctx: ActionContext): Promise<void> {
     void vscode.window.showWarningMessage("Instrumentality: knowledge base not detected.");
     return;
   }
-  const scriptDrift = path.join(kbRoot, "knowledge", "_mcp", "tools", "drift.js");
-  const scriptConform = path.join(kbRoot, "knowledge", "_mcp", "tools", "conform.js");
-  if (!fs.existsSync(scriptDrift)) {
+  const resolved = resolveKbMcp(kbRoot);
+  if (!resolved) {
+    const paths = describePathsChecked(kbRoot).join("\n  • ");
     void vscode.window.showWarningMessage(
-      "Instrumentality: publish requires knowledge/_mcp/tools/drift.js (missing in this workspace)."
+      `Instrumentality: publish couldn't find kb-mcp tools. Checked:\n  • ${paths}\n\n` +
+        `Install kb-mcp (npm install kb-mcp), set $KB_MCP_HOME to its checkout, or include it under your workspace's node_modules.`,
+      { modal: true }
     );
     return;
   }
+  const { driftScript, conformScript, source } = resolved;
   const choice = await vscode.window.showInformationMessage(
     "Publish drift queue?",
     {
       modal: true,
       detail:
-        "Runs drift + conform detection in write mode, then commits any changes to knowledge/sync/*.md as `chore(kb): publish drift queue`. Does not push.",
+        `Runs drift + conform detection in write mode, then commits any changes to knowledge/sync/*.md as \`chore(kb): publish drift queue\`. Does not push.\n\nResolved kb-mcp via: ${source}`,
     },
     "Publish"
   );
@@ -224,9 +229,9 @@ export async function handlePublishDrift(ctx: ActionContext): Promise<void> {
     // Drift first so any new entries are on disk before conform's standards
     // sweep runs (kept sequential — conform doesn't depend on drift state,
     // but a single commit is cleaner).
-    await runNodeTool(scriptDrift, kbRoot);
-    if (fs.existsSync(scriptConform)) {
-      await runNodeTool(scriptConform, kbRoot);
+    await runNodeTool(driftScript, kbRoot);
+    if (fs.existsSync(conformScript)) {
+      await runNodeTool(conformScript, kbRoot);
     }
   } catch (err: any) {
     ctx.setSpinner(false);
@@ -296,7 +301,7 @@ export async function handlePublishDrift(ctx: ActionContext): Promise<void> {
 
   ctx.setSpinner(false);
   void vscode.window.showInformationMessage(
-    `Instrumentality: published drift queue (${stagedDiff.split("\n").length} file(s)). Push when ready.`
+    `Instrumentality: published drift queue via ${source} (${stagedDiff.split("\n").length} file(s)). Push when ready.`
   );
   void ctx.refresh();
 }

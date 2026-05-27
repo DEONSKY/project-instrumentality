@@ -72,6 +72,8 @@ export type {
   RunPushPlanOptions,
 } from "./submodule-actions.js";
 export { getHooksStatus } from "./hooks-status.js";
+export { resolveKbMcp, describePathsChecked } from "./mcp-tools-resolver.js";
+export type { ResolvedKbMcp, McpToolsSource } from "./mcp-tools-resolver.js";
 export {
   TOOL_CATALOG,
   TOOL_CATEGORIES,

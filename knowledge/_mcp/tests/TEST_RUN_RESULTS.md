@@ -31,7 +31,18 @@ Live log. Untracked. Delete on cleanup (§A.18) or move out of repo when done.
 | §A.15 | PASS | A.15.1 verified: notifications.enabled toast appears with View button focusing sidebar. refreshIntervalSeconds + lint.command not retested (FYI per plan). |
 | §A.16 | PASS with notes | A.16.1 pass on VS Code; F36 (Obsidian shows subset of lint entries, timing unclear). A.16.2 lint clears after fix. A.16.3: kb_write does not hard-reject illegal depth — depth surfaces as lint warn instead. Per user, this is acceptable behavior; plan wording could be loosened. |
 | §A.17 | SKIPPED | MCP-down resilience test skipped per user — low priority. |
-| §A.18 | pending | |
+| §A.18 | PASS | Submodule reset to 96b6312; throwaway branches dropped (__test/extension-plan, __merge-test, __test-branch); both stashes popped; pre-plan state restored exactly. Only new artifact: TEST_RUN_RESULTS.md (this file). |
+
+## Final summary
+
+- **Scenario A run completed end-to-end** across all 19 sections (§0 through §A.18; §A.17 skipped).
+- **Findings logged**: 37 (F1–F37). Resolved during session: 8 (F1, F2, F8, F9, F16, F19, F26, F27 — all user-applied UI fixes). F37 dropped as user feedback. Open: 28 findings.
+- **Active open findings worth prioritizing**:
+  - **UI bugs (extension-side)**: F29 / F30 (VS Code Edit Rule / Refine with Agent errors); F31 (Obsidian diff fails on standards-drift); F34 / F35 (Publish broken in both panels); F36 (Obsidian lint subset).
+  - **Tool bugs (MCP server)**: F13 (large responses exceed token limit affecting kb_ask, kb_analyze, kb_conform); F14 (kb_impact false-negative); F15 (kb_extract doesn't traverse submodules).
+  - **Plan documentation gaps**: F7, F10, F20, F23, F24 (submodule cleanup, optional KB files, hook preconditions, depth wording, preview/published bucket semantics).
+- **Repo final state**: clean, on `kb-mcp-boundary-validation` @ `9840356`, submodule on `96b6312`. Pre-plan dirty state restored from stashes.
+
 
 ## Findings
 
@@ -265,3 +276,174 @@ Live log. Untracked. Delete on cleanup (§A.18) or move out of repo when done.
 - Stash @{0}: parent dirty state (modified submodule, untracked `MANUAL_TEST_PLAN.md`)
 - Stash inside `ms-linestop-admin-be` @{0}: modified `ParameterAuditController.java`
 - Queue files written by §0 `kb_drift`: `knowledge/sync/code-drift.md`, `knowledge/sync/kb-drift.md` (uncommitted; will revert in §A.18)
+
+---
+
+# Re-test 2026-05-27 — fixes verification
+
+Verifying batch fixes for F7/F10/F11/F13/F14/F15/F17/F18/F20/F23/F24/F28/F29/F30/F31/F32/F34/F35 against kb-mcp v1.1.1 + VS Code ext v0.3.0 + Obsidian plugin v0.2.0.
+
+- Branch: `kb-mcp-boundary-validation` @ `9840356`
+- MCP server launched via `.mcp.json` from `/home/mc/Projects/pi/project-instrumentality/knowledge/_mcp/server.js`
+- `$KB_MCP_HOME` unset; no `kb-mcp` in workspace or global `node_modules`
+
+## Phase 2 — VS Code fixes
+
+### F35 — VS Code Publish command + title bar icon — PASS
+- Command Palette → "Instrumentality: Publish Drift Queue" → registered and selectable.
+- Cloud-upload icon visible in Instrumentality panel title bar (alongside refresh / dashboard / capabilities).
+- Click → notice surfaced (not raw exception): "Instrumentality: publish couldn't find kb-mcp tools. Checked: $KB_MCP_HOME (not set), workspace, node_modules/kb-mcp, node_modules/instrumentality-mcp, npm -g. Install kb-mcp (npm install kb-mcp), set $KB_MCP_HOME to its checkout, or include it under your workspace's node_modules."
+- Note: outcome (b) per F34 spec — environmental gap (kb-mcp not installed via any standard path), correctly surfaced.
+
+### F34(c) — VS Code Publish path resolution notice — PASS (early data point)
+- Same single test as F35: the resolver lists all four checked paths with actionable install instructions. Outcomes (a)/(b) from Obsidian side still pending in Phase 3.
+
+### F29 — VS Code Edit Rule button — PASS
+- Seeded `admin-be.controller-delegates-to-service` standards-drift entry against `BufferDefinitionController.java` via working-tree violation + `kb_conform` Phase 1 + fail judgment.
+- Click "Edit Rule" → standard file `knowledge/standards/code/admin-be.md` opens; cursor lands on the rule block.
+- No "entry not found" toast (notifications were off, but positive evidence — navigation succeeded — implies `resolveEntry` worked).
+
+### F30 — VS Code Refine with Agent button — PASS
+- Same seeded entry. Click "Refine with Agent" → toast confirmed copy; clipboard contained well-formed refinement prompt with rule id, standard absolute path, triggering file, drift reason, existing rule fields (title/severity/description/why/fix_hint), and task instructions.
+
+### F29-regression — All four verdict buttons via resolveEntry — PASS
+- Apply: clicked → clipboard prompt → `kb_conform({ applied: [...] })` → entry removed, drift-log gained `· CONFORMED · applied` line.
+- Exempt: re-seeded (same entry) → clicked → prompt with file_paths + reason → `kb_conform({ exempted: [...] })` → entry removed, exception appended to rule's `exceptions[]` in `admin-be.md`, drift-log gained `· CONFORMED · exempted` line. Side effect: BufferDefinitionController now permanently exempted (cleanup required).
+- Promote: re-seeded against `ManualRecordController.java` (switching files since previous was now exempted) → clicked → prompt with originating_files + note → `kb_conform({ promoted: [...] })` → entry removed, logged to `standards-promotions.md` (suppression ledger), drift-log gained `· CONFORMED · promoted` line.
+- Dismiss: re-seeded against `QuartzMonitorController.java` → clicked → prompt with reason → `kb_conform({ dismissed: [...] })` → entry removed, drift-log gained `· DISMISSED-CONFORM` line.
+- All four verdicts executed end-to-end without "entry not found" errors. Same `resolveEntry` path that F29/F30 exercise.
+
+## Phase 3 — Obsidian fixes
+
+### F31 — Obsidian Show diff on submodule entry — PASS
+- Seeded `admin-be.controller-delegates-to-service` against `QuartzMonitorController.java` (submodule file).
+- Show diff in Obsidian rendered diff content with header `<sha> → working tree` (baseline SHA not in submodule repo, fallback engaged) and lines marked with `+` (single-sided addition).
+- Previous "fatal: bad revision" error eliminated.
+- Part 2 regression (normal-SHA diff still renders) skipped — no impact from this fix path; previous session §A.11.6 had it passing.
+
+### F32 — Obsidian Show prompt selectability — PASS
+- Drag-select inside the rendered Show prompt disclosure works.
+- Ctrl+C copies the selection to clipboard.
+
+### F34 — Obsidian Publish button — FAIL
+- Environment: `$KB_MCP_HOME` unset, no `kb-mcp` in workspace/global `node_modules`. Expected outcome (b) per spec: 15-second Notice listing the resolver paths checked, with install instructions.
+- Observed: clicking Publish produces no Notice, no error, no observable effect. Same symptom as the original F34 finding.
+- VS Code path (F34c) verified PASS via the same test — only Obsidian-side handler is still broken.
+- Suggested triage: Obsidian dev console (Ctrl+Shift+I) likely shows a swallowed exception in the Publish handler.
+
+## Phase 4 — MCP server fixes
+
+### F13 (kb_conform prompt_mode=reference) — PASS
+- Call 1 — `kb_conform({mode: "current", include_working_tree: true})`: response embeds the full conform-check prompt inline (~9KB+ with content duplicated, old behavior).
+- Call 2 — `kb_conform({..., prompt_mode: "reference"})`: response has `prompt: null`, `prompt_path: "knowledge/sync/.prompts/conform-phase1-current-9177eff6bd4d.md"`, no inline content. `filesChanged.written` includes the prompt file.
+- Verified file: 9366 bytes, contains the complete Phase 1 prompt.
+
+### F13 (kb_ask caps) — PASS
+- `challenge` intent (classifier hit via "challenge|inconsisten|missing" keywords): response ~10KB, well under MCP cap. Previously 66,504 chars (over cap).
+- `generate` intent (classifier hit via `^generate`): response 55.2KB, under MCP cap. Previously 69,629 chars (over cap).
+- Tighter `kb_context` cap applied to these two intents per ask.js F13 comment block — other intents (query/brainstorm/onboard) keep the looser ~64KB cap.
+- Note: kb_ask doesn't accept an `intent:` parameter — intent is auto-classified from question keywords (see classifyIntent in tools/ask.js).
+
+### F13 (kb_analyze summary_only) — PASS
+- `kb_analyze({summary_only: true})` returned 141 inventory groups across 943 source files.
+- Every entry has only `kb_target`, `file_count`, `existing_kb_file`, `suggested_action`. **No** `sample_files` arrays anywhere — confirmed by visual inspection of full response.
+
+### F14 — PASS (both queries)
+- **Query 1** (linestopMail rename): 10 affected files (vs previously `[]`). Top 4: `specs/features/user-definition.md` (frontmatter) > `data/validation/common.md` > `integrations/integrations.md` > `standards/contracts/user-definition-contract.md` (body match — the previously-missed file). Half-weight body match ranks lower than frontmatter match, as designed.
+- **Query 2** (shift-handover): top result is `specs/features/shift-handover.md`, followed by related files. Ranked sensibly.
+
+### F15-A — kb_extract submodule traversal — PASS
+- `kb_extract({source: "code", paths: ["ms-linestop-admin-be/web-app/src/main/java/**"], target_id: "f15a-test", target_group: "code"})` returned 3 sample files from inside the submodule (GlobalExceptionHandler, ConstantVariables, LdapAuthenticationServiceImpl).
+- Previously returned "No source files found". Submodule traversal via `git ls-files --recurse-submodules` or submodule-status fallback works.
+- Phase 1 only — no `content` parameter, no file written.
+
+### F15-B — kb_extract paths filter for nested knowledge subfolders — PASS (outcome a)
+- `kb_extract({source: "knowledge", paths: "specs/features", target_id: "f15b-test", target_group: "knowledge"})` returned 8 KB files from `specs/features`.
+- Previously errored with generic "Run kb_init first, or pass paths='<subfolder>'". Nested-path filter now works.
+
+### F17 — kb_drift fan-out per distinct kb_target — PASS (code inspection)
+- Plan path B (commit-and-observe) skipped to avoid submodule-history pollution; verified via source.
+- [drift.js:316-327](/home/mc/Projects/pi/project-instrumentality/knowledge/_mcp/tools/drift.js#L316-L327): explicit comment + code — `matchAllPatterns` returns every pattern matching the file → `resolveKbTarget` maps each → `new Set(...)` dedups → one `upsertCodeDriftEntry` per distinct kb_target.
+- [patterns.js:105-124](/home/mc/Projects/pi/project-instrumentality/knowledge/_mcp/lib/patterns.js#L105-L124): array `kb_target` (e.g. `['specs/features/{name}.md', 'specs/features/{name}s.md']`) resolves to a single best candidate (existing-file-preferred) — array fan-out is across PATTERNS, not within a single pattern's `kb_target` array.
+- Matches the documented "one entry per distinct kb_target" behavior. F17 was intentional behavior, not a bug.
+
+### F28 — drift-log heading discriminator — PASS (code inspection)
+- [queue.js:621-629](/home/mc/Projects/pi/project-instrumentality/knowledge/_mcp/tools/drift/queue.js#L621-L629): heading now embeds the resolution: `## DATE · RESOLVED · code→kb · KB-UPDATED` for summaries, `## DATE · RESOLVED · code→kb · CODE-REVERTED` for reverted.
+- Comment cites the previous F28 finding directly. Backwards-compatible per inline note — parser at `packages/shared/src/parsers/drift-log.ts:48` still classifies any `RESOLVED ...` heading as `drift-resolved`.
+- Runtime verification skipped (would need code-drift commit).
+
+## Phase 1 — Doc sanity
+
+### F24 — §1.1 line 8 bucket semantics — PASS
+- Lines 75-78: redefines "Uncommitted preview" as live-compute not persisted, "Published" as entry in queue file regardless of git commit state. Plus a third sub-bullet clarifying that `git commit` alone doesn't transition buckets.
+
+### F10 — §A.1 glossary assertion conditional — PASS
+- Line 142: "if `knowledge/glossary.md` exists, assert it is returned; otherwise assert the response is non-empty (typically `global.md`). The glossary is optional."
+
+### F11 — §A.1 rules_in_scope + CLAUDE.md scope note — PASS
+- Line 141: `rules_in_scope` clarification — "matches rule-level `applies_to`, not pattern coverage".
+- Line 143: explicit note that `CLAUDE.md` lives at repo root, "structurally outside `kb_get`'s `knowledge/` scope — for repos that keep it there it WILL NOT appear in `kb_get` output even though agents read it directly."
+
+### F20 — §A.3.2 preconditions callout — PASS
+- Lines 193-195: "Preconditions for the full auto-commit chain" callout covers both (1) protected branch requirement (auto-commit only on main/master; feature branches run readonly) and (2) submodule branch alignment (guard blocks push if mismatched).
+
+### F17 (doc) — §A.4 fan-out note — PASS
+- Line 211: "when a code file matches multiple `_rules.md` patterns mapping to *different* `kb_target`s, `kb_drift` Phase 1 creates one code-drift entry **per distinct kb_target** (intentional — covered by the `P0 fan-out` tests in `drift.test.js`)."
+
+### F23 — §A.4 submodule variant callout — PASS
+- Lines 213-218: explicit 3-step callout — (1) edit in submodule, (2) commit in submodule, (3) commit parent's pointer bump. Plus an extra paragraph clarifying the bucket transition implication.
+
+### F18 — §A.5 / §A.16 include_working_tree note — PARTIAL
+- §A.5 line 230 has the `include_working_tree: true` note as expected.
+- §A.16 does NOT have the note. Only one occurrence in the file (verified via grep). Half-fix — §A.16 still missing the same callout the plan asked for.
+
+### Bonus §A.16.3 — wording loosened — PASS
+- Line 370: "write does NOT need to hard-reject; depth violations surface as **lint warnings** on the written file (accepted behavior)". Plus explicit note that if a hard reject is preferred, that's a server policy change, not a UI gap.
+
+### F7 — §A.18 cleanup block — PASS
+- Line 383: submodule note callout explaining parent's `git checkout` only restores the pointer.
+- Lines 391-397: explicit shell commands — `git -C <SUBMODULE_PATH> reset --hard <CAPTURED_SHA>`, `stash drop`, `clean -fd`, `git checkout -- <SUBMODULE_PATH>` for parent pointer restore. All four steps requested by the plan are present (commented out by default with instructions to uncomment per case).
+
+## Phase 1 — Doc sanity
+(pending)
+
+## Cleanup performed
+- Reverted 3 submodule controller files (Buffer, ManualRecord, Quartz) via `git -C ms-linestop-admin-be checkout --`. ParameterAuditController.java remains modified (pre-session, untouched).
+- Removed BufferDefinitionController exception block from `knowledge/standards/code/admin-be.md` rule `controller-delegates-to-service` via targeted Edit.
+- Reverted `knowledge/sync/standards-promotions.md` via `git checkout --` (only diff was the test-only ManualRecordController promotion entry).
+- Dismissed the open `admin-be.controller-delegates-to-service` standards-drift entry seeded for F31 verification.
+- Removed `knowledge/sync/.conform-pending/` and `knowledge/sync/.prompts/` session artifacts.
+- Left `knowledge/sync/drift-log/2026-05.md` entries in place (append-only audit trail per plan §A.18). These document the four F29-regression verdicts and the F31 cleanup-dismiss.
+- Left `knowledge/sync/standards-drift.md` baseline SHA advance in place (kb-mcp housekeeping, not test residue).
+
+## Final wrap-up table
+
+| Finding | Phase | Status | Notes |
+|---|---|---|---|
+| F35 | VS Code | PASS | Command in palette, cloud-upload icon in title bar, click surfaces the F34-style notice (kb-mcp not installed) |
+| F34 (VS Code path, F34c) | VS Code | PASS | Same notice as F35 — lists 4 resolver paths + install instructions |
+| F29 | VS Code | PASS | Edit Rule opens standard file, cursor lands on rule block, no "entry not found" |
+| F30 | VS Code | PASS | Refine with Agent copies well-formed prompt to clipboard (rule body + drift reason + task instructions) |
+| F29-regression | VS Code | PASS | All four verdicts (Apply / Exempt / Promote / Dismiss) end-to-end via resolveEntry. Each re-seeded with a fresh controller to bypass exception/promotion suppression |
+| F31 | Obsidian | PASS | Submodule-missing-SHA renders as single-sided `+` diff with `<sha> → working tree` header. No "fatal: bad revision" |
+| F32 | Obsidian | PASS | Show prompt disclosure supports drag-select + Ctrl+C |
+| F34 (Obsidian path) | Obsidian | **FAIL** | Publish button still silently does nothing in Obsidian. VS Code path of same fix works. Suggested triage: dev console for swallowed exception |
+| F13 — kb_conform prompt_mode | MCP | PASS | `prompt_mode: "reference"` returns small response with `prompt_path` pointing to a written file (9366 bytes, full Phase 1 prompt) |
+| F13 — kb_ask caps | MCP | PASS | `challenge` ~10KB (was 66.5KB over cap), `generate` 55.2KB (was 69.6KB over cap). Tighter caps applied per ask.js F13 comment |
+| F13 — kb_analyze summary_only | MCP | PASS | 141 groups, no `sample_files` arrays anywhere in response |
+| F14 | MCP | PASS | Both queries: linestopMail rename surfaces `user-definition-contract.md` via body match (rank 4, half-weight); shift-handover query ranks correctly. Previously `[]` |
+| F15-A | MCP | PASS | kb_extract recurses into submodule — 3 sample files returned from `ms-linestop-admin-be/web-app/src/main/java/**`. Previously "No source files found" |
+| F15-B | MCP | PASS (outcome a) | `paths: "specs/features"` returned 8 files. Previously "Run kb_init first" generic error |
+| F17 | MCP | PASS (code inspection) | Fan-out logic verified at drift.js:316-327 + patterns.js:105-124. Skipped runtime test to avoid submodule history pollution |
+| F28 | MCP | PASS (code inspection) | Heading discriminator at queue.js:621-629 — `· KB-UPDATED` / `· CODE-REVERTED` appended. Runtime test skipped (would need code-drift commit) |
+| F24 | Doc | PASS | §1.1 lines 75-78 redefines buckets as queue-file persistence |
+| F10 | Doc | PASS | §A.1 line 142 conditional glossary assertion |
+| F11 | Doc | PASS | §A.1 line 141 `rules_in_scope` clarification + line 143 CLAUDE.md scope note |
+| F20 | Doc | PASS | §A.3.2 lines 193-195 preconditions callout (protected branch + submodule guard) |
+| F17 (doc) | Doc | PASS | §A.4 line 211 fan-out note |
+| F23 | Doc | PASS | §A.4 lines 213-218 submodule 3-step variant callout |
+| F18 | Doc | **PARTIAL** | §A.5 line 230 has the `include_working_tree: true` note ✓ — but §A.16 does NOT. Plan asked for both |
+| F7 | Doc | PASS | §A.18 lines 383, 391-397: explicit submodule reset/stash drop/clean -fd + parent pointer restore |
+| Bonus §A.16.3 | Doc | PASS | Wording loosened — depth violations as lint warnings is accepted behavior |
+
+**Summary: 21 PASS, 1 FAIL (F34 Obsidian path), 1 PARTIAL (F18 missing §A.16 note).**
