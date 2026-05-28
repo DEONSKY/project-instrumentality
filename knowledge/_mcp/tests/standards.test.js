@@ -274,6 +274,35 @@ test('findStandardsForPath caps results at top-N', () => {
   assert.equal(matches.length, 0)
 })
 
+test('findStandardsForPath matches flat-layout paths via **/ (F43)', () => {
+  // Regression: `backend/**/handlers/*.go` must match the flat-layout file
+  // `backend/handlers/x.go` (zero intermediate segments). Pre-F43, this
+  // forced runbook §7 to use flat path workarounds in standards.
+  const graph = {
+    files: {
+      'standards/code/handler-conv.md': {
+        id: 'handler-conv',
+        type: 'standard',
+        kind: 'stack-local',
+        app_scope: 'backend',
+        rules: [{
+          id: 'no-console',
+          title: 'no console',
+          severity: 'warn',
+          description: 'd',
+          applies_to: { paths: ['backend/**/handlers/*.go'] },
+          detect: { kind: 'llm', hint: '' }
+        }]
+      }
+    }
+  }
+  const idx = loadStandardsIndex(graph)
+  const matches = findStandardsForPath(idx, 'backend/handlers/appointment.go', 'backend')
+  assert.equal(matches.length, 1, 'flat-layout Go file must match the standard')
+  assert.equal(matches[0].standard.id, 'handler-conv')
+  assert.equal(matches[0].rule.id, 'no-console')
+})
+
 // ── inferAppScope ───────────────────────────────────────────────────────────
 
 test('inferAppScope returns null silently when app_root_patterns is unset', () => {

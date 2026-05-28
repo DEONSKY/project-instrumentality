@@ -76,18 +76,6 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
     .replace(/\{\{date\}\}/g, today)
     .replace(/\{\{app_scope\}\}/g, app_scope)
 
-  // If group folder missing, create folder note ({name}.md) — but only on P2
-  // (when content is being written). P1 inspection should not pollute the FS
-  // with half-filled descriptors that lint flags red; users who want a folder
-  // note can scaffold one explicitly via kb_scaffold({type: 'group', ...}).
-  if (group && content) {
-    const groupDir = path.join(KB_ROOT, getGroupFolder(type), group)
-    const groupFilePath = path.join(groupDir, `${group}.md`)
-    if (!fs.existsSync(groupFilePath)) {
-      createGroupFile(groupFilePath, group, today)
-    }
-  }
-
   // Agent passes back filled content → write it
   if (content) {
     const writeResult = await write({ file_path: filePath, content })
@@ -161,22 +149,6 @@ function attachMappingStatus(result, filePath, rules) {
     // Don't let an audit failure block the write — the file is already saved.
     process.stderr.write(`[kb-scaffold] mapping check failed: ${e.message}\n`)
   }
-}
-
-function createGroupFile(groupFilePath, groupName, today) {
-  const templatePath = path.join(TEMPLATES_DIR, 'group.md')
-  if (!fs.existsSync(templatePath)) return
-
-  let content = fs.readFileSync(templatePath, 'utf8')
-  content = content
-    .replace(/\{\{domain\}\}/g, groupName)
-    .replace(/\{\{date\}\}/g, today)
-    .replace(/\{\{app_scope\}\}/g, 'all')
-    .replace(/\{\{owner\}\}/g, '')
-    .replace(/\{\{primary_entity\}\}/g, groupName)
-
-  fs.mkdirSync(path.dirname(groupFilePath), { recursive: true })
-  fs.writeFileSync(groupFilePath, content, 'utf8')
 }
 
 module.exports = {

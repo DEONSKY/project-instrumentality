@@ -1356,6 +1356,53 @@ test('pickBestMatch: returns null when nothing matches', () => {
   assert.equal(pickBestMatch('docs/README.md', patterns), null)
 })
 
+// ── globMatch: ** must allow zero intermediate segments (F43) ─────────────────
+
+test('globMatch: /**/ matches zero intermediate segments (flat layout)', () => {
+  const { globMatch } = require('../lib/patterns')
+  assert.equal(globMatch('backend/handlers/appointment.go', 'backend/**/handlers/*.go'), true,
+    'flat-layout file must match — this was the F43 bug')
+  assert.equal(globMatch('backend/api/handlers/x.go', 'backend/**/handlers/*.go'), true,
+    'one intermediate segment still matches')
+  assert.equal(globMatch('backend/api/v1/handlers/x.go', 'backend/**/handlers/*.go'), true,
+    'deep nesting still matches')
+  assert.equal(globMatch('frontend/handlers/x.go', 'backend/**/handlers/*.go'), false,
+    'prefix anchor still enforced')
+})
+
+test('globMatch: leading **/ matches with or without prefix', () => {
+  const { globMatch } = require('../lib/patterns')
+  assert.equal(globMatch('foo.go', '**/foo.go'), true, 'no prefix segments')
+  assert.equal(globMatch('a/b/foo.go', '**/foo.go'), true, 'multiple prefix segments')
+  assert.equal(globMatch('foo.ts', '**/foo.go'), false, 'extension still enforced')
+})
+
+test('globMatch: trailing /** matches bare dir and subtree', () => {
+  const { globMatch } = require('../lib/patterns')
+  assert.equal(globMatch('frontend/index.tsx', 'frontend/**'), true, 'file inside dir')
+  assert.equal(globMatch('frontend/src/app/Main.tsx', 'frontend/**'), true, 'deep file inside dir')
+  assert.equal(globMatch('frontend', 'frontend/**'), true, 'bare dir itself matches')
+  assert.equal(globMatch('backend/x.go', 'frontend/**'), false, 'other dir does not match')
+})
+
+test('globMatch: src/**/*.java matches root files (broadening)', () => {
+  // After F43 fix, **/ allows zero segments — pinning this so the
+  // broadening is intentional, not an accident.
+  const { globMatch } = require('../lib/patterns')
+  assert.equal(globMatch('src/Foo.java', 'src/**/*.java'), true,
+    'root-level file in src/ now matches — intentional minimatch alignment')
+  assert.equal(globMatch('src/pkg/Foo.java', 'src/**/*.java'), true,
+    'nested file still matches')
+})
+
+test('globMatch: mid-segment ** (non-standard) keeps .* fallback', () => {
+  // Patterns like `be/handlers/**.go` (no slash adjacency for the trailing **)
+  // are non-standard but appear in existing standards. Keep current behavior.
+  const { globMatch } = require('../lib/patterns')
+  assert.equal(globMatch('be/handlers/x.go', 'be/handlers/**.go'), true)
+  assert.equal(globMatch('be/handlers/sub/y.go', 'be/handlers/**.go'), true)
+})
+
 test('pickBestMatch: picks the most specific path within a multi-path pattern', () => {
   const { pickBestMatch } = require('../lib/patterns')
   // Two patterns both match; the deeper-prefixed one wins via globSpecificity.

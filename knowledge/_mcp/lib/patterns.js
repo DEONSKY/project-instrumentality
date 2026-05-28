@@ -13,14 +13,30 @@ const GLOB_SKIP_DIRS = new Set([
 
 /**
  * Glob-style pattern matching for file paths.
- * Supports ** (any depth), * (single segment), ? (single char).
+ * Supports ** (any depth, including zero segments), * (single segment), ? (single char).
+ *
+ * The slash-bounded forms (`**\/`, `/**\/`, `/**`) collapse to zero-or-more
+ * segments so `backend/**\/handlers/*.go` matches both `backend/handlers/x.go`
+ * (flat layout) and `backend/api/handlers/x.go` (nested). A bare `**` adjacent
+ * to non-slash chars (e.g. `**.go`) falls through to `.*` for backwards-compat
+ * with non-standard patterns already in the wild.
  */
 function globMatch(filePath, pattern) {
+  // Stage every glob token behind sentinels before doing any regex emission.
+  // Otherwise: step 4 (`**` → `.*`) would inject a `*` that step 5 then
+  // (incorrectly) re-rewrites as `[^/]*`, and step 6 (`?` → `[^/]`) would
+  // mangle the `?` inside `(?:...)?` groups injected by the slash-bounded forms.
   const regexStr = pattern
-    .replace(/\*\*/g, '__DS__')
+    .replace(/^\*\*\//g, '__GS_PFX__')
+    .replace(/\/\*\*\//g, '__GS_MID__')
+    .replace(/\/\*\*$/g, '__GS_SFX__')
+    .replace(/\*\*/g, '__GS_DS__')
     .replace(/\*/g, '[^/]*')
-    .replace(/__DS__/g, '.*')
     .replace(/\?/g, '[^/]')
+    .replace(/__GS_PFX__/g, '(?:.+/)?')
+    .replace(/__GS_MID__/g, '/(?:.+/)?')
+    .replace(/__GS_SFX__/g, '(?:/.*)?')
+    .replace(/__GS_DS__/g, '.*')
   try {
     return new RegExp(`^${regexStr}$`).test(filePath)
   } catch {
