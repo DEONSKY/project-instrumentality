@@ -277,9 +277,18 @@ function installGitHooks() {
   Object.entries(hooks).forEach(([name, content]) => {
     const hookPath = path.join(hooksDir, name)
     const exists = fs.existsSync(hookPath)
-    const isManagedByKb = exists && fs.readFileSync(hookPath, 'utf8').includes('# kb-mcp managed')
+    const existingBody = exists ? fs.readFileSync(hookPath, 'utf8') : null
+    const isManagedByKb = existingBody && existingBody.includes('# kb-mcp managed')
 
     if (!exists || isManagedByKb) {
+      // F39: skip the write when the body is already byte-identical. Hook
+      // templates only change between kb-mcp versions, so re-running
+      // installGitHooks in the same version is a no-op now. Still ensure
+      // the executable bit is set even when content hasn't changed.
+      if (existingBody === content) {
+        fs.chmodSync(hookPath, '755')
+        return
+      }
       fs.writeFileSync(hookPath, content)
       fs.chmodSync(hookPath, '755')
       installed.push(exists ? `${name} (updated)` : name)

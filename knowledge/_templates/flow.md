@@ -1,12 +1,12 @@
 ---
-id: {{id}}
+id: "{{id}}"
 type: flow
-aliases: [{{id}}]
+aliases: ["{{id}}"]
 cssclasses: [kb-flow]
-app_scope: {{app_scope}}
+app_scope: "{{app_scope}}"
 depends_on: []
-owner: {{owner}}
-created: {{date}}
+owner: "{{owner}}"
+created: "{{date}}"
 tags: []
 ---
 

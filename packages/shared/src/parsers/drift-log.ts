@@ -50,6 +50,11 @@ function classifyHeading(rest: string): {
   if (upper.startsWith("RE-BOOTSTRAP") || upper.includes("BOOTSTRAP")) {
     return { type: "re-bootstrap", isSystem: true };
   }
+  // F55: PURGE headings are emitted by kb_drift's baseline reset path. They
+  // were falling through to "unknown" and rendering with no badge in the
+  // Activity tab. Classify as a system event so the existing "Show system
+  // events" toggle hides them by default.
+  if (upper.startsWith("PURGE")) return { type: "baseline-purge", isSystem: true };
   return { type: "unknown", isSystem: false };
 }
 

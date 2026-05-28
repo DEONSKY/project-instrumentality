@@ -64,7 +64,10 @@ async function triage({ title, body, issue_id, source, labels, priority, app_sco
 async function plan({ scope, type, keywords, app_scope, target, project_key, content } = {}) {
   if (content) {
     const today = new Date().toISOString().split('T')[0]
-    const scopeSlug = scope || type || 'plan'
+    // F49: sanitize path separators in scope. `scope: "specs/features"`
+    // would otherwise produce `outbound/2026-05-27-specs/features.yaml`
+    // (nested dir) instead of `outbound/2026-05-27-specs-features.yaml`.
+    const scopeSlug = (scope || type || 'plan').replace(/[\/\\]/g, '-')
     const fileName = `${today}-${scopeSlug}.yaml`
     const filePath = path.join(KB_ROOT, 'sync', 'outbound', fileName)
     const dir = path.dirname(filePath)

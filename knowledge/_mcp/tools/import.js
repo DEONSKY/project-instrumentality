@@ -214,7 +214,7 @@ function buildImportPlan(source, session) {
         continue
       }
 
-      const targetPath = resolveFilePath(scaffoldType, typeEntry.suggested_id)
+      const targetPath = resolveFilePath(scaffoldType, typeEntry.suggested_id, cls.suggested_group)
       if (!targetPath) {
         needsReview.push({ chunk, classification: { ...typeEntry, reason: 'Could not resolve file path' } })
         continue

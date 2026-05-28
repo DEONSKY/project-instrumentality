@@ -200,6 +200,12 @@ export function buildStandardsDriftDetail(e: StandardsDriftEntry): string {
   const ruleLine = e.ruleId
     ? `<div><strong>Rule id:</strong> <code>${escapeHtml(e.ruleId)}</code></div>`
     : "";
+  // F47: surface app_scope from the resolved standard. Conditional render —
+  // older drift entries built before status.ts started populating appScope
+  // will simply omit this row.
+  const appScopeLine = e.resolvedStandard?.appScope
+    ? `<div><strong>App scope:</strong> <code>${escapeHtml(e.resolvedStandard.appScope)}</code></div>`
+    : "";
   const partyBlocks = Object.entries(e.filesByParty)
     .map(([party, files]) => {
       const label = party === "_" ? "Files" : `Files (party: ${escapeHtml(party)})`;
@@ -215,6 +221,7 @@ export function buildStandardsDriftDetail(e: StandardsDriftEntry): string {
   return `<div class="detail-meta">
     ${stdLine}
     ${ruleLine}
+    ${appScopeLine}
     ${ruleBlockHtml(e.resolvedRule)}
     ${reason}
     ${renderAcknowledgementBlock(e.acknowledgement)}

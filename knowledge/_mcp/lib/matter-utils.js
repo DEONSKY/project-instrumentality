@@ -36,6 +36,12 @@ function matterStringify(content, data) {
   return matter.stringify(content, encoded, {
     engines: {
       yaml: {
+        // gray-matter v4+ requires engines to expose BOTH parse and stringify.
+        // Without parse, any internal round-trip (e.g. when matter validates
+        // the just-stringified frontmatter) throws "expected yaml.parse to be
+        // a function" — the misleading error in F40. Delegate parse to
+        // js-yaml.load so the engine satisfies the contract.
+        parse: (str) => yaml.load(str),
         stringify: (obj) => {
           let str = yaml.dump(obj, { lineWidth: -1 })
           for (const [key, flow] of map) {

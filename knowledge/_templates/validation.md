@@ -1,12 +1,12 @@
 ---
-id: {{id}}
+id: "{{id}}"
 type: validation
-aliases: [{{id}}]
+aliases: ["{{id}}"]
 cssclasses: [kb-validation]
-app_scope: {{app_scope}}
+app_scope: "{{app_scope}}"
 depends_on: []
-owner: {{owner}}
-created: {{date}}
+owner: "{{owner}}"
+created: "{{date}}"
 tags: []
 ---
 

@@ -171,22 +171,42 @@ async function runTool({ interactive = true, config = null, regenerate_agent_rul
     const existingRaw = parsed.data._detected_stacks
       || (parsed.data._detected_stack ? [parsed.data._detected_stack] : ['unknown'])
     const existingKey = JSON.stringify([].concat(existingRaw).sort())
+
+    let workingContent = existing
+
+    // F44: inject app_root_patterns if monorepo detected AND block is missing.
+    // Idempotent — if the user already has the block (even with custom values),
+    // leave it alone. Insert before code_path_patterns: so the YAML is grouped.
+    const monorepoDetected = hints.stack === 'monorepo' && (hints.submoduleStacks?.length > 0)
+    const hasAppRootPatterns = parsed.data.app_root_patterns !== undefined
+    if (monorepoDetected && !hasAppRootPatterns) {
+      const block = generateAppRootPatterns(hints) + '\n\n'
+      workingContent = workingContent.replace(
+        /(?=\ncode_path_patterns:)/,
+        '\n' + block
+      )
+    }
+
     if (summaryKey !== existingKey) {
       const newPatternsYaml = generateCodePathPatterns(hints)
       // Replace the code_path_patterns section in the raw file
-      const updatedContent = existing.replace(
+      workingContent = workingContent.replace(
         /code_path_patterns:[\s\S]*?(?=\n\w|\n---)/,
         newPatternsYaml + '\n'
       )
-      if (updatedContent !== existing) {
-        // Update _detected_stacks in front-matter, remove old singular field
-        const updatedParsed = matter(updatedContent)
-        updatedParsed.data._detected_stacks = stacksSummary
-        delete updatedParsed.data._detected_stack
-        const final = matterStringify(updatedParsed.content, updatedParsed.data)
-        fs.writeFileSync(rulesPath, final)
-        filesCreated.push(rulesPath + ' (updated code_path_patterns)')
-      }
+    }
+
+    if (workingContent !== existing) {
+      // Update _detected_stacks in front-matter, remove old singular field
+      const updatedParsed = matter(workingContent)
+      updatedParsed.data._detected_stacks = stacksSummary
+      delete updatedParsed.data._detected_stack
+      const final = matterStringify(updatedParsed.content, updatedParsed.data)
+      fs.writeFileSync(rulesPath, final)
+      const changes = []
+      if (summaryKey !== existingKey) changes.push('code_path_patterns')
+      if (monorepoDetected && !hasAppRootPatterns) changes.push('app_root_patterns')
+      filesCreated.push(rulesPath + ` (updated ${changes.join(', ')})`)
     }
   }
 
@@ -242,11 +262,16 @@ async function runTool({ interactive = true, config = null, regenerate_agent_rul
   // 8. Install git merge drivers in .git/config
   installMergeDrivers()
 
-  // 9. Write .cursor/mcp.json
+  // 9. Write .cursor/mcp.json (F39: only when content differs)
   const cursorDir = '.cursor'
   if (!fs.existsSync(cursorDir)) fs.mkdirSync(cursorDir, { recursive: true })
-  fs.writeFileSync(path.join(cursorDir, 'mcp.json'), JSON.stringify(CURSOR_MCP, null, 2))
-  filesCreated.push('.cursor/mcp.json')
+  const cursorPath = path.join(cursorDir, 'mcp.json')
+  const newCursorContent = JSON.stringify(CURSOR_MCP, null, 2)
+  const existingCursorContent = fs.existsSync(cursorPath) ? fs.readFileSync(cursorPath, 'utf8') : null
+  if (existingCursorContent !== newCursorContent) {
+    fs.writeFileSync(cursorPath, newCursorContent)
+    filesCreated.push('.cursor/mcp.json')
+  }
 
   // 9a. Write .vscode/mcp.json (GitHub Copilot / VS Code MCP)
   const vscodeDir = '.vscode'
@@ -328,14 +353,13 @@ secret_patterns:
   - "api_key:"
   - "secret:"
 
+${generateAppRootPatterns(hints)}
+
 ${generateCodePathPatterns(hints)}
 
 # Standards & conformance (optional). Uncomment to customise:
 # working_paths_cap: 10           # max rules surfaced by kb_get rules_in_scope per call
 # standards_threshold: 40         # warn when a standard's rule count exceeds this
-# app_root_patterns:               # path glob → app_scope (monorepos only)
-#   "ms-fe-web/**": ms-fe-web
-#   "ms-be-go/**": ms-be-go
 
 prompt_overrides:
   base_dir: "knowledge/_templates/prompts"
@@ -541,6 +565,39 @@ function loadPresetFull(stackName) {
 }
 
 /**
+ * Generate the app_root_patterns YAML block for _rules.md.
+ *
+ * Monorepo case: emit an uncommented map of "<dir>/**": <dir> for each
+ *   detected submodule stack, so standards using app_scope: <dir> filtering
+ *   actually resolve. Without this block, every file's inferred scope is
+ *   null and scoped standards silently never match (the F44 finding).
+ *
+ * Single-stack / unknown case: emit a commented example so users have a
+ *   template to copy from if their layout becomes monorepo later.
+ */
+function generateAppRootPatterns(hints = {}) {
+  const stacks = hints.submoduleStacks || []
+  if (hints.stack !== 'monorepo' || stacks.length === 0) {
+    return `# app_root_patterns:               # path glob → app_scope (monorepos only)
+#   "ms-fe-web/**": ms-fe-web
+#   "ms-be-go/**": ms-be-go`
+  }
+  // Dedup by dir; keep insertion order
+  const seen = new Set()
+  const lines = []
+  for (const s of stacks) {
+    if (seen.has(s.dir)) continue
+    seen.add(s.dir)
+    lines.push(`  "${s.dir}/**": ${s.dir}`)
+  }
+  return `# app_root_patterns maps file globs to app scopes. Required when standards
+# use app_scope: <name> filtering — without it, every file's inferred scope
+# is null and scoped standards never match.
+app_root_patterns:
+${lines.join('\n')}`
+}
+
+/**
  * Generate the code_path_patterns YAML block for _rules.md.
  * Merges patterns from all detected stacks, prefixing submodule paths.
  * Falls back to universal defaults if no stacks detected.
@@ -713,6 +770,9 @@ Rules: knowledge/_rules.md
 
 module.exports = {
   runTool,
+  // Exported for unit-test reach into the helpers. NOT part of the MCP
+  // surface — kb-mcp consumers should call runTool, not these.
+  _internal: { generateAppRootPatterns, generateRulesContent, generateCodePathPatterns, detectStackHints, buildStacksSummary },
   definition: {
     name: 'kb_init',
     description: 'Bootstrap a new KB structure in the current monorepo. Pass regenerate_agent_rules: true to (re)generate CLAUDE.md/.cursorrules/.windsurfrules/.github/copilot-instructions.md in the project root.',

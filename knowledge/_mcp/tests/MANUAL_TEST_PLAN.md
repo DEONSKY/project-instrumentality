@@ -597,9 +597,9 @@ git add -A && git commit -m "initial monorepo bootstrap"
 
 ### §B.1 kb_init multi-stack detection + idempotency
 
-1. Agent calls `kb_init`. Expected: `detected_stack` array includes both `react-vite` and `go`; `_rules.md` contains both stacks' pattern blocks; all four git hooks installed.
+1. Agent calls `kb_init`. Expected: `detected_stacks` array (note: pluralised — `detected_stack` is the scalar monorepo label, `"monorepo"`) includes both `react-vite:frontend` and `go:backend`; `_rules.md` contains both stacks' pattern blocks AND an uncommented `app_root_patterns:` block keyed by monorepo sub-app dirs (e.g. `"frontend/**": frontend`, `"backend/**": backend`); all four git hooks installed.
    🛑 **CONFIRM B.1.1** — extensions reload; sections become available; hooks badge `managed`.
-   🛑 **CONFIRM B.1.2** — open `knowledge/_rules.md` in your editor; it shows both stacks' pattern blocks.
+   🛑 **CONFIRM B.1.2** — open `knowledge/_rules.md` in your editor; it shows both stacks' pattern blocks AND the `app_root_patterns:` block.
 2. Run `kb_init` again. Diff `_rules.md` before/after.
    🛑 **CONFIRM B.1.3** — idempotent (diff empty); no duplicate pattern blocks; no duplicate hook entries; no errors.
 
@@ -624,6 +624,7 @@ Agent runs `kb_scaffold` (two-phase per file: phase 1 returns prompt, phase 2 wr
 2. Edit `frontend/src/validators/appointmentSchema.ts` — tighten a Yup rule (e.g. `notes: yup.string().max(280)`); commit.
    🛑 **CONFIRM B.3.2** — code-drift entry appears with `app_scope: frontend`.
 3. Edit `standards/code/frontend-conventions.md` adding a rule the frontend currently violates (e.g. forbid `console.log` in components) → run `kb_conform`.
+   > **Note (F45):** `kb_conform` current mode only evaluates files changed since the queue baseline. A rule edit alone won't surface a standards-drift entry unless a code file matching the rule's `applies_to.paths` has also changed in the same commit (or working tree, with `include_working_tree: true`). Either edit a matching code file in the same commit as the rule edit (the plan's `console.log` example fits — add a `console.log(...)` to `AppointmentForm.tsx`), or use aspirational mode (which evaluates against the full tree but lands in Standards Backlog, not Standards Drift).
    🛑 **CONFIRM B.3.3** — standards-drift section populates; entry's rule_id matches the new rule.
 
 ### §B.4 app_scope verification
@@ -668,12 +669,14 @@ EOF
 
 1. Phase 1 extraction — no write.
 2. Phase 2 planning — agent reviews proposed targets.
-3. Phase 3 approval — writes to KB (likely `decisions/data-retention.md` or `specs/features/data-retention.md`).
-   🛑 **CONFIRM B.7** — extracted sections land in planned targets; sections appear in the panel.
+3. Phase 3 approval — writes to KB. Standards land at `standards/<group>/<id>.md` (where `<group>` comes from the classification's `suggested_group`), not `standards/<id>.md` at the root. Decisions land at `decisions/<id>.md`.
+   🛑 **CONFIRM B.7** — the new files appear in the editor's KB folder tree (VS Code Explorer / Obsidian vault tree) under `knowledge/decisions/` and `knowledge/standards/<group>/`. They will NOT surface in the Instrumentality panel unless they later enter drift/conform/lint state — the panel renders queue state, not the KB folder tree. Open each written file and confirm the YAML frontmatter is well-formed (no `[object Object]` literals — F51/F52 guard against this).
 
 ### §B.8 Verdict round-trip
 
 Run all six kb_conform paths from §A.9 and all four kb_drift paths from §A.10 against the entries from §B.3.
+
+> **Note (F55):** if you triggered any `kb_drift` baseline reset (`force_baseline + purge`) during this scenario, the resulting `## DATE · PURGE` drift-log headings are now classified as **system events** (`baseline-purge`) and are hidden by default in the Activity tab. Toggle "Show system events" to see them. Previously they rendered as "Unknown".
 
 ### §B.9 Submodule lifecycle (kb_sub)
 
@@ -713,8 +716,10 @@ Exercise the two highest-value alignment states:
 `FYI:` `advisory` and `detached` states covered by `kb_sub` unit tests.
 
 Then:
-- Update `_rules.md` to add `shared/**` patterns mapping to KB targets. Edit a file in `shared/`.
-  🛑 **CONFIRM B.9.3** — simultaneous frontend + backend drift entries materialise from the single submodule change.
+- Update `_rules.md` to add **parent-relative** patterns spanning the submodule root (e.g. `shared/**/*.go`, `shared/**/*.ts`) mapping to KB targets. Edit files in `shared/` — to get the spec's "frontend + backend drift from one shared edit", edit both a `.ts` file (frontend KB target) and a `.go` file (backend KB target).
+  > **Note (F57):** patterns scoped INSIDE the submodule (e.g. `shared/types/**` without the `shared/` prefix when the submodule mount-point is `shared/`) match nothing because the drift engine evaluates from the parent's root. As of F57, such patterns now surface as `submodule_pattern_unresolved` in Mapping Diagnostics (distinct from generic `orphan_pattern`) so you can tell a "needs path fix" from a "truly dead pattern". To get drift detection on submodule files, the pattern must start with the parent-relative submodule path prefix.
+  > A single shared file edit fans out to multiple KB targets only when that file matches multiple patterns mapping to DIFFERENT `kb_target`s. To see frontend+backend drift simultaneously from one change set, edit one file per stack inside the submodule (e.g. one `.ts` and one `.go`).
+  🛑 **CONFIRM B.9.3** — simultaneous frontend + backend drift entries materialise from the shared edit set (one entry per `.ts` edit, one per `.go` edit).
 - VS Code: click the submodule card's **Push** button.
   🛑 **CONFIRM B.9.4** — push runs in the printed order (parent + submodule sequence).
 - Agent runs `kb_sub merge_plan` against a feature branch.
@@ -895,7 +900,9 @@ EXECUTE in order:
 - CONFIRM B.0.
 
 §B.1 kb_init multi-stack + idempotency
-- Call kb_init. Assert detected_stack contains both "react-vite" and "go".
+- Call kb_init. Assert detected_stacks (plural — detected_stack is the scalar
+  monorepo label) contains both "react-vite:frontend" and "go:backend".
+  Also assert _rules.md emits an uncommented app_root_patterns block.
   CONFIRM B.1.1, B.1.2.
 - Call kb_init again. Diff _rules.md before/after; assert empty. CONFIRM B.1.3.
 

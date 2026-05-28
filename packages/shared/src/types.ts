@@ -99,6 +99,10 @@ export interface ResolvedStandardRef {
   kind: string | null;
   topic: string | null;
   filePath: string;
+  // F47: surface app_scope on resolved-standard refs so the entry detail
+  // panel can show it. Optional — older entries built before the field
+  // was added simply render without the row.
+  appScope?: string | null;
 }
 
 export type StandardsDriftMode = "current" | "aspirational";
@@ -176,6 +180,7 @@ export type DriftLogEventType =
   | "drift-dismissed"
   | "drift-acknowledged"
   | "re-bootstrap"
+  | "baseline-purge"
   | "unknown";
 
 export interface DriftLogEvent {
@@ -309,6 +314,18 @@ export type PatternAuditFinding =
       kb_target: string | string[];
       paths: string[];
       is_submodule_pattern: boolean;
+    }
+  | {
+      // F57 — pattern targets submodule paths but matched nothing inside
+      // that submodule's scope. Distinct from orphan_pattern so the agent
+      // can guide users to fix the path or add files to the submodule,
+      // rather than removing a (legitimately submodule-scoped) pattern.
+      type: "submodule_pattern_unresolved";
+      pattern_index: number;
+      intent?: string;
+      kb_target: string | string[];
+      paths: string[];
+      is_submodule_pattern: true;
     }
   | {
       type: "ghost_target";

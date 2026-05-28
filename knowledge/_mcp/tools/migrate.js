@@ -95,7 +95,14 @@ async function findLastRulesChange(git, rulesPath) {
 
 function collectKBFiles() {
   const files = []
-  const skipDirs = new Set(['_mcp', 'exports', 'assets', 'node_modules', '_templates', 'sync'])
+  // F48: explicit exclusion list — avoid blanket startsWith('.') because some
+  // projects host docs under .github/, .cursor/, etc. and want them indexed.
+  // .obsidian holds vault plugin distributions (README.md noise) and .git
+  // would be catastrophic to scan.
+  const skipDirs = new Set([
+    '_mcp', 'exports', 'assets', 'node_modules', '_templates', 'sync',
+    '.obsidian', '.git'
+  ])
 
   function walk(dir) {
     if (!fs.existsSync(dir)) return

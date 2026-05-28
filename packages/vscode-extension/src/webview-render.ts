@@ -1124,6 +1124,8 @@ function activityEventLabel(t: string): string {
       return "Acknowledged";
     case "re-bootstrap":
       return "Re-bootstrap";
+    case "baseline-purge":
+      return "Baseline reset";
     default:
       return "Unknown";
   }
@@ -1562,7 +1564,16 @@ function renderKbDriftCard(
   kbRoot: string | null,
   dismissedBanners: ReadonlySet<SectionKind>
 ): string {
-  const entries = status.kbDrift.entries;
+  // F56: in the uncommitted preview bucket, suppress kb-drift entries that
+  // are unmapped (no code_path_patterns target them). They render as
+  // "0 code area(s)" preview rows and are inactionable from the panel;
+  // pattern_audit.unmapped_kb_group already surfaces the same files via
+  // Mapping Diagnostics. We keep unmapped entries in the published bucket
+  // so users still see the warning when the entry has actually been
+  // committed to the queue file.
+  const entries = status.kbDrift.entries.filter(
+    (e) => !(e.unmapped && e.source === "working-tree")
+  );
   const body = renderBucketedBody(
     entries,
     (e, i, bucket) => kbDriftRow(e, i, kbRoot, bucket === "uncommitted"),
@@ -1861,8 +1872,12 @@ function patternAuditFindingRow(f: NonNullable<StatusSummary["patternAudit"]>["f
   let body = "";
   switch (f.type) {
     case "orphan_pattern":
-      title = `Orphan pattern: <code>${escapeHtml(formatKbTarget(f.kb_target))}</code>${f.intent ? ` <span class="badge sev-info">intent: ${escapeHtml(f.intent)}</span>` : ""}${f.is_submodule_pattern ? ` <span class="badge sev-info">submodule</span>` : ""}`;
+      title = `Orphan pattern: <code>${escapeHtml(formatKbTarget(f.kb_target))}</code>${f.intent ? ` <span class="badge sev-info">intent: ${escapeHtml(f.intent)}</span>` : ""}`;
       body = `<div class="meta">paths match no source files:</div><ul>${f.paths.map(p => `<li><code>${escapeHtml(p)}</code></li>`).join("")}</ul>`;
+      break;
+    case "submodule_pattern_unresolved":
+      title = `Submodule pattern unresolved: <code>${escapeHtml(formatKbTarget(f.kb_target))}</code>${f.intent ? ` <span class="badge sev-info">intent: ${escapeHtml(f.intent)}</span>` : ""} <span class="badge sev-info">submodule</span>`;
+      body = `<div class="meta">paths target submodule scope but matched no files inside it:</div><ul>${f.paths.map(p => `<li><code>${escapeHtml(p)}</code></li>`).join("")}</ul>`;
       break;
     case "ghost_target":
       title = `Ghost target: <code>${escapeHtml(f.resolved_target)}</code>`;
@@ -1911,11 +1926,19 @@ function buildAuditFixPrompt(f: NonNullable<StatusSummary["patternAudit"]>["find
       body = `Type: orphan_pattern\n`
         + `Pattern: intent=${f.intent ?? "(none)"}, kb_target=${formatKbTarget(f.kb_target)}\n`
         + `Paths: ${JSON.stringify(f.paths)}\n`
-        + `${f.is_submodule_pattern ? "Submodule pattern.\n" : ""}`
         + `\nThe paths globs above match zero files in the current repo. Decide:\n`
         + `1. If the code was moved/renamed, update the paths globs in knowledge/_rules.md to match the new location.\n`
         + `2. If the pattern is obsolete, remove it from knowledge/_rules.md.\n`
         + `3. If the paths are correct but the matching files were deleted, leave the pattern and acknowledge it's currently inactive.\n`
+      break;
+    case "submodule_pattern_unresolved":
+      body = `Type: submodule_pattern_unresolved\n`
+        + `Pattern: intent=${f.intent ?? "(none)"}, kb_target=${formatKbTarget(f.kb_target)}\n`
+        + `Paths: ${JSON.stringify(f.paths)}\n`
+        + `\nThis pattern targets a submodule path but matched no files inside that submodule. Decide:\n`
+        + `1. If the submodule layout changed, fix the path globs in knowledge/_rules.md to match the current submodule structure.\n`
+        + `2. If files have not yet been added to the submodule, leave the pattern and add the files later.\n`
+        + `3. If the pattern is obsolete (the submodule no longer hosts this kind of file), remove it from knowledge/_rules.md.\n`
       break;
     case "ghost_target":
       body = `Type: ghost_target\n`

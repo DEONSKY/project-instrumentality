@@ -123,6 +123,8 @@ function activityEventLabel(t: string): string {
       return "Acknowledged";
     case "re-bootstrap":
       return "Re-bootstrap";
+    case "baseline-purge":
+      return "Baseline reset";
     default:
       return "Unknown";
   }
@@ -658,8 +660,21 @@ export class InstrumentalityView extends ItemView {
       card?.setAttribute("data-open", "true");
     }
 
-    // Header click swaps the open card. Skip clicks on inner controls
-    // (buttons, chips, the `?` icon) so existing interactions still work.
+    this.bindAccordionHandler(grid);
+  }
+
+  /**
+   * Wire header-click accordion behaviour onto a section-grid. Header click
+   * swaps the open card; clicks on inner controls (buttons, chips, the `?`
+   * icon) are passed through so existing interactions still work.
+   *
+   * F46: must be called from BOTH renderAccordionSections AND
+   * renderGenericGroups because renderSections recreates the grid div on
+   * every render — handlers attached to the old grid die with it. Without
+   * binding here, non-Section group-by modes show collapsed cards that
+   * never expand on click.
+   */
+  private bindAccordionHandler(grid: HTMLElement): void {
     grid.addEventListener("click", (ev) => {
       const target = ev.target as HTMLElement;
       const headerEl = target.closest(
@@ -710,6 +725,14 @@ export class InstrumentalityView extends ItemView {
         this.renderEntryByHandle(body, h);
       }
     }
+
+    // F46: open the first card by default so the user sees content immediately
+    // (matches the Section-mode behavior). Without this, all generic-group
+    // cards would render collapsed.
+    const firstCard = parent.querySelector(".instrumentality-section-card");
+    firstCard?.setAttribute("data-open", "true");
+
+    this.bindAccordionHandler(parent);
   }
 
   private renderEntryByHandle(parent: HTMLElement, h: EntryHandle): void {
@@ -1025,7 +1048,14 @@ export class InstrumentalityView extends ItemView {
   }
 
   private renderKbDriftCard(parent: HTMLElement): void {
-    const entries = this.status!.kbDrift.entries;
+    // F56: suppress unmapped entries from the uncommitted preview bucket —
+    // they render as "0 code area(s)" rows that aren't actionable from the
+    // panel. pattern_audit.unmapped_kb_group already surfaces the same
+    // files via Mapping Diagnostics. Keep them in the published bucket so
+    // committed-queue warnings still appear.
+    const entries = this.status!.kbDrift.entries.filter(
+      (e) => !(e.unmapped && e.source === "working-tree")
+    );
     const body = this.sectionShell(
       parent,
       "kb-drift",
@@ -1172,6 +1202,13 @@ export class InstrumentalityView extends ItemView {
         const row = div.createDiv();
         row.createSpan({ text: "Rule id: " });
         row.createEl("code", { text: e.ruleId });
+      }
+      // F47: surface app_scope from the resolved standard. Conditional —
+      // older entries built before status.ts populated appScope omit this row.
+      if (e.resolvedStandard?.appScope) {
+        const row = div.createDiv();
+        row.createSpan({ text: "App scope: " });
+        row.createEl("code", { text: e.resolvedStandard.appScope });
       }
       this.appendRuleBlock(div, e.resolvedRule);
       if (e.reason) {
@@ -1619,7 +1656,11 @@ export class InstrumentalityView extends ItemView {
         case "orphan_pattern":
           h2.createSpan({ cls: "title", text: "Orphan pattern: " });
           h2.createEl("code", { text: formatKbTarget(f.kb_target) });
-          if (f.is_submodule_pattern) h2.createSpan({ cls: "badge sev-info", text: "submodule" });
+          break;
+        case "submodule_pattern_unresolved":
+          h2.createSpan({ cls: "title", text: "Submodule pattern unresolved: " });
+          h2.createEl("code", { text: formatKbTarget(f.kb_target) });
+          h2.createSpan({ cls: "badge sev-info", text: "submodule" });
           break;
         case "ghost_target":
           h2.createSpan({ cls: "title", text: "Ghost target: " });
@@ -1646,6 +1687,13 @@ export class InstrumentalityView extends ItemView {
         case "orphan_pattern": {
           if (f.intent) div.createDiv({ text: `Intent: ${f.intent}` });
           div.createDiv({ text: "Paths match no source files:" });
+          const ul = div.createEl("ul");
+          for (const p of f.paths) ul.createEl("li").createEl("code", { text: p });
+          break;
+        }
+        case "submodule_pattern_unresolved": {
+          if (f.intent) div.createDiv({ text: `Intent: ${f.intent}` });
+          div.createDiv({ text: "Paths target submodule scope but matched no files inside it:" });
           const ul = div.createEl("ul");
           for (const p of f.paths) ul.createEl("li").createEl("code", { text: p });
           break;

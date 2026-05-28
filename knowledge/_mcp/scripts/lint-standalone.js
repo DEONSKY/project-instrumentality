@@ -128,6 +128,11 @@ function lintFile(filePath, rules) {
     return violations
   }
 
+  // F52: detect `[object Object]` serialization sentinels (broken template
+  // substitution leaves them as map keys/values that pass the required-field
+  // check but corrupt downstream parsing).
+  checkSerializationSentinels(data, filePath, violations)
+
   // Prompt override files — lighter checks
   if (filePath.includes('_prompt-overrides/')) {
     if (!data.base) violations.push({ file: filePath, severity: 'error', message: 'Prompt override missing: base' })
@@ -172,6 +177,36 @@ function lintFile(filePath, rules) {
   })
 
   return violations
+}
+
+// ─── Serialization sentinel detection (F52) ──────────────────────────────────
+
+function checkSerializationSentinels(data, filePath, violations, pathPrefix = '') {
+  if (data === null || typeof data !== 'object') return
+  if (Array.isArray(data)) {
+    data.forEach((item, idx) => checkSerializationSentinels(item, filePath, violations, `${pathPrefix}[${idx}]`))
+    return
+  }
+  for (const [key, val] of Object.entries(data)) {
+    const fullPath = pathPrefix ? `${pathPrefix}.${key}` : key
+    if (key === '[object Object]') {
+      violations.push({
+        file: filePath,
+        severity: 'error',
+        message: `Frontmatter at ${fullPath} contains '[object Object]' sentinel — broken template substitution. Rewrite the file or rerun kb_import.`
+      })
+    }
+    if (typeof val === 'string' && val.includes('[object Object]')) {
+      violations.push({
+        file: filePath,
+        severity: 'error',
+        message: `Frontmatter value at ${fullPath} contains '[object Object]' sentinel`
+      })
+    }
+    if (typeof val === 'object' && val !== null) {
+      checkSerializationSentinels(val, filePath, violations, fullPath)
+    }
+  }
 }
 
 // ─── Collect all KB files ─────────────────────────────────────────────────────

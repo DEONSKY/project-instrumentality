@@ -76,8 +76,11 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
     .replace(/\{\{date\}\}/g, today)
     .replace(/\{\{app_scope\}\}/g, app_scope)
 
-  // If group folder missing, create folder note ({name}.md)
-  if (group) {
+  // If group folder missing, create folder note ({name}.md) — but only on P2
+  // (when content is being written). P1 inspection should not pollute the FS
+  // with half-filled descriptors that lint flags red; users who want a folder
+  // note can scaffold one explicitly via kb_scaffold({type: 'group', ...}).
+  if (group && content) {
     const groupDir = path.join(KB_ROOT, getGroupFolder(type), group)
     const groupFilePath = path.join(groupDir, `${group}.md`)
     if (!fs.existsSync(groupFilePath)) {

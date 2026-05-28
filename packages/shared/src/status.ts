@@ -46,14 +46,14 @@ function enrichWithStandards(
     const def = lookup(e.standardId);
     e.resolvedRule = findRule(def, e.ruleId);
     e.resolvedStandard = def
-      ? { id: def.id, kind: def.kind, topic: def.topic, filePath: def.filePath }
+      ? { id: def.id, kind: def.kind, topic: def.topic, filePath: def.filePath, appScope: def.appScope }
       : null;
   }
   for (const e of promotions) {
     const def = lookup(e.standardId);
     e.resolvedRule = findRule(def, e.ruleId);
     e.resolvedStandard = def
-      ? { id: def.id, kind: def.kind, topic: def.topic, filePath: def.filePath }
+      ? { id: def.id, kind: def.kind, topic: def.topic, filePath: def.filePath, appScope: def.appScope }
       : null;
   }
   for (const p of conformPendings) {
@@ -61,7 +61,7 @@ function enrichWithStandards(
     for (const r of p.requested) {
       const def = lookup(r.standard_id);
       r.resolvedStandard = def
-        ? { id: def.id, kind: def.kind, topic: def.topic, filePath: def.filePath }
+        ? { id: def.id, kind: def.kind, topic: def.topic, filePath: def.filePath, appScope: def.appScope }
         : null;
       r.resolvedRules = def
         ? r.rule_ids.map((id) => findRule(def, id)).filter((x): x is NonNullable<typeof x> => !!x)

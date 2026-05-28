@@ -201,18 +201,23 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
   const findings = []
   const kbFileSet = new Set(kbFiles)
 
-  // 1. Orphan patterns: paths globs match zero source files.
+  // 1. Orphan patterns: paths globs match zero source files. F57 — distinguish
+  // truly-dead patterns from submodule patterns that resolved to nothing
+  // inside the submodule scope. Both have zero matches; the agent guidance
+  // differs (fix path vs. add files to submodule), so they deserve separate
+  // finding types.
   for (let i = 0; i < patterns.length; i++) {
     const p = patterns[i]
     const matched = sourceFiles.some(f => (p.paths || []).some(g => globMatch(f, g)))
     if (!matched) {
+      const isSubmod = isSubmodulePattern(p, submodulePaths)
       findings.push({
-        type: 'orphan_pattern',
+        type: isSubmod ? 'submodule_pattern_unresolved' : 'orphan_pattern',
         pattern_index: i,
         intent: p.intent,
         kb_target: p.kb_target,
         paths: p.paths || [],
-        is_submodule_pattern: isSubmodulePattern(p, submodulePaths),
+        is_submodule_pattern: isSubmod,
         source: '_rules.md',
       })
     }

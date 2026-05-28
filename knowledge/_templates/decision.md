@@ -1,14 +1,14 @@
 ---
-id: decision-{{id}}
+id: "decision-{{id}}"
 type: decision
-aliases: [{{id}}]
+aliases: ["{{id}}"]
 cssclasses: [kb-decision]
 app_scope: all
 depends_on: []
-owner: {{owner}}
-created: {{date}}
+owner: "{{owner}}"
+created: "{{date}}"
 tags: []
-status: {{proposed|accepted|superseded}}
+status: "{{proposed|accepted|superseded}}"
 ---
 
 <!--

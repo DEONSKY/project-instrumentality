@@ -64,7 +64,11 @@ test('auditPatterns flags orphan_pattern when paths match no source files', () =
   assert.equal(orphan.kb_target, 'specs/features/{name}.md')
 })
 
-test('auditPatterns marks orphan_pattern with is_submodule_pattern when paths target a submodule', () => {
+test('auditPatterns emits submodule_pattern_unresolved (not orphan_pattern) when paths target a submodule with no matches', () => {
+  // F57 — submodule-scoped patterns that resolve to no files deserve a
+  // distinct finding type from truly-dead orphan patterns. The agent
+  // guidance differs: submodule patterns may be waiting for files to be
+  // added, whereas orphan patterns are usually obsolete.
   const { findings } = auditPatterns({
     patterns: [{ intent: 'feature', kb_target: 'specs/features/{name}.md', paths: ['sub-a/src/**'] }],
     sourceFiles: ['src/Foo.ts'],
@@ -72,8 +76,10 @@ test('auditPatterns marks orphan_pattern with is_submodule_pattern when paths ta
     submodulePaths: ['sub-a'],
   })
   const orphan = findings.find(f => f.type === 'orphan_pattern')
-  assert.ok(orphan)
-  assert.equal(orphan.is_submodule_pattern, true)
+  assert.equal(orphan, undefined, 'should NOT emit orphan_pattern for submodule-scoped patterns')
+  const submodFinding = findings.find(f => f.type === 'submodule_pattern_unresolved')
+  assert.ok(submodFinding, 'submodule_pattern_unresolved emitted')
+  assert.equal(submodFinding.is_submodule_pattern, true)
 })
 
 // ── auditPatterns: ghost_target ─────────────────────────────────────────────

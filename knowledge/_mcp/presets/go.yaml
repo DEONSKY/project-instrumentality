@@ -11,6 +11,13 @@ code_path_patterns:
       - "pkg/**/validator/**"
       - "internal/**/*_validator.go"
       - "internal/**/*_validation.go"
+      # Flat layout (e.g. backend/validators/foo.go) — both subdir-nested
+      # and direct-child variants since globMatch requires explicit
+      # separators between ** segments.
+      - "**/validators/*.go"
+      - "**/validators/**/*.go"
+      - "**/validation/*.go"
+      - "**/validation/**/*.go"
 
   - intent: api-contract
     kb_target: "specs/features/{name}.api.md"
@@ -21,6 +28,15 @@ code_path_patterns:
       - "internal/**/controller/**"
       - "internal/**/*_controller.go"
       - "api/**/*.go"
+      # Flat layout (e.g. backend/handlers/foo.go)
+      - "**/handlers/*.go"
+      - "**/handlers/**/*.go"
+      - "**/handler/*.go"
+      - "**/handler/**/*.go"
+      - "**/controllers/*.go"
+      - "**/controllers/**/*.go"
+      - "**/controller/*.go"
+      - "**/controller/**/*.go"
     name_extraction:
       strip_suffix: [Handler, Controller, Resource]
       case: kebab
@@ -34,6 +50,11 @@ code_path_patterns:
       - "internal/**/entity/**"
       - "internal/**/*_entity.go"
       - "internal/**/domain/**"
+      # Flat layout (e.g. backend/models/foo.go)
+      - "**/models/*.go"
+      - "**/models/**/*.go"
+      - "**/model/*.go"
+      - "**/model/**/*.go"
     name_extraction:
       strip_suffix: [Model, Entity]
       case: kebab
@@ -52,6 +73,11 @@ code_path_patterns:
       - "internal/**/*_service.go"
       - "internal/**/usecase/**"
       - "internal/**/*_usecase.go"
+      # Flat layout (e.g. backend/services/foo.go)
+      - "**/services/*.go"
+      - "**/services/**/*.go"
+      - "**/service/*.go"
+      - "**/service/**/*.go"
     name_extraction:
       strip_suffix: [Service, Usecase, UseCase]
       case: kebab
@@ -63,6 +89,9 @@ code_path_patterns:
       - "internal/**/*_middleware.go"
       - "internal/**/auth/**"
       - "internal/**/*_auth.go"
+      # Flat layout
+      - "**/middleware/*.go"
+      - "**/middleware/**/*.go"
 
   - intent: repository
     kb_target: "data/schema/{name}.md"

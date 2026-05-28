@@ -1,11 +1,11 @@
 ---
-id: schema-{{name}}
+id: "schema-{{name}}"
 type: schema
-aliases: [{{name}}]
+aliases: ["{{name}}"]
 cssclasses: [kb-schema]
 app_scope: all
-owner: {{owner}}
-created: {{date}}
+owner: "{{owner}}"
+created: "{{date}}"
 tags: []
 ---
 

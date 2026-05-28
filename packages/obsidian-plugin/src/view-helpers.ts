@@ -138,11 +138,19 @@ export function buildAuditFixPrompt(f: AuditFinding): string {
       body = `Type: orphan_pattern\n`
         + `Pattern: intent=${f.intent ?? "(none)"}, kb_target=${formatKbTarget(f.kb_target)}\n`
         + `Paths: ${JSON.stringify(f.paths)}\n`
-        + `${f.is_submodule_pattern ? "Submodule pattern.\n" : ""}`
         + `\nThe paths globs above match zero files in the current repo. Decide:\n`
         + `1. If the code was moved/renamed, update the paths globs in knowledge/_rules.md to match the new location.\n`
         + `2. If the pattern is obsolete, remove it from knowledge/_rules.md.\n`
         + `3. If the paths are correct but the matching files were deleted, leave the pattern and acknowledge it's currently inactive.\n`;
+      break;
+    case "submodule_pattern_unresolved":
+      body = `Type: submodule_pattern_unresolved\n`
+        + `Pattern: intent=${f.intent ?? "(none)"}, kb_target=${formatKbTarget(f.kb_target)}\n`
+        + `Paths: ${JSON.stringify(f.paths)}\n`
+        + `\nThis pattern targets a submodule path but matched no files inside that submodule. Decide:\n`
+        + `1. If the submodule layout changed, fix the path globs in knowledge/_rules.md.\n`
+        + `2. If files have not yet been added to the submodule, leave the pattern and add the files later.\n`
+        + `3. If the pattern is obsolete, remove it from knowledge/_rules.md.\n`;
       break;
     case "ghost_target":
       body = `Type: ghost_target\n`

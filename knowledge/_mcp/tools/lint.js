@@ -77,6 +77,14 @@ function lintFile(filePath, rules, graph) {
     return violations
   }
 
+  // F52: detect `[object Object]` serialization sentinels recursively. These
+  // appear in frontmatter when a tool's template substitution path stringifies
+  // an object via JS's default toString() (which returns the literal
+  // "[object Object]"). The standard-schema validator below sees the structurally-
+  // corrupt field (`app_scope: { '[object Object]': null }`) as "field present"
+  // and the corruption goes unflagged. Hence the explicit pre-scan.
+  checkSerializationSentinels(data, filePath, violations)
+
   // Prompt override files have different required fields
   if (filePath.includes('_prompt-overrides/')) {
     return lintPromptOverride(filePath, data, rules, violations)
@@ -105,8 +113,10 @@ function lintFile(filePath, rules, graph) {
   // Structured-standard validation: enumerate every failure mode so a single
   // lint run gives the author a complete picture rather than dribbling them
   // out across edits. Lives behind type === 'standard' so feature/flow files
-  // don't pay the parse cost.
-  if (data.type === 'standard' || inferredType === 'standard') {
+  // don't pay the parse cost. Explicit type: group files (folder notes living
+  // under standards/<group>/<group>.md) are exempt — they describe the group,
+  // not a standard, so the structured-standard schema doesn't apply.
+  if ((data.type === 'standard' || inferredType === 'standard') && data.type !== 'group') {
     const stdResult = validateStandard(data)
     for (const err of stdResult.errors) {
       violations.push({ file: filePath, line: 1, severity: 'error', message: `[standard] ${err}` })
@@ -215,6 +225,43 @@ function lintFile(filePath, rules, graph) {
   })
 
   return violations
+}
+
+/**
+ * F52: recursively scan frontmatter for `[object Object]` serialization
+ * sentinels. Appears as map keys when a tool stringifies a structured value
+ * via JS default toString() (e.g. `app_scope: { '[object Object]': null }`).
+ * The downstream schema validator treats the corrupt field as "present" and
+ * passes, so this pre-scan is needed to surface the corruption explicitly.
+ */
+function checkSerializationSentinels(data, filePath, violations, pathPrefix = '') {
+  if (data === null || typeof data !== 'object') return
+  if (Array.isArray(data)) {
+    data.forEach((item, idx) => checkSerializationSentinels(item, filePath, violations, `${pathPrefix}[${idx}]`))
+    return
+  }
+  for (const [key, val] of Object.entries(data)) {
+    const fullPath = pathPrefix ? `${pathPrefix}.${key}` : key
+    if (key === '[object Object]') {
+      violations.push({
+        file: filePath,
+        line: 1,
+        severity: 'error',
+        message: `Frontmatter at ${fullPath} contains serialization sentinel '[object Object]' as a map key — the file was written by a broken placeholder-substitution path. Rewrite the file or rerun kb_import with a fixed template.`
+      })
+    }
+    if (typeof val === 'string' && val.includes('[object Object]')) {
+      violations.push({
+        file: filePath,
+        line: 1,
+        severity: 'error',
+        message: `Frontmatter value at ${fullPath} contains serialization sentinel '[object Object]'`
+      })
+    }
+    if (typeof val === 'object' && val !== null) {
+      checkSerializationSentinels(val, filePath, violations, fullPath)
+    }
+  }
 }
 
 function lintPromptOverride(filePath, data, rules, violations) {

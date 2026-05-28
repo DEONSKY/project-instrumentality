@@ -23,21 +23,31 @@ function fillTemplate(chunk, classification, sourceFile, dependsOn = []) {
   const today = new Date().toISOString().split('T')[0]
 
   // Build frontmatter
-  const fm = { ...parsed.data }
   const id = classification.suggested_id || 'import-' + chunk.id
 
-  // Replace {{placeholders}} in frontmatter values
-  for (const [key, val] of Object.entries(fm)) {
+  // Recurse into nested arrays/objects so substitutions reach rules[].id,
+  // rules[].detect.hint, etc. Templates quote {{...}} placeholders so YAML
+  // parses them as strings; without this recursion the top-level walk would
+  // miss nested fields and they'd survive as literal "{{placeholder}}".
+  const substitute = (val) => {
     if (typeof val === 'string') {
-      fm[key] = val
+      return val
         .replace(/\{\{id\}\}/g, id)
         .replace(/\{\{name\}\}/g, id)
         .replace(/\{\{date\}\}/g, today)
         .replace(/\{\{app_scope\}\}/g, 'all')
         .replace(/\{\{owner\}\}/g, '')
     }
+    if (Array.isArray(val)) return val.map(substitute)
+    if (val && typeof val === 'object') {
+      const out = {}
+      for (const [k, v] of Object.entries(val)) out[k] = substitute(v)
+      return out
+    }
+    return val
   }
-  fm.status = 'draft'
+  const fm = substitute({ ...parsed.data })
+
   fm.import_source = sourceFile
   fm.import_chunk = chunk.id
   if (dependsOn.length > 0) {

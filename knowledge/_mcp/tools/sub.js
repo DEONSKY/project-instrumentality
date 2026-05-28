@@ -205,8 +205,12 @@ function handleMergePlan(targetBranch) {
       continue
     }
 
-    // Owned submodule: merge + push
-    steps.push({ order: order++, action: 'merge', where: sub.path, from: parent.branch, to: targetBranch })
+    // Owned submodule: merge + push. F58 — use the submodule's actual current
+    // branch for the merge source, not the parent's. Submodules on a different
+    // feature branch (common when work spans both repos) would otherwise emit
+    // a merge step referencing a branch that doesn't exist in the submodule.
+    const subBranch = getSubmoduleBranch(sub.fullPath) || parent.branch
+    steps.push({ order: order++, action: 'merge', where: sub.path, from: subBranch, to: targetBranch })
     steps.push({ order: order++, action: 'push', where: sub.path })
   }
 
