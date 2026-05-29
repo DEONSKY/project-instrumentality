@@ -77,6 +77,15 @@ your-project/
 > - The KB files under `knowledge/` exist as **human-readable documentation of KB-MCP** — worked examples of features, flows, schemas, decisions, integrations, and standards. They are deliberately self-referential (e.g. [specs/features/bidirectional-drift-detection.md](knowledge/specs/features/bidirectional-drift-detection.md), [decisions/two-phase-mcp-tools.md](knowledge/decisions/two-phase-mcp-tools.md)). Browse them as a reference when authoring your own KB.
 > - When you fork or `kb_init` into a real project, your `_index.yaml`, `_rules.md`, and KB content are generated and maintained against *your* codebase — none of this repo's content propagates.
 
+> [!note] Tested scope
+> KB-MCP has been validated end-to-end on a mid-sized, well-maintained, single-domain monorepo (~25 feature/flow specs, ~10 standards, single repository). On benchmarks of that shape:
+>
+> - **Structural value with no grep equivalent:** the conformance workflow (`kb_conform`, exception handling, audit trail), the drift queue lifecycle (`kb_drift`), and write-time rule injection (`kb_get` with `working_paths`) deliver real value. These are the load-bearing tools.
+> - **Conditional on KB metadata discipline:** retrieval (`kb_ask`, `kb_get` keyword form) and impact analysis (`kb_impact`) depend on healthy tags and `depends_on` edges. On a well-maintained KB of this size class, they produce roughly grep-equivalent results; on KBs with thin metadata they underperform grep. Budget for `kb_autotag` / `kb_autorelate` discipline if you want these tools to earn their keep.
+> - **Untested at larger or messier scale:** the retrieval and iteration-cost claims have not been validated on codebases with 5–10× the file count, weaker conventions, or long refactoring history. The hypothesis that MCP's advantage grows with codebase size is plausible but unconfirmed.
+>
+> For adoption decisions: the workflow tooling (`kb_conform`, `kb_drift`, audit log) is the dependable value-prop. The retrieval/impact tooling is a contingent value-prop. Both require maintaining the KB metadata the design assumes.
+
 ### Lifecycle at a glance
 
 Drift and standards conformance are queue-driven. Two MCP tools (`kb_drift` and `kb_conform`) write entries into Markdown queue files; humans (or the agent) read those entries and submit verdicts that close them. Every resolution is logged to `sync/drift-log/YYYY-MM.md` for audit.
