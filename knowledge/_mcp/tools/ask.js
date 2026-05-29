@@ -76,6 +76,19 @@ const SHORT_KEEP = new Set([
   'aws', 'gcp', 'k8s', 'cli', 'sdk', 'orm', 'dto', 'dao', 'rbac', 'acl'
 ])
 
+// Conversational filler words that survive the length>3 cutoff but carry no
+// retrieval signal. Filtering these prevents bigram pollution like
+// "definitions-work" or "project-this".
+const STOPWORDS = new Set([
+  'this', 'that', 'these', 'those', 'with', 'from', 'into', 'about',
+  'have', 'been', 'they', 'them', 'their', 'there', 'what', 'when',
+  'where', 'which', 'would', 'should', 'could', 'will', 'work', 'works',
+  'working', 'project', 'using', 'used', 'does', 'doing', 'just', 'like',
+  'some', 'more', 'most', 'many', 'much', 'such', 'than', 'then', 'each',
+  'show', 'tell', 'make', 'made', 'find', 'know', 'need', 'want',
+  'explain', 'walk', 'help', 'tour'
+])
+
 // Total-context cap for the embedded KB material in an `kb_ask` prompt.
 // Empirically the response cap is around ~64KB before MCP truncates — at
 // 32KB the agent still has room for its own response payload. The agent can
@@ -91,13 +104,69 @@ const ASK_TIGHT_TOTAL_CHAR_CAP = 16_000
 const ASK_TIGHT_PER_FILE_CHAR_CAP = 4_000
 const TIGHT_INTENTS = new Set(['challenge', 'generate'])
 
-async function loadContext(question) {
-  const keywords = question
+/**
+ * Tokenize a natural-language question into KB-search keywords.
+ *
+ * Why this is non-trivial: the KB tag vocabulary is hyphenated and singular
+ * ("user-definition", "definition"), but natural-language questions phrase
+ * the same concepts as space-separated plurals ("User Definitions").
+ * `kb_get` scoring uses substring match, so the raw words "definitions" and
+ * "user" never match the tag "user-definition" exactly — they only pollute
+ * via substring collisions ("definitions" ⊂ "buffer-definitions"). The fix
+ * is to expand the keyword set with the forms that actually appear in tags.
+ *
+ * Expansion rules:
+ *   1. Drop conversational fillers (STOPWORDS).
+ *   2. For each plural-looking word, add its singular form.
+ *   3. For each adjacent word pair, add the hyphenated bigram (both plural
+ *      and singular variants).
+ *
+ * Exported so it can be unit-tested independently of the file-loading layer.
+ */
+function extractKeywords(question) {
+  const rawWords = question
     .toLowerCase()
     .replace(/[^a-z0-9\- ]/g, ' ')
     .split(/\s+/)
-    .filter(w => w.length > 3 || SHORT_KEEP.has(w))
+    .filter(w => (w.length > 3 || SHORT_KEEP.has(w)) && !STOPWORDS.has(w))
 
+  const out = new Set(rawWords)
+
+  for (const w of rawWords) {
+    const sing = singularize(w)
+    if (sing && sing !== w) out.add(sing)
+  }
+
+  for (let i = 0; i < rawWords.length - 1; i++) {
+    const a = rawWords[i]
+    const b = rawWords[i + 1]
+    out.add(`${a}-${b}`)
+    const bSing = singularize(b)
+    if (bSing && bSing !== b) out.add(`${a}-${bSing}`)
+  }
+
+  return [...out]
+}
+
+/**
+ * Naive English singularizer scoped to what KB tags need.
+ * Returns the singular form, or null if `w` already looks singular.
+ * Conservative — only handles -ies, -es, -s. Won't touch already-hyphenated
+ * compounds (the bigram pass handles those).
+ */
+function singularize(w) {
+  if (!w || w.length <= 3 || w.includes('-')) return null
+  if (w.endsWith('ies') && w.length > 4) return w.slice(0, -3) + 'y'
+  // -es family: words ending in -s, -x, -z, -ch, -sh take "es" to pluralize,
+  // so strip "es" not just "s" (boxes -> box, matches -> match).
+  if (w.endsWith('sses') || w.endsWith('shes') || w.endsWith('ches') ||
+      w.endsWith('xes') || w.endsWith('zes')) return w.slice(0, -2)
+  if (w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1)
+  return null
+}
+
+async function loadContext(question) {
+  const keywords = extractKeywords(question)
   const result = await get({ keywords })
   return result.files || []
 }
@@ -144,9 +213,11 @@ function buildPromptVars(question, intent, context) {
 
 module.exports = {
   runTool,
+  extractKeywords,
+  singularize,
   definition: {
     name: 'kb_ask',
-    description: 'Ask a question about the KB. Supports query, brainstorm, challenge, sync, onboard, and generate intents.',
+    description: 'Returns a synthesized KB context + structured prompt for a question. Use only when (a) the question requires cross-file synthesis the depends_on graph provides, (b) the intent template (query/brainstorm/challenge/sync/onboard/generate) adds value, or (c) grep keywords aren\'t finding the right files due to vocabulary mismatch with KB tags. For straightforward content lookups, grep / find / Read are faster and more reliable — kb_ask\'s file selection is over KB metadata only, not file body, so it cannot find content that isn\'t reflected in tags or depends_on.',
     inputSchema: {
       type: 'object',
       required: ['question'],

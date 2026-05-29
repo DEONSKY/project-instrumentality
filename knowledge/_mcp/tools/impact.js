@@ -143,7 +143,7 @@ module.exports = {
   extractKeywords,
   definition: {
     name: 'kb_impact',
-    description: 'Analyze impact of a change across the KB dependency graph. Returns proposals — does not write.',
+    description: 'Traverse the depends_on graph from a proposed change to surface downstream KB files that may need review. Returns proposals — does not write. Effective only when the KB depends_on graph is maintained (frontmatter edges + [[wikilinks]]). If you suspect graph staleness, run kb_status first and check the depends_on coverage for affected files. For changes that touch standards-governed code, run kb_conform afterwards to catch rule-level impacts the graph traversal does not see.',
     inputSchema: {
       type: 'object',
       required: ['change_description'],

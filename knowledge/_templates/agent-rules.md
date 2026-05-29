@@ -2,31 +2,60 @@
 
 This project uses a structured Knowledge Base (KB) managed by the KB-MCP server. The KB is the **single source of truth** for project architecture, features, conventions, and standards.
 
-## Before answering any question about the project
+## How to use the KB tools (read this first)
 
-- **Always** call `kb_ask` with the user's question before providing an answer
-- Do not answer from memory or general knowledge when KB documents exist
-- If `kb_ask` returns no context, inform the user and offer to search with different keywords
-- **`kb_ask` vs `kb_get`:** prefer `kb_ask` when starting from a natural-language question — it extracts keywords and classifies intent before retrieval. Reach for `kb_get` directly only when you already have explicit `keywords` or `working_paths` (typically right before a code edit)
+KB-MCP tools have structural value in two areas filesystem search cannot reach:
 
-## Before writing or modifying code
+1. **Path-glob rule applicability.** `kb_get` with `working_paths` returns `rules_in_scope` — the standards rules that apply to the files you're about to edit, matched by path globs. `grep` cannot compute path-rule applicability.
+2. **Workflow discipline.** `kb_conform`, `kb_drift`, and `kb_status` track conformance and drift state against git baselines, with append-only audit trails. `grep` has no equivalent.
 
-- Call `kb_get` with relevant keywords AND `working_paths` listing the files you're about to edit. This returns:
-  - `files: [...]` — keyword-matched feature/flow/spec docs (the existing field; constrains *what* you build)
-  - `rules_in_scope: [...]` — standards rules that govern *how* you build, scoped to the files you're editing. Each entry has `standard_id`, `rule_id`, `severity`, `applies_to`, `detect_hint`, `fix_hint`, `description`, `advisory`.
+For everything else — finding files by content, explaining how X works, locating where Y is defined — **`grep` / `find` / `Read` are the default**. They read the file body; `kb_get`'s scoring is over metadata only (tags, depends_on, paths), so for content lookups inside KB files filesystem search is typically faster and more accurate.
+
+Reach for `kb_ask` or keyword-only `kb_get` **only** when one of these conditions holds:
+
+- The question requires **cross-file synthesis** the `depends_on` graph provides (e.g., "what depends on X and what governs it").
+- Your `grep` keywords don't match the KB's **tag vocabulary** (e.g., the spec calls it `user-definition` but you searched for `users`).
+- You need the prompt-template structure for a specific **intent**: challenge / brainstorm / onboard / sync / generate.
+
+If none of the above hold, `grep` and `Read` are the more direct path.
+
+## Before tasks involving cross-file relations or impact
+
+If a task might span multiple files where the relationships aren't obvious from filenames (impact analysis, refactors, contract changes, schema changes, anything that crosses module boundaries, or anywhere you'd otherwise iterate "what about X? anything else?" through grep), call `kb_impact` with a description of the change **before** starting the search.
+
+```
+kb_impact({ change_description: "Add notificationPreferences column to user-role table" })
+```
+
+One `kb_impact` call returns the dependency surface — the files that depend on what you're changing, the standards that govern them, the open drift entries that affect them. This replaces the iterative discovery loop ("did I miss anything?" → grep → "what about X?" → grep → repeat) with a single round-trip.
+
+When `kb_impact` returns a file list, treat it as the working surface for the task. Use `grep` / `Read` inside that surface for content. Do not re-discover relationships you already have — the iteration cost the loop would have charged is what this call exists to save.
+
+Caveats:
+- `kb_impact` is effective only when the KB's `depends_on` graph is maintained. If the graph looks sparse for affected files, run `kb_status` first to check coverage, and fall back to grep within the partial surface.
+- For changes confined to a single well-understood file with no cross-file fan-out, skip `kb_impact` — grep is faster.
+- `kb_impact` does not see rule-level impacts (which standards govern your specific files via path globs). Pair it with the next section's `kb_get({ working_paths })` call when you're about to edit.
+
+## Before writing or modifying any project file
+
+This is the load-bearing MCP call — its value is structural and has no `grep` equivalent. Applies to code, configuration, KB content, generated files (`CLAUDE.md`, `.cursorrules`, and other agent-rules variants), and anywhere else the project might encode rules about specific paths.
+
+- Call `kb_get` with `working_paths` listing the files you're about to edit. This returns:
+  - `rules_in_scope: [...]` — standards rules that govern *how* you build, scoped to your files via path-glob matching. Each entry has `standard_id`, `rule_id`, `severity`, `applies_to`, `detect_hint`, `fix_hint`, `description`, `advisory`.
+  - `files: [...]` — keyword-matched KB docs (the existing field). Use these only as a starting point; the body content may need `Read` for detail.
 - Treat every entry in `rules_in_scope` as a constraint on the change. `severity: error` is hard; `warn` is strong default; `info` is advisory.
 - Items with `advisory: true` are aspirational backlog from `sync/standards-backlog.md` — fix opportunistically when the change naturally touches them; not required.
-- Use `task_context` for keyword scoring (independent of `working_paths`):
-  - `kb_get({ keywords: [...], working_paths: [...], task_context: "creating" })` — writing new code
-  - `kb_get({ keywords: [...], working_paths: [...], task_context: "fixing" })` — fixing bugs
-  - `kb_get({ keywords: [...], working_paths: [...], task_context: "reviewing" })` — reviewing code
-- Follow the standards and conventions surfaced in `rules_in_scope`. The cap (default 10) means full inventory may exceed what's surfaced — `kb_conform` afterwards is uncapped and may flag rules you didn't see at write-time.
+- Pass `task_context` to bias scoring:
+  - `kb_get({ working_paths: [...], task_context: "creating" })` — writing new code or content
+  - `kb_get({ working_paths: [...], task_context: "fixing" })` — fixing bugs
+  - `kb_get({ working_paths: [...], task_context: "reviewing" })` — reviewing code
+- The cap on `rules_in_scope` (default 10) means the full inventory may exceed what's surfaced — `kb_conform` afterwards is uncapped and may flag rules you didn't see at write-time.
 
 ## After making code changes — drift detection
 
-- Run `kb_drift` to detect if your code changes diverge from KB documentation
-- If the KB needs updating to reflect your changes, use `kb_write` to keep documentation in sync
-- Do not leave code and KB in a contradictory state
+- Run `kb_drift` to detect if your code changes diverged from KB documentation. This computes live state against the baseline SHA; `grep` cannot.
+- If the KB needs updating to reflect your changes, use `kb_write`.
+- Do not leave code and KB in a contradictory state.
 
 ## After making code changes — conformance check
 
@@ -48,28 +77,28 @@ When in doubt, prefer `applied` (fix the code) over `exempted` (carve an excepti
 
 ## After creating or updating KB files
 
-- Run `kb_autotag` on the file to extract searchable tags from its content
-- Tags are critical for discoverability — files without tags are invisible to `kb_get` keyword search
+- Run `kb_autotag` on the file to extract searchable tags from its content.
+- Tags are critical for discoverability — files without tags are invisible to `kb_get` keyword retrieval (which scores over tags, not body).
 - Example: `kb_autotag({ file_path: "specs/features/user-auth.md" })`
 
 ## When creating new features or components
 
-- Use `kb_scaffold` to create new KB documents from templates
-- Check existing KB files for related features to maintain consistency
-- Add `[[wikilinks]]` to reference related KB documents
+- Use `kb_scaffold` to create new KB documents from templates — it enforces folder/template correctness and detects overlap with existing files.
+- Check existing KB files for related features to maintain consistency.
+- Add `[[wikilinks]]` to reference related KB documents (these become `depends_on` edges in the index).
 
 ## Before creating new KB files
 
-- Check the KB structure: valid folders are defined in `_rules.md` under `depth_policy.overrides`
-- Use `kb_scaffold` to create files — it enforces the correct folder and template
-- Create **separate files per topic** — never combine multiple features/flows into one document
-- Read 2-3 existing files in the target folder first to match the style and granularity
-- Feature files describe **what** (fields, rules, constraints) — no code, no endpoints, no class names
-- Flow files describe **who does what** — actor -> action -> outcome steps, no technical wiring
-- Standard files describe **how** (architecture, patterns, code conventions)
-- Match the `type` frontmatter field to the folder (specs/features/ -> feature, specs/flows/ -> flow, data/validation/ -> validation, etc.)
-- Fill ALL `{{placeholders}}` before saving — especially in `always_load` files
-- Use `[[folder/file-id]]` wikilinks when referencing other KB documents
+- Check the KB structure: valid folders are defined in `_rules.md` under `depth_policy.overrides`.
+- Use `kb_scaffold` to create files — it enforces the correct folder and template.
+- Create **separate files per topic** — never combine multiple features/flows into one document.
+- Read 2-3 existing files in the target folder first to match the style and granularity.
+- Feature files describe **what** (fields, rules, constraints) — no code, no endpoints, no class names.
+- Flow files describe **who does what** — actor → action → outcome steps, no technical wiring.
+- Standard files describe **how** (architecture, patterns, code conventions).
+- Match the `type` frontmatter field to the folder (specs/features/ → feature, specs/flows/ → flow, data/validation/ → validation, etc.)
+- Fill ALL `{{placeholders}}` before saving — especially in `always_load` files.
+- Use `[[folder/file-id]]` wikilinks when referencing other KB documents.
 
 ## YAML frontmatter format in standard files
 
@@ -80,27 +109,44 @@ When in doubt, prefer `applied` (fix the code) over `exempted` (carve an excepti
 
 This mixed style is correct by design. Attempting to convert flow arrays to block style or vice versa is a formatting error, not a fix.
 
-## KB Tool Reference
+## Core tool reference
 
-| Tool | Purpose | When to reach for this |
-|------|---------|------------------------|
-| `kb_ask` | Ask questions about the project | User asks anything about project behavior, architecture, or history — try this first |
-| `kb_get` | Load relevant KB files for context | Before writing or modifying code (always); also when an answer needs grounding in specific KB files |
-| `kb_write` | Create or update KB documentation | After code changes that affect documented behavior; never for auto-generated files (`_index.yaml`, drift queues) |
-| `kb_drift` | Detect functional divergence between code and KB | After code edits to surface stale KB; when user asks "what changed and what needs updating" |
-| `kb_conform` | Check code against standards rules; three phases (detect / submit / resolve) | After code edits that touch standards-governed files; when user asks "does this follow our rules" |
-| `kb_scaffold` | Create new KB files from templates | When creating a new feature, flow, schema, standard, or other documented unit |
-| `kb_reindex` | Rebuild the KB index | After manual KB edits outside `kb_write`; usually runs automatically |
-| `kb_autotag` | Auto-extract tags from KB content | After creating a KB file with empty `tags` frontmatter — required for `kb_get` discoverability |
-| `kb_autorelate` | Discover relations between KB files | When user asks "what's related to X" or before drafting a feature that may overlap existing docs |
-| `kb_impact` | Analyze impact of a change across the KB | Before a significant code or KB change, to find downstream files that may need review |
-| `kb_export` | Export KB content to various formats | When user asks for a doc, PDF, markdown bundle, or stakeholder summary |
-| `kb_analyze` | Scan source files, group by KB target, report uncovered groups | When user asks "what code isn't documented yet" or wants a coverage map; useful for bootstrapping KB on legacy projects |
-| `kb_status` | Read-only aggregate of all sync queues + lint state + git HEAD | At session start to orient; before opening a PR; when user asks "what's drifting right now" |
-| `kb_migrate` | Generate per-file migration prompts after `_rules.md` changes | After editing `_rules.md` patterns, folder conventions, or depth policy — surfaces KB files that may need rewrites |
-| `kb_import` | Import legacy documents into the KB with classification | When user has existing prose docs (markdown, Confluence, Word) to fold into the KB |
-| `kb_history` | Get the change history of a KB file (git + drift-log) | When a decision depends on *why* or *when* something changed — not for routine reads |
-| `kb_lint` | Internal helper, not an MCP tool | Runs automatically inside `kb_reindex` and via the pre-commit hook (`scripts/lint-standalone.js`). Do not call as a tool. |
+The tools that have structural value or unique workflow discipline. Reach for these in the per-task loop.
+
+| Tool | Purpose | When to reach for it |
+|---|---|---|
+| `kb_get` with `working_paths` | Path-glob rule applicability → `rules_in_scope` | **Before every code edit** — primary tool with unique structural value |
+| `kb_conform` | Three-phase conformance check (detect / judge / resolve) | After code edits touching standards-governed files |
+| `kb_drift` | Code↔KB divergence against baseline SHA, with audit trail | After code edits to surface stale KB |
+| `kb_status` | Aggregate of all sync queues + lint state + git HEAD | At session start to orient; before opening a PR |
+| `kb_scaffold` | Create new KB files from templates; detects overlap | When creating a new feature, flow, schema, standard |
+| `kb_write` | Write KB content with secret-blocklist + auto-reindex | After code changes that affect documented behavior; never for auto-generated files |
+| `kb_autotag` | Extract tags from KB body content | After creating/editing a KB file — required for retrieval discoverability |
+| `kb_impact` | Traverse `depends_on` graph for change impact | Before a significant code or KB change. Effective only if `depends_on` graph is maintained — run `kb_status` first if you suspect graph staleness. |
+| `kb_history` | Git + drift-log history of a KB file | When a decision depends on *why* or *when* something changed |
+| `kb_ask` | Synthesized KB context + structured prompt for a question | **Only when** the question needs cross-file synthesis, the grep keywords don't match the KB tag vocabulary, or you need the structured intent prompt (challenge / brainstorm / onboard / sync / generate). For content lookups grep is faster. |
+| `kb_get` (keyword-only, no `working_paths`) | Keyword retrieval over KB metadata | **Only when** grep vocabulary doesn't match KB tags. Body content is not scored — for content inside KB files use `Read` or `grep` directly. |
+
+## Maintenance / occasional tools
+
+These tools are rarely the right next step in a per-task loop. Use them when the specific need arises; they're listed here to keep them out of the routine.
+
+| Tool | When |
+|---|---|
+| `kb_autorelate` | Auditing `depends_on` graph coverage; backfilling edges after a tagging pass |
+| `kb_extract` | Deriving a standards doc from code or KB content |
+| `kb_import` | Folding legacy prose docs (Markdown / Word / Confluence) into the KB |
+| `kb_export` | Producing PDF / Markdown bundle / Confluence / Notion output |
+| `kb_analyze` | Bootstrapping KB on a legacy codebase; coverage map |
+| `kb_inventory` | Reporting stale rules / uncovered files / pending promotions |
+| `kb_schema` | Working specifically with DBML schema files |
+| `kb_sub` | Coordinating submodule status / push order / merge plan |
+| `kb_migrate` | After editing `_rules.md` patterns, folder conventions, or depth policy |
+| `kb_upgrade` | After updating MCP server version |
+
+`kb_lint` is an internal helper, not an MCP tool — runs automatically inside `kb_reindex` and via the pre-commit hook. Don't call as a tool.
+
+`kb_reindex` runs automatically after `kb_write`. Call it explicitly only after manual KB edits made outside `kb_write` (e.g., via an editor, or after a git merge that touched KB files).
 
 ## Tool output policy
 

@@ -18,6 +18,10 @@ function encodePlaceholders(val, map, counter) {
     }
     return val.map((item) => encodePlaceholders(item, map, counter))
   }
+  // Date passes typeof === 'object' but has no enumerable own properties, so
+  // the generic object branch below would emit `{}` and erase the timestamp.
+  // js-yaml's dump handles Date natively as a YAML timestamp — pass through.
+  if (val instanceof Date) return val
   if (val && typeof val === 'object') {
     const out = {}
     for (const [k, v] of Object.entries(val)) {

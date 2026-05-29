@@ -435,7 +435,7 @@ module.exports = {
   runTool,
   definition: {
     name: 'kb_get',
-    description: 'Load relevant KB files for a task. Respects token budget and app_scope filtering. When working_paths is provided, returns a separate rules_in_scope field listing standards rules that apply to those files (capped, descriptions trimmed) plus any open backlog entries as advisory items.',
+    description: 'Primary use (load-bearing): pass working_paths to get rules_in_scope — the standards rules that apply to specific files via path-glob matching, plus any open backlog entries as advisory items. This computation has no grep equivalent and is the tool\'s structural value. Secondary use: keyword retrieval of KB files. Scoring is over metadata (path, id, type, tags, depends_on) — NOT file body — so for content inside KB files grep / Read are faster. Use the keyword form only when grep vocabulary doesn\'t match the KB tag vocabulary. Respects token budget and app_scope filtering.',
     inputSchema: {
       type: 'object',
       properties: {
