@@ -1,5 +1,6 @@
 const fs = require('fs')
 const path = require('path')
+const crypto = require('crypto')
 const { resolvePrompt } = require('../lib/prompts')
 const { runTool: reindex } = require('./reindex')
 const { CLASSIFY_TYPE_TO_SCAFFOLD, resolveFilePath } = require('../lib/kb-paths')
@@ -9,13 +10,43 @@ const { extractText, chunkDocument } = require('./import/extract')
 
 const CONFIDENCE_THRESHOLD = 0.6
 const IMPORT_REVIEW_PATH = 'knowledge/sync/import-review.md'
-const BATCH_SIZE = 5
-const SESSION_TTL_MS = 10 * 60 * 1000 // 10 minutes
+const BATCH_SIZE = 15
+const SESSION_TTL_MS = 45 * 60 * 1000 // 45 min idle — re-stamped on every set
+const SESSION_PERSIST_DIR = 'knowledge/sync/.import-sessions'
+// Chunks whose classifiable text (image markdown + heading markers stripped)
+// falls below this are routed straight to review — no round-trip to the agent.
+const MIN_CLASSIFIABLE_CHARS = 50
+const LOW_SIGNAL_REASON = 'Image-only / insufficient text — skipped classification'
 
 // ── Session cache for paginated auto_classify ────────────────────────────────
-const sessions = createSessionCache(SESSION_TTL_MS)
+// Disk-backed so a multi-batch run survives an MCP-server restart; idle TTL is
+// refreshed on every set (callers persist after each batch).
+const sessions = createSessionCache(SESSION_TTL_MS, { persistDir: SESSION_PERSIST_DIR })
 const getSession = (source) => sessions.get(source)
 const clearSession = (source) => sessions.clear(source)
+
+// Text the classifier can actually reason about, with image refs / heading
+// markers removed. Used to pre-filter low-signal (e.g. screenshot-only) chunks.
+function classifiableText(text) {
+  return (text || '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '') // markdown images
+    .replace(/^#{1,6}\s+/gm, '')          // heading markers
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isLowSignal(chunk) {
+  return classifiableText(chunk.text).length < MIN_CLASSIFIABLE_CHARS
+}
+
+// Identity of a chunked document — invalidates a stale resume if the source
+// changed between runs (count or any heading/id differs).
+function computeFingerprint(chunks) {
+  const h = crypto.createHash('sha1')
+  h.update(String(chunks.length))
+  for (const c of chunks) h.update('|' + c.id + ':' + (c.heading || ''))
+  return h.digest('hex')
+}
 
 /**
  * kb_import — Document import with two modes.
@@ -31,7 +62,7 @@ const clearSession = (source) => sessions.clear(source)
  *   4. Agent calls with approve: true to write files.
  *   Combine with dry_run: true to preview proposed mappings.
  */
-async function runTool({ source, dry_run = false, auto_classify = false, approve = false, classifications, cursor, files_to_write } = {}) {
+async function runTool({ source, dry_run = false, auto_classify = false, approve = false, classifications, cursor, files_to_write, restart = false } = {}) {
   // ── Classic Phase 2: write agent-generated files ───────────────────────────
   if (files_to_write && Array.isArray(files_to_write)) {
     return applyImportFiles(files_to_write, dry_run)
@@ -64,9 +95,23 @@ async function runTool({ source, dry_run = false, auto_classify = false, approve
     return { error: 'No content chunks extracted from document.' }
   }
 
-  // ── Auto-classify: first call — start session, return first batch ──────────
+  // ── Auto-classify: first call — start (or resume) session ──────────────────
   if (auto_classify) {
-    return autoClassifyStart(source, chunks, dry_run)
+    if (restart) clearSession(source)
+    const fingerprint = computeFingerprint(chunks)
+
+    if (!restart) {
+      const existing = getSession(source)
+      if (existing) {
+        if (existing.fingerprint !== fingerprint) {
+          // Source changed since the saved run — discard and start fresh.
+          clearSession(source)
+        } else {
+          return resumeSession(source, existing)
+        }
+      }
+    }
+    return autoClassifyStart(source, chunks, dry_run, fingerprint)
   }
 
   // ── Classic Phase 1: return all chunks + classify prompts ──────────────────
@@ -96,13 +141,53 @@ async function runTool({ source, dry_run = false, auto_classify = false, approve
 
 // ── Auto-classify flow ──────────────────────────────────────────────────────
 
-function autoClassifyStart(source, chunks, dry_run) {
+function autoClassifyStart(source, chunks, dry_run, fingerprint) {
+  // Layer C: partition out low-signal chunks (screenshots, image refs) so the
+  // agent never spends a round-trip "classifying" something it can't.
+  const toClassifyIds = []
+  const autoReviewIds = []
+  for (const c of chunks) {
+    (isLowSignal(c) ? autoReviewIds : toClassifyIds).push(c.id)
+  }
+
   sessions.set(source, {
     chunks,
+    toClassifyIds,
+    autoReviewIds,
     classifications: [],
-    dry_run
+    dry_run,
+    fingerprint,
+    phase: 'classifying'
   })
-  return buildBatchResponse(source, chunks, 0)
+  const session = getSession(source)
+
+  if (toClassifyIds.length === 0) {
+    // Nothing classifiable — go straight to a plan (all chunks → review).
+    return buildImportPlan(source, session)
+  }
+  return buildBatchResponse(source, session, 0)
+}
+
+// Re-enter an in-progress (or already-planned) session after a drop/restart.
+function resumeSession(source, session) {
+  if (session.phase === 'plan_ready') {
+    // Plan already built before the drop — re-surface the approve step.
+    return planResponse(source, session, { resumed: true })
+  }
+  const done = session.classifications.length
+  const total = session.toClassifyIds.length
+  if (done >= total) {
+    return buildImportPlan(source, session)
+  }
+  sessions.set(source, session) // refresh idle clock
+  const resp = buildBatchResponse(source, session, done)
+  resp._resumed = {
+    classified_so_far: done,
+    total_to_classify: total,
+    auto_skipped: session.autoReviewIds.length,
+    note: `Resumed prior import session — continuing from chunk ${done + 1} of ${total}.`
+  }
+  return resp
 }
 
 function autoClassifyContinue(source, newClassifications, cursor) {
@@ -114,15 +199,16 @@ function autoClassifyContinue(source, newClassifications, cursor) {
   // Normalize classifications to multi-label format
   const normalized = newClassifications.map(normalizeClassification)
   session.classifications.push(...normalized)
+  sessions.set(source, session) // persist progress + refresh idle clock
 
-  const nextCursor = cursor + BATCH_SIZE
-  const { chunks } = session
-
-  if (nextCursor < chunks.length) {
-    return buildBatchResponse(source, chunks, nextCursor)
+  // `cursor` is the next-batch start returned by the previous call — serve it
+  // directly (do not advance again, or every other window gets skipped).
+  const total = session.toClassifyIds.length
+  if (cursor < total) {
+    return buildBatchResponse(source, session, cursor)
   }
 
-  // All chunks classified — build plan
+  // All classifiable chunks done — build plan
   return buildImportPlan(source, session)
 }
 
@@ -140,8 +226,11 @@ function normalizeClassification(cls) {
   }
 }
 
-function buildBatchResponse(source, chunks, cursor) {
-  const batch = chunks.slice(cursor, cursor + BATCH_SIZE)
+function buildBatchResponse(source, session, cursor) {
+  const chunkById = new Map(session.chunks.map(c => [c.id, c]))
+  const batchIds = session.toClassifyIds.slice(cursor, cursor + BATCH_SIZE)
+  const batch = batchIds.map(id => chunkById.get(id)).filter(Boolean)
+  const total = session.toClassifyIds.length
   const sourceFile = path.basename(source)
 
   const batchPrompts = batch.map(chunk => {
@@ -162,8 +251,9 @@ function buildBatchResponse(source, chunks, cursor) {
   return {
     auto_classify: true,
     cursor: cursor + BATCH_SIZE,
-    total_chunks: chunks.length,
-    remaining: Math.max(0, chunks.length - cursor - BATCH_SIZE),
+    total_chunks: total,
+    auto_skipped: session.autoReviewIds.length,
+    remaining: Math.max(0, total - cursor - BATCH_SIZE),
     batch: batchPrompts,
     _instruction: [
       'Classify each chunk using its prompt. Return multi-label JSON:',
@@ -186,13 +276,16 @@ function buildImportPlan(source, session) {
     classMap.set(c.chunk_id, c)
   }
 
+  const autoReviewSet = new Set(session.autoReviewIds || [])
+
   const proposed = []
   const needsReview = []
 
   for (const chunk of chunks) {
     const cls = classMap.get(chunk.id)
     if (!cls) {
-      needsReview.push({ chunk, classification: { type: 'unclassified', confidence: 0, reason: 'No classification received' } })
+      const reason = autoReviewSet.has(chunk.id) ? LOW_SIGNAL_REASON : 'No classification received'
+      needsReview.push({ chunk, classification: { type: 'unclassified', confidence: 0, reason } })
       continue
     }
 
@@ -257,11 +350,27 @@ function buildImportPlan(source, session) {
     filesToWrite.push({ path: entry.target_path, content })
   }
 
-  // Store plan in session
+  // Store plan in session (persisted to disk — survives a restart before approve)
   session.plan = { filesToWrite, proposed, needsReview, crossReferences }
   session.phase = 'plan_ready'
+  sessions.set(source, session)
 
-  const planResponse = {
+  // If dry_run was set from the start, return plan as final result
+  if (dry_run) {
+    clearSession(source)
+    return planResponse(source, session, { dry_run: true })
+  }
+
+  return planResponse(source, session)
+}
+
+// Render the stored plan as a tool response. Reused on resume so a session that
+// dropped after planning but before approve can re-surface the same plan.
+function planResponse(source, session, { dry_run = false, resumed = false } = {}) {
+  const { chunks } = session
+  const { filesToWrite, proposed, needsReview, crossReferences } = session.plan
+
+  const resp = {
     auto_classify: true,
     complete: false,
     plan: {
@@ -290,20 +399,15 @@ function buildImportPlan(source, session) {
       }
     },
     _instruction: [
-      'Review the proposed import plan above.',
+      resumed ? 'Resumed a previously planned import — the plan below is ready to approve.' : 'Review the proposed import plan above.',
       `To execute, call kb_import({ source: "${source}", auto_classify: true, approve: true }).`,
       `To preview without writing, call kb_import({ source: "${source}", auto_classify: true, approve: true, dry_run: true }).`,
-      'To cancel, do nothing (session expires in 10 minutes).'
+      'To cancel, do nothing (session expires after 45 min idle). To re-import from scratch, pass restart: true.'
     ].join(' ')
   }
 
-  // If dry_run was set from the start, return plan as final result
-  if (dry_run) {
-    planResponse.dry_run = true
-    clearSession(source)
-  }
-
-  return planResponse
+  if (dry_run) resp.dry_run = true
+  return resp
 }
 
 async function executeImportPlan(source, dry_run) {
@@ -511,6 +615,7 @@ module.exports = {
         approve: { type: 'boolean', description: 'Execute a previously generated import plan (requires auto_classify)', default: false },
         classifications: { type: 'array', description: 'Agent multi-label classification results from previous batch', items: { type: 'object', properties: { chunk_id: { type: 'string' }, types: { type: 'array', items: { type: 'object', properties: { type: { type: 'string' }, confidence: { type: 'number' }, suggested_id: { type: 'string' }, reason: { type: 'string' } }, required: ['type', 'confidence', 'suggested_id'] } }, suggested_group: { type: 'string' }, duplicate_of: { type: 'string' } }, required: ['chunk_id', 'types'] } },
         cursor: { type: 'number', description: 'Current position in chunk list (returned by previous auto_classify call)' },
+        restart: { type: 'boolean', description: 'Discard any saved progress for this source and re-import from scratch (auto_classify)', default: false },
         files_to_write: { type: 'array', description: 'Classic Phase 2: agent-generated files to write', items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } }
       }
     }

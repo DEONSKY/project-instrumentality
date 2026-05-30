@@ -4,3 +4,6 @@ dist/
 # Transient capture dir for knowledge/_mcp/tests/fixtures/verify.sh.
 # Wiped and regenerated on every run; diffed against baseline/.
 knowledge/_mcp/tests/fixtures/current/
+
+# Transient kb_import resume state (holds full source-doc text mid-run).
+knowledge/sync/.import-sessions/
