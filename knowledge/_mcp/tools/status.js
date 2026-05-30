@@ -16,10 +16,15 @@ function loadShared() {
   }
 }
 
+// Recent drift-log events kept inline in the agent-facing payload. The full
+// log (often 100+ events) lives on disk; the agent greps it if it needs more.
+const RECENT_EVENTS = 5
+
 async function runTool(args) {
   const { getStatus } = loadShared()
   const kbRoot = path.resolve(process.cwd())
   const skipLint = args && args.skip_lint === true
+  const includeEvents = args && args.include_events === true
   // F16: when the consumer project doesn't vendor knowledge/_mcp/ in tree,
   // the runLint default-resolution path is empty and lint.ran stays false.
   // Point at kb-mcp's own bundled lint-standalone.js so a direct kb_status
@@ -27,21 +32,46 @@ async function runTool(args) {
   // __dirname here = .../knowledge/_mcp/tools, so ../scripts/lint-standalone.js
   // is always next to the MCP server source.
   const bundledLintScriptPath = path.join(__dirname, '..', 'scripts', 'lint-standalone.js')
-  return await getStatus(kbRoot, { skipLint, bundledLintScriptPath })
+  const summary = await getStatus(kbRoot, { skipLint, bundledLintScriptPath })
+
+  // The full driftLogEvents array (the whole month-over-month event log) was
+  // ~56% of this tool's response payload and is rarely needed for a status
+  // check. Trim it to a count + the most recent few + a pointer the agent can
+  // grep for the rest. This trim is ONLY on the agent-facing MCP path — the
+  // extension calls the shared getStatus directly and still gets every event.
+  if (includeEvents) return summary
+  return trimDriftLog(summary)
+}
+
+function trimDriftLog(summary) {
+  if (!summary || !Array.isArray(summary.driftLogEvents)) return summary
+  const { driftLogEvents, ...rest } = summary
+  return {
+    ...rest,
+    driftLogEventCount: driftLogEvents.length,
+    recentDriftLogEvents: driftLogEvents.slice(-RECENT_EVENTS),
+    driftLogPath: 'knowledge/sync/drift-log/ — per-month files; grep/Read for the full event history, or call kb_status with include_events:true'
+  }
 }
 
 module.exports = {
   runTool,
+  // Exposed for tests; not part of the MCP surface.
+  trimDriftLog,
   definition: {
     name: 'kb_status',
     description:
-      'Read-only sync-state aggregate. Returns counts and entries for code-drift, kb-drift, standards-drift, conform-pending (current + aspirational), pending promotions, and lint issues, plus the current git HEAD short SHA. Same data the KB Sync VSCode extension renders. Never writes. Use at session start, before opening a PR, or whenever the user asks "what is drifting?".',
+      'Read-only sync-state aggregate. Returns counts and entries for code-drift, kb-drift, standards-drift, conform-pending (current + aspirational), pending promotions, and lint issues, plus the current git HEAD short SHA. The drift-log event history is summarized (driftLogEventCount + recentDriftLogEvents + driftLogPath); pass include_events:true for the full log. Never writes. Use at session start, before opening a PR, or whenever the user asks "what is drifting?".',
     inputSchema: {
       type: 'object',
       properties: {
         skip_lint: {
           type: 'boolean',
           description: 'Skip the lint subprocess (faster; default false).'
+        },
+        include_events: {
+          type: 'boolean',
+          description: 'Default false. When true, return the full driftLogEvents array instead of the summarized count + recent events.'
         }
       }
     }

@@ -8,7 +8,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     "name": "kb_get",
     "category": "authoring",
-    "shortDescription": "Load relevant KB files for a task. Respects token budget and app_scope filtering. When working_paths is provided, returns a separate rules_in_scope field listing standards rules that apply to those files (capped, descriptions trimmed) plus any open backlog entries as advisory items.",
+    "shortDescription": "Primary use (load-bearing): pass working_paths to get rules_in_scope — the standards rules that apply to specific files via path-glob matching, plus any open backlog entries as advisory items. This computation has no grep equivalent and is the tool's structural value. Secondary use: keyword retrieval of KB files. Scoring is over metadata (path, id, type, tags, depends_on) — NOT file body — so for content inside KB files grep / Read are faster. Use the keyword form only when grep vocabulary doesn't match the KB tag vocabulary. Respects token budget and app_scope filtering.",
     "whenToUse": "Load the right KB slices into the agent's context before it writes or reviews code — token-budgeted, scope-aware retrieval.",
     "examplePrompts": [
       "Pull the KB context relevant to the auth flow before I edit it.",
@@ -365,7 +365,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     "name": "kb_impact",
     "category": "introspection",
-    "shortDescription": "Analyze impact of a change across the KB dependency graph. Returns proposals — does not write.",
+    "shortDescription": "Traverse the depends_on graph from a proposed change to surface downstream KB files that may need review. Returns affected_files (path, score, why, short snippet) plus a single proposal_instruction — review each path and call kb_write; the agent Reads the file for full content. Does not write. Effective only when the KB depends_on graph is maintained (frontmatter edges + [[wikilinks]]). If you suspect graph staleness, run kb_status first. For changes that touch standards-governed code, run kb_conform afterwards. Pass include_prompts:true only if you want a fully-instantiated per-file proposal prompt (heavier).",
     "whenToUse": "Trace which KB files (and code paths) a proposed change would ripple into — a dry-run dependency analysis with no writes.",
     "examplePrompts": [
       "What's the blast radius if I rename the order model?",
@@ -377,6 +377,12 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
         "type": "string",
         "required": true,
         "hint": "Description of the change to analyze"
+      },
+      {
+        "name": "include_prompts",
+        "type": "boolean",
+        "required": false,
+        "hint": "Default false. When true, attach a per-file impact-proposal prompt to each affected file (larger payload). Otherwise use the single top-level proposal_instruction."
       }
     ],
     "surfaces": [
@@ -386,7 +392,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     "name": "kb_ask",
     "category": "introspection",
-    "shortDescription": "Ask a question about the KB. Supports query, brainstorm, challenge, sync, onboard, and generate intents.",
+    "shortDescription": "Returns a synthesized KB context + structured prompt for a question. Use only when (a) the question requires cross-file synthesis the depends_on graph provides, (b) the intent template (query/brainstorm/challenge/sync/onboard/generate) adds value, or (c) grep keywords aren't finding the right files due to vocabulary mismatch with KB tags. For straightforward content lookups, grep / find / Read are faster and more reliable — kb_ask's file selection is over KB metadata only, not file body, so it cannot find content that isn't reflected in tags or depends_on.",
     "whenToUse": "Ask free-form questions of the KB — query, brainstorm, challenge, sync-check, onboard, or generate from it.",
     "examplePrompts": [
       "Ask the KB: how do we handle idempotency keys?",
@@ -588,7 +594,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     "name": "kb_analyze",
     "category": "authoring",
-    "shortDescription": "Analyze project source files and generate a KB coverage inventory. Groups source files by their KB target (using code_path_patterns from _rules.md) and optionally writes draft KB files for uncovered groups. Useful for bootstrapping KB on legacy projects.",
+    "shortDescription": "Analyze project source files and generate a KB coverage inventory. Groups source files by their KB target (using code_path_patterns from _rules.md) and optionally writes draft KB files for uncovered groups. By default returns a per-group summary (no sample_files) — pass include_samples:true for capped per-group sample paths, or grep the source tree. Useful for bootstrapping KB on legacy projects.",
     "whenToUse": "Scan source files and group them into KB targets using code_path_patterns — a starting point for fresh documentation runs.",
     "examplePrompts": [
       "Analyse src/payments/ and propose KB targets.",
@@ -611,7 +617,13 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
         "name": "summary_only",
         "type": "boolean",
         "required": false,
-        "hint": "Return only kb_target, file_count, existing_kb_file, and suggested_action per group — no sample_files. Use when the inventory is hitting the response cap and you only need group-level shape."
+        "hint": "Return only kb_target, file_count, existing_kb_file, and suggested_action per group — no sample_files. This is now the default; the flag is retained for back-compat."
+      },
+      {
+        "name": "include_samples",
+        "type": "boolean",
+        "required": false,
+        "hint": "Default false. When true, include capped per-group sample_files (heavier payload). Ignored when summary_only is set."
       }
     ],
     "surfaces": [
@@ -976,7 +988,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     "name": "kb_status",
     "category": "sync",
-    "shortDescription": "Read-only sync-state aggregate. Returns counts and entries for code-drift, kb-drift, standards-drift, conform-pending (current + aspirational), pending promotions, and lint issues, plus the current git HEAD short SHA. Same data the KB Sync VSCode extension renders. Never writes. Use at session start, before opening a PR, or whenever the user asks \"what is drifting?\".",
+    "shortDescription": "Read-only sync-state aggregate. Returns counts and entries for code-drift, kb-drift, standards-drift, conform-pending (current + aspirational), pending promotions, and lint issues, plus the current git HEAD short SHA. The drift-log event history is summarized (driftLogEventCount + recentDriftLogEvents + driftLogPath); pass include_events:true for the full log. Never writes. Use at session start, before opening a PR, or whenever the user asks \"what is drifting?\".",
     "whenToUse": "Aggregate sync state in one readonly call — drifts, conform-pending, promotions, lint, HEAD SHA. This is what the dashboards read.",
     "examplePrompts": [
       "Give me the current KB sync status.",
@@ -988,6 +1000,12 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
         "type": "boolean",
         "required": false,
         "hint": "Skip the lint subprocess (faster; default false)."
+      },
+      {
+        "name": "include_events",
+        "type": "boolean",
+        "required": false,
+        "hint": "Default false. When true, return the full driftLogEvents array instead of the summarized count + recent events."
       }
     ],
     "surfaces": [

@@ -89,19 +89,21 @@ const STOPWORDS = new Set([
   'explain', 'walk', 'help', 'tour'
 ])
 
-// Total-context cap for the embedded KB material in an `kb_ask` prompt.
-// Empirically the response cap is around ~64KB before MCP truncates — at
-// 32KB the agent still has room for its own response payload. The agent can
-// always re-read a full KB file via kb_get when it needs more depth.
-const ASK_TOTAL_CHAR_CAP = 32_000
-const ASK_PER_FILE_CHAR_CAP = 8_000
+// Total-context cap for the embedded KB material in an `kb_ask` prompt. The
+// MCP response truncates around ~64KB, but that's a ceiling, not a budget —
+// embedding tens of KB per call (and re-billing it every turn it stays in
+// history) is the real cost. Capped to 16KB: enough context for synthesis on
+// a typical question, and the agent re-reads a full KB file via kb_get (the
+// truncation markers point there) when it needs more depth.
+const ASK_TOTAL_CHAR_CAP = 16_000
+const ASK_PER_FILE_CHAR_CAP = 4_000
 // F13: `challenge` and `generate` intents add significant generated-prose
 // scaffolding on top of the embedded context (lifecycle of issues, plan
 // templates, etc.) — empirically they ran 66-70KB and exceeded the response
 // cap while other intents fit under 64KB. Use tighter caps for those two so
 // the embedded context leaves room for the rest of the prompt.
-const ASK_TIGHT_TOTAL_CHAR_CAP = 16_000
-const ASK_TIGHT_PER_FILE_CHAR_CAP = 4_000
+const ASK_TIGHT_TOTAL_CHAR_CAP = 8_000
+const ASK_TIGHT_PER_FILE_CHAR_CAP = 2_000
 const TIGHT_INTENTS = new Set(['challenge', 'generate'])
 
 /**

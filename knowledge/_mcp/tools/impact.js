@@ -10,8 +10,9 @@ const KB_ROOT = 'knowledge'
  * The calling agent processes each prompt and proposes updates.
  * Does NOT write anything — agent calls kb_write per file after reviewing proposals.
  */
-async function runTool({ change_description } = {}) {
+async function runTool({ change_description, include_prompts = false } = {}) {
   if (!change_description) return { error: 'change_description is required' }
+  const includePrompts = include_prompts === true
 
   const graph = loadGraph(KB_ROOT)
   const keywords = extractKeywords(change_description)
@@ -66,7 +67,7 @@ async function runTool({ change_description } = {}) {
     if (id) {
       getDependents(graph, id).forEach(({ path: depPath }) => {
         if (!affectedEntries.has(depPath)) {
-          affectedEntries.set(depPath, { entry: graph.files[depPath], score: 0.5 })
+          affectedEntries.set(depPath, { entry: graph.files[depPath], score: 0.5, via: 'depends-on edge' })
         }
       })
     }
@@ -82,29 +83,57 @@ async function runTool({ change_description } = {}) {
 
   const affected_files = []
 
-  for (const [fp] of sorted) {
+  for (const [fp, meta] of sorted) {
     const fileContent = readBody(fp)
     if (fileContent === null) continue
 
-    const prompt = resolvePrompt('impact-proposal', {
-      change_description,
-      file_path: fp,
-      file_content: fileContent.slice(0, 2000)
-    })
-
-    affected_files.push({
+    const entry = {
       path: fp,
-      content_snippet: fileContent.slice(0, 500),
-      prompt: prompt || null
-    })
+      score: Math.round(meta.score * 10) / 10,
+      why: meta.via || 'keyword match',
+      // Short triage excerpt only — the agent Reads the path for full content.
+      snippet: fileContent.slice(0, SNIPPET_CHARS)
+    }
+
+    // Opt-in: regenerate the per-file proposal prompt. Off by default because
+    // it's heavy and the agent can Read the path + apply proposal_instruction.
+    // NOTE: fill the template's real placeholder names (affected_file/
+    // affected_content) — the previous code passed file_path/file_content,
+    // which the template never references, so the body was never inserted.
+    if (includePrompts) {
+      entry.prompt = resolvePrompt('impact-proposal', {
+        change_description,
+        affected_file: fp,
+        affected_section: 'the relevant section',
+        affected_content: fileContent.slice(0, PROMPT_BODY_CHARS),
+        source_file: '(the file(s) described in the change)',
+        source_diff: '(not yet applied — see the change description)'
+      }) || null
+    }
+
+    affected_files.push(entry)
   }
 
   return {
     affected_files,
     total_candidates: affectedEntries.size,
-    note: 'impact does not write. For each affected file, review the prompt and call kb_write to apply changes.'
+    // The reusable proposal guidance, resolved once instead of per file. The
+    // per-file body is intentionally omitted — review each affected_files[].path
+    // and call kb_write. Pass include_prompts:true for per-file prompts.
+    proposal_instruction: resolvePrompt('impact-proposal', {
+      change_description,
+      affected_file: 'each file listed in affected_files',
+      affected_section: 'the relevant section',
+      affected_content: '(Read the file via its path)',
+      source_file: '(the file(s) described in the change)',
+      source_diff: '(not yet applied — see the change description)'
+    }) || null,
+    note: 'impact does not write. For each affected file, review it against proposal_instruction and call kb_write to apply changes.'
   }
 }
+
+const SNIPPET_CHARS = 300
+const PROMPT_BODY_CHARS = 2000
 
 const SHORT_KEEP = new Set([
   'api', 'jwt', 'sso', 'sql', 'css', 'otp', 'mfa', 'url', 'uri', 'db',
@@ -143,12 +172,13 @@ module.exports = {
   extractKeywords,
   definition: {
     name: 'kb_impact',
-    description: 'Traverse the depends_on graph from a proposed change to surface downstream KB files that may need review. Returns proposals — does not write. Effective only when the KB depends_on graph is maintained (frontmatter edges + [[wikilinks]]). If you suspect graph staleness, run kb_status first and check the depends_on coverage for affected files. For changes that touch standards-governed code, run kb_conform afterwards to catch rule-level impacts the graph traversal does not see.',
+    description: 'Traverse the depends_on graph from a proposed change to surface downstream KB files that may need review. Returns affected_files (path, score, why, short snippet) plus a single proposal_instruction — review each path and call kb_write; the agent Reads the file for full content. Does not write. Effective only when the KB depends_on graph is maintained (frontmatter edges + [[wikilinks]]). If you suspect graph staleness, run kb_status first. For changes that touch standards-governed code, run kb_conform afterwards. Pass include_prompts:true only if you want a fully-instantiated per-file proposal prompt (heavier).',
     inputSchema: {
       type: 'object',
       required: ['change_description'],
       properties: {
-        change_description: { type: 'string', description: 'Description of the change to analyze' }
+        change_description: { type: 'string', description: 'Description of the change to analyze' },
+        include_prompts: { type: 'boolean', description: 'Default false. When true, attach a per-file impact-proposal prompt to each affected file (larger payload). Otherwise use the single top-level proposal_instruction.' }
       }
     }
   }

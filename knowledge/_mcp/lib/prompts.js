@@ -41,7 +41,35 @@ function resolveBaseDir(configuredBaseDir) {
 
 function loadFile(filePath) {
   if (!fs.existsSync(filePath)) return null
-  return matter(fs.readFileSync(filePath, 'utf8'))
+  const parsed = matter(fs.readFileSync(filePath, 'utf8'))
+  return { ...parsed, content: stripCommentHeader(parsed.content) }
+}
+
+/**
+ * Bundled prompt templates carry a leading `#`-comment doc block (placeholder
+ * docs etc.) separated from the real prompt body by a standalone `---` line.
+ * That block isn't YAML frontmatter (the file starts with `#`, not `---`), so
+ * gray-matter leaves it in `content` and it would otherwise leak into every
+ * agent context. Strip it — but only when it's unambiguously a comment header:
+ * a `---` divider exists AND every preceding non-blank line starts with `#`.
+ * This protects templates that use `---` as a real markdown rule inside the
+ * body (e.g. issue-triage.md) and those with no divider at all.
+ */
+function stripCommentHeader(content) {
+  if (!content) return content
+  const lines = content.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    if (/^---\s*$/.test(lines[i])) {
+      // Found the first divider — strip the header only if everything above it
+      // is comment (`#…`) or blank.
+      return lines.slice(i + 1).join('\n').replace(/^\n+/, '')
+    }
+    if (lines[i].trim() !== '' && !lines[i].trimStart().startsWith('#')) {
+      // Real content before any divider — not a comment header. Leave as-is.
+      return content
+    }
+  }
+  return content
 }
 
 function fillPlaceholders(content, context = {}) {
@@ -124,4 +152,4 @@ function resolvePrompt(promptName, context = {}) {
   throw new Error(`Unknown override type: ${type}`)
 }
 
-module.exports = { resolvePrompt }
+module.exports = { resolvePrompt, stripCommentHeader }

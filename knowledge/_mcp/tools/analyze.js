@@ -16,7 +16,13 @@ const SKIP_SCAN = new Set([
  * Groups source files by their KB target (using code_path_patterns from _rules.md)
  * and optionally writes draft KB files for uncovered groups.
  */
-async function runTool({ depth = 4, write_drafts = false, summary_only = false } = {}) {
+async function runTool({ depth = 4, write_drafts = false, summary_only = false, include_samples = false } = {}) {
+  // Default to the per-group summary (counts + suggested_action, no
+  // sample_files): on a large monorepo the full sample inventory was the bulk
+  // of this tool's payload, and the agent can grep the source tree for the
+  // files behind any group. include_samples opts back into capped samples.
+  const renderInventory = (inv) =>
+    (include_samples === true && summary_only !== true) ? capInventorySize(inv) : summarizeInventory(inv)
   const rules = loadRules(KB_ROOT)
   const raw = rules.getRaw()
 
@@ -47,7 +53,7 @@ async function runTool({ depth = 4, write_drafts = false, summary_only = false }
       if (result) draftsWritten.push(result)
     }
     return {
-      inventory: summary_only ? summarizeInventory(inventory) : capInventorySize(inventory),
+      inventory: renderInventory(inventory),
       drafts_written: draftsWritten,
       total_source_files: sourceFiles.length,
       total_groups: inventory.length,
@@ -56,11 +62,11 @@ async function runTool({ depth = 4, write_drafts = false, summary_only = false }
   }
 
   return {
-    inventory: summary_only ? summarizeInventory(inventory) : capInventorySize(inventory),
+    inventory: renderInventory(inventory),
     total_source_files: sourceFiles.length,
     total_groups: inventory.length,
     unmatched_count: grouped.get('_unmatched') ? grouped.get('_unmatched').files.length : 0,
-    _instruction: 'Review the inventory. Call kb_analyze with write_drafts=true to create draft KB files, or use kb_scaffold to create specific files.'
+    _instruction: 'Each inventory entry is a per-group summary (kb_target, file_count, suggested_action). Pass include_samples:true for sample_files, or grep the source tree for the files behind a group. Call kb_analyze with write_drafts=true to create draft KB files, or use kb_scaffold for specific files.'
   }
 }
 
@@ -281,13 +287,14 @@ module.exports = {
   runTool,
   definition: {
     name: 'kb_analyze',
-    description: 'Analyze project source files and generate a KB coverage inventory. Groups source files by their KB target (using code_path_patterns from _rules.md) and optionally writes draft KB files for uncovered groups. Useful for bootstrapping KB on legacy projects.',
+    description: 'Analyze project source files and generate a KB coverage inventory. Groups source files by their KB target (using code_path_patterns from _rules.md) and optionally writes draft KB files for uncovered groups. By default returns a per-group summary (no sample_files) — pass include_samples:true for capped per-group sample paths, or grep the source tree. Useful for bootstrapping KB on legacy projects.',
     inputSchema: {
       type: 'object',
       properties: {
         depth: { type: 'number', description: 'Max directory depth to scan (default: 4)', default: 4 },
         write_drafts: { type: 'boolean', description: 'Write draft KB files for uncovered groups', default: false },
-        summary_only: { type: 'boolean', description: 'Return only kb_target, file_count, existing_kb_file, and suggested_action per group — no sample_files. Use when the inventory is hitting the response cap and you only need group-level shape.', default: false }
+        summary_only: { type: 'boolean', description: 'Return only kb_target, file_count, existing_kb_file, and suggested_action per group — no sample_files. This is now the default; the flag is retained for back-compat.', default: false },
+        include_samples: { type: 'boolean', description: 'Default false. When true, include capped per-group sample_files (heavier payload). Ignored when summary_only is set.', default: false }
       }
     }
   }

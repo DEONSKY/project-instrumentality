@@ -38,7 +38,7 @@ async function triage({ title, body, issue_id, source, labels, priority, app_sco
   const getResult = await kbGet({ keywords, app_scope, max_tokens: 16000 })
   const files = getResult.files || []
   const relatedDocs = files.map(f => ({ path: f.path, id: f.id, type: f.type }))
-  const docsContent = files.map(f => `### ${f.path}\n\n${f.content || '(no content)'}`).join('\n\n---\n\n')
+  const docsContent = buildDocsContent(files)
 
   const labelsStr = Array.isArray(labels) ? labels.join(', ') : (labels || '')
   const today = new Date().toISOString().split('T')[0]
@@ -94,7 +94,7 @@ async function plan({ scope, type, keywords, app_scope, target, project_key, con
   }
 
   const sourceDocs = files.map(f => ({ path: f.path, id: f.id, type: f.type }))
-  const docsContent = files.map(f => `### ${f.path}\n\n${f.content || '(no content)'}`).join('\n\n---\n\n')
+  const docsContent = buildDocsContent(files)
 
   const prompt = resolvePrompt('issue-plan', {
     source_docs: docsContent,
@@ -121,7 +121,7 @@ async function consult({ title, body, app_scope } = {}) {
   const getResult = await kbGet({ keywords, app_scope, max_tokens: 12000 })
   const files = getResult.files || []
   const relatedDocs = files.map(f => ({ path: f.path, id: f.id, type: f.type }))
-  const docsContent = files.map(f => `### ${f.path}\n\n${f.content || '(no content)'}`).join('\n\n---\n\n')
+  const docsContent = buildDocsContent(files)
 
   const prompt = resolvePrompt('issue-consult', {
     title,
@@ -134,6 +134,22 @@ async function consult({ title, body, app_scope } = {}) {
     prompt,
     _instruction: 'Review the related KB documents and the prompt above. Respond directly to the issue reporter with your analysis — no further tool call is needed.'
   }
+}
+
+// Per-doc body cap for the related/source-doc context embedded in issue
+// prompts. Previously full bodies were embedded uncapped, so a handful of
+// large KB files could dominate the response. The agent has the path in
+// related_docs/source_docs and can Read the full file when it needs more.
+const ISSUE_DOC_BODY_CHARS = 1500
+
+function buildDocsContent(files) {
+  return files.map(f => {
+    const raw = f.content || '(no content)'
+    const body = raw.length > ISSUE_DOC_BODY_CHARS
+      ? raw.slice(0, ISSUE_DOC_BODY_CHARS) + `\n\n<!-- … (${raw.length - ISSUE_DOC_BODY_CHARS} more chars truncated; Read ${f.path} for the full file) -->`
+      : raw
+    return `### ${f.path}\n\n${body}`
+  }).join('\n\n---\n\n')
 }
 
 function slugify(text) {
