@@ -42,8 +42,9 @@ knowledge/
         mockup-v3.png           ← Track 3: PNG export from Figma / Sketch
         mockup-source.md        ← one-line file: Figma URL + exporter notes
       system-map.canvas         ← Obsidian Canvas (top-level when cross-domain)
-    imports/                    ← Track 4 (tool-managed): kb_import extractions
-      <source-basename>-img-<n>.<ext>
+    <doc-path>/                 ← Track 4 (tool-managed): kb_import extractions,
+      <name>-<hash>.<ext>           mirroring the imported doc's path
+    imports/.staging/           ← Track 4 scratch (gitignored, pre-approve only)
 ```
 
 ### Track 1 — Ad-hoc screenshots
@@ -89,14 +90,16 @@ The PNG ages; the sidecar tells you whether to trust it. When Figma changes mean
 
 ### Track 4 — Auto-extracted imports (tool-managed)
 
-`kb_import` extracts inline images from DOCX uploads to `assets/imports/`, replacing them with markdown image references in the imported chunks. Contributors don't create or curate this folder — the tool owns it:
+`kb_import` (auto_classify mode) extracts images from **PDF / DOCX / HTML / Markdown** sources — including inline base64 data-URIs — and embeds them in the generated KB docs as Obsidian embeds `![[<name>.ext]]`. Contributors don't create or curate this folder; the tool owns it:
 
-- **Naming:** `<source-basename>-img-<n>.<ext>`, counter-resolved on collision.
-- **Lifetime:** tied to the source document. If the imported feature spec is deleted, its `*-img-*` siblings can be removed alongside it.
-- **Behaviour:** treat like Track 1 — high volume, low intent, no per-image curation. Differs from Track 1 only in that it's machine-written, not paste-from-clipboard.
-- **Indexing:** excluded from `kb_get` keyword search (same as `screenshots/`) — only `assets/design/**` is indexed.
+- **Location:** mirrors the imported document's path under `assets/` — a doc at `knowledge/specs/features/x.md` gets its images under `assets/specs/features/x/`. (Embeds are bare filenames; Obsidian resolves them vault-wide, so the folder is purely for organisation/lifetime, not link resolution.)
+- **Naming:** `<source>-<title-or-heading>-<contenthash8>.<ext>`. The content hash makes names globally unique **and** dedupes identical images (e.g. a logo repeated across every PDF page collapses to one file). The title/heading gives context without reading the image binary.
+- **Staging:** images are written to `assets/imports/.staging/` (gitignored) during classification and **relocated** to the mirror folder only on `approve`; a `restart` or stale source clears staging.
+- **Lifetime:** tied to the source document — its mirror folder can be removed alongside the doc.
+- **Behaviour:** treat like Track 1 — high volume, low intent, no per-image curation. Differs only in that it's machine-written.
+- **Indexing:** everything under `assets/` except `assets/design/**` is excluded from `kb_get` keyword search, and `![[...]]` embeds are **not** treated as graph links (so they never trip the broken-link linter or pollute `depends_on`).
 
-If a contributor wants to promote an imported image to a curated mockup, copy it into `assets/design/<context>/` and write a sidecar — leave the original under `imports/` so the source-doc rewrite stays intact.
+If a contributor wants to promote an imported image to a curated mockup, copy it into `assets/design/<context>/` and write a sidecar — leave the original in place so the source-doc embed stays intact.
 
 ### Cross-cutting — Obsidian Canvas for system maps
 
@@ -116,7 +119,9 @@ Drop everything in `assets/`. **Not chosen** — within three months a single fo
 
 ### Per-feature attachment folders (`features/billing_attachments/`)
 
-Obsidian's Attachment Management plugin can colocate attachments next to the note. **Not chosen** — produces dozens of `*_attachments/` folders polluting the vault tree, and makes shared assets (one wireframe referenced by three features) impossible without duplication.
+Obsidian's Attachment Management plugin can colocate attachments next to the note. **Not chosen for contributor-authored assets** — produces dozens of `*_attachments/` folders polluting the *content* tree, and makes shared assets (one wireframe referenced by three features) impossible without duplication.
+
+Note the **tool-managed import track (Track 4) is the deliberate exception**: it mirrors the imported doc's path under `assets/` (not next to the note, so the content tree stays clean) because an import's images have a clear single-owner lifetime and benefit from being grouped per source. Bare-filename embeds still allow sharing without duplication when needed.
 
 ### Store Figma source files directly in the repo
 

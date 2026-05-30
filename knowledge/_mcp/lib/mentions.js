@@ -1,4 +1,8 @@
-const WIKILINK_REGEX = /!?\[\[([^\]|#]+?)(?:#([^\]|]+?))?(?:\|[^\]]+?)?\]\]/g
+// Negative lookbehind excludes Obsidian *embeds* (`![[...]]`) — image/asset
+// transclusions are not navigational links and must not become graph edges or
+// trip the broken-link linter. Plain `[[...]]` links are still captured. (Just
+// dropping the old `!?` would not work: `\[\[` still matches inside `![[`.)
+const WIKILINK_REGEX = /(?<!!)\[\[([^\]|#]+?)(?:#([^\]|]+?))?(?:\|[^\]]+?)?\]\]/g
 
 /**
  * Extract wikilink references from KB content, ignoring code blocks and inline code.

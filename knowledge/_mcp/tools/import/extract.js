@@ -9,57 +9,140 @@
 const fs = require('fs')
 const path = require('path')
 const { htmlHeadingsToMarkdown } = require('../../lib/html-to-md-headings')
+const images = require('./images')
 
 const SUPPORTED_FORMATS = ['.pdf', '.docx', '.md', '.txt', '.html']
 const MAX_CHUNK_CHARS = 16000
+const EXT_BY_MIME = {
+  'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif',
+  'image/webp': 'webp', 'image/svg+xml': 'svg', 'image/bmp': 'bmp', 'image/tiff': 'tiff'
+}
 
+// Build the per-import image context shared across the extraction passes.
+function newImageContext(filePath) {
+  return {
+    baseSlug: images.slugify(path.basename(filePath, path.extname(filePath)), 'import'),
+    stagingDir: images.stagingDirFor(filePath),
+    sourceDir: path.dirname(filePath),
+    images: [],
+    seen: new Set(),
+    lastAlt: '',
+    page: null
+  }
+}
+
+// `extractText` returns { text, images } — text is markdown with bare
+// `![[name]]` embeds; images is [{ name, alt, page }] staged on disk.
 async function extractText(filePath) {
   const ext = path.extname(filePath).toLowerCase()
   if (!SUPPORTED_FORMATS.includes(ext)) {
     throw new Error(`Unsupported format: ${ext}. Supported: ${SUPPORTED_FORMATS.join(', ')}`)
   }
+  const ctx = newImageContext(filePath)
+
   if (ext === '.pdf') {
-    const pdfParse = require('pdf-parse')
-    const buffer = fs.readFileSync(filePath)
-    const data = await pdfParse(buffer)
-    return data.text
+    const text = await extractPdf(filePath, ctx)
+    return { text, images: ctx.images }
   }
   if (ext === '.docx') {
-    const mammoth = require('mammoth')
-    const assetsDir = path.join('knowledge', 'assets', 'imports')
-    fs.mkdirSync(assetsDir, { recursive: true })
-
-    let imageCounter = 0
-    const baseName = path.basename(filePath, ext)
-
-    const result = await mammoth.convertToHtml({
-      path: filePath,
-      convertImage: mammoth.images.imgElement(function (image) {
-        imageCounter++
-        const imgExt = image.contentType.split('/')[1] || 'png'
-        const imgName = `${baseName}-img-${imageCounter}.${imgExt}`
-        const imgPath = path.join(assetsDir, imgName)
-
-        return image.readAsBuffer().then(function (buffer) {
-          fs.writeFileSync(imgPath, buffer)
-          return { src: `../../assets/imports/${imgName}` }
-        })
-      })
-    })
-
-    // Convert HTML img tags to markdown image syntax before stripping tags
-    let html = result.value.replace(
-      /<img[^>]*src="([^"]*)"[^>]*alt="([^"]*)"[^>]*\/?>/gi,
-      '![$2]($1)'
-    )
-    html = html.replace(
-      /<img[^>]*src="([^"]*)"[^>]*\/?>/gi,
-      '![]($1)'
-    )
-
-    return htmlHeadingsToMarkdown(html)
+    const text = await extractDocx(filePath, ctx)
+    return { text, images: ctx.images }
   }
-  return fs.readFileSync(filePath, 'utf8')
+  if (ext === '.html') {
+    let html = fs.readFileSync(filePath, 'utf8')
+    html = images.extractDataUriImages(html, ctx)
+    html = images.extractLocalFileImages(html, ctx)
+    // Preserve remote images as markdown links — htmlHeadingsToMarkdown strips tags.
+    html = html.replace(/<img\b[^>]*?src=["']\s*(https?:\/\/[^"']+?)\s*["'][^>]*>/gi, (m, url) => {
+      const altM = /alt=["']([^"']*)["']/i.exec(m)
+      return `![${altM ? altM[1] : ''}](${url})`
+    })
+    return { text: htmlHeadingsToMarkdown(html), images: ctx.images }
+  }
+  // .md / .txt
+  let text = fs.readFileSync(filePath, 'utf8')
+  text = images.extractDataUriImages(text, ctx)
+  text = images.extractLocalFileImages(text, ctx)
+  return { text, images: ctx.images }
+}
+
+async function extractDocx(filePath, ctx) {
+  const mammoth = require('mammoth')
+  const result = await mammoth.convertToHtml({
+    path: filePath,
+    // Stage each embedded image with a content-hashed name; emit a sentinel
+    // src we convert to a bare embed below (before tags are stripped).
+    convertImage: mammoth.images.imgElement((image) =>
+      image.readAsBuffer().then((buffer) => {
+        const ext = EXT_BY_MIME[(image.contentType || '').toLowerCase()] || 'png'
+        const name = images.imageName(ctx.baseSlug, image.altText || '', buffer, ext)
+        if (!ctx.seen.has(name) && buffer.length >= images.MIN_IMAGE_BYTES) {
+          ctx.seen.add(name)
+          fs.mkdirSync(ctx.stagingDir, { recursive: true })
+          const dest = path.join(ctx.stagingDir, name)
+          if (!fs.existsSync(dest)) fs.writeFileSync(dest, buffer)
+          ctx.images.push({ name, alt: image.altText || '', page: null })
+        }
+        return { src: `staged:${name}` }
+      })
+    )
+  })
+  let html = result.value
+  html = images.extractDataUriImages(html, ctx)          // any base64 <img> residue
+  html = html.replace(/<img\b[^>]*?src=["']staged:([^"']+?)["'][^>]*>/gi, (m, name) => images.obsidianEmbed(name))
+  return htmlHeadingsToMarkdown(html)
+}
+
+async function extractPdf(filePath, ctx) {
+  const pdfParse = require('pdf-parse')
+  const buffer = fs.readFileSync(filePath)
+
+  // Text via pdf-parse (proven), with a per-page marker appended so images can
+  // be attached to the chunk that owns their page. Mirrors pdf-parse's default
+  // render and just adds the marker, so text quality is unchanged.
+  let pageNo = 0
+  const data = await pdfParse(buffer, {
+    pagerender: (pageData) => {
+      const n = pageData.pageNumber || ++pageNo
+      return pageData.getTextContent().then((tc) => {
+        let lastY, text = ''
+        for (const item of tc.items) {
+          text += (lastY === item.transform[5] || lastY === undefined ? '' : '\n') + item.str
+          lastY = item.transform[5]
+        }
+        return `${text}\n\n@@PDFPAGE:${n}@@\n\n`
+      })
+    }
+  })
+
+  // Extract embedded images (page-exact), then place each page's embeds at its
+  // marker; strip markers afterward.
+  await images.extractPdfImages(filePath, ctx).catch(() => null)
+  let text = insertPdfEmbeds(data.text, ctx.images)
+  text = images.extractDataUriImages(text, ctx) // defensive
+  return text
+}
+
+function insertPdfEmbeds(text, imageList) {
+  const byPage = new Map()
+  for (const img of imageList) {
+    if (img.page == null) continue
+    if (!byPage.has(img.page)) byPage.set(img.page, [])
+    byPage.get(img.page).push(img.name)
+  }
+  const placed = new Set()
+  let out = text.replace(/@@PDFPAGE:(\d+)@@/g, (m, n) => {
+    const page = parseInt(n, 10)
+    const names = byPage.get(page)
+    if (!names || !names.length) return ''
+    placed.add(page)
+    return '\n\n' + names.map(images.obsidianEmbed).join('\n\n') + '\n\n'
+  })
+  // Fallback: any page whose marker was missing → append its embeds at the end.
+  const leftover = []
+  for (const [page, names] of byPage) if (!placed.has(page)) leftover.push(...names)
+  if (leftover.length) out += '\n\n' + leftover.map(images.obsidianEmbed).join('\n\n') + '\n'
+  return out
 }
 
 function chunkDocument(text) {

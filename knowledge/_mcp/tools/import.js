@@ -7,6 +7,7 @@ const { CLASSIFY_TYPE_TO_SCAFFOLD, resolveFilePath } = require('../lib/kb-paths'
 const { fillTemplate, buildReviewEntry } = require('../lib/template-filler')
 const { createSessionCache } = require('../lib/session-cache')
 const { extractText, chunkDocument } = require('./import/extract')
+const { embedsIn, stripEmbeds, obsidianEmbed, relocateImages, removeStagingDir, stagingDirFor } = require('./import/images')
 
 const CONFIDENCE_THRESHOLD = 0.6
 const IMPORT_REVIEW_PATH = 'knowledge/sync/import-review.md'
@@ -24,11 +25,15 @@ const LOW_SIGNAL_REASON = 'Image-only / insufficient text — skipped classifica
 const sessions = createSessionCache(SESSION_TTL_MS, { persistDir: SESSION_PERSIST_DIR })
 const getSession = (source) => sessions.get(source)
 const clearSession = (source) => sessions.clear(source)
+// Drop a session AND its staged images (restart / stale source).
+const discardSession = (source) => { clearSession(source); removeStagingDir(source) }
 
-// Text the classifier can actually reason about, with image refs / heading
-// markers removed. Used to pre-filter low-signal (e.g. screenshot-only) chunks.
+// Text the classifier can actually reason about, with image embeds / refs and
+// heading markers removed. Used to pre-filter low-signal (e.g. screenshot-only)
+// chunks — must strip `![[embeds]]` too, else an image-only chunk reads as text.
 function classifiableText(text) {
   return (text || '')
+    .replace(/!\[\[[^\]]*\]\]/g, '')      // obsidian embeds
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '') // markdown images
     .replace(/^#{1,6}\s+/gm, '')          // heading markers
     .replace(/\s+/g, ' ')
@@ -39,13 +44,10 @@ function isLowSignal(chunk) {
   return classifiableText(chunk.text).length < MIN_CLASSIFIABLE_CHARS
 }
 
-// Identity of a chunked document — invalidates a stale resume if the source
-// changed between runs (count or any heading/id differs).
-function computeFingerprint(chunks) {
-  const h = crypto.createHash('sha1')
-  h.update(String(chunks.length))
-  for (const c of chunks) h.update('|' + c.id + ':' + (c.heading || ''))
-  return h.digest('hex')
+// Identity of the *source file* — lets a resume validate the doc is unchanged
+// without re-extracting (which would re-decode images on every poll).
+function hashFile(source) {
+  return crypto.createHash('sha1').update(fs.readFileSync(source)).digest('hex')
 }
 
 /**
@@ -78,43 +80,51 @@ async function runTool({ source, dry_run = false, auto_classify = false, approve
     return autoClassifyContinue(source, classifications, cursor || 0)
   }
 
-  // ── Extract source document ────────────────────────────────────────────────
+  // ── Validate source ────────────────────────────────────────────────────────
   if (!source || !fs.existsSync(source)) {
     return { error: `Source file not found: ${source}` }
   }
 
-  let text
+  // ── Auto-classify: first call — start (or resume) session ──────────────────
+  if (auto_classify) {
+    if (restart) discardSession(source)
+    const fileFingerprint = hashFile(source)
+
+    // Resume check runs BEFORE extraction, so we don't re-decode images on
+    // every poll. A changed file (fingerprint mismatch) discards and re-imports.
+    if (!restart) {
+      const existing = getSession(source)
+      if (existing) {
+        if (existing.fileFingerprint === fileFingerprint) return resumeSession(source, existing)
+        discardSession(source)
+      }
+    }
+
+    let extracted
+    try {
+      extracted = await extractText(source)
+    } catch (e) {
+      return { error: e.message }
+    }
+    const chunks = chunkDocument(extracted.text)
+    if (chunks.length === 0) {
+      return { error: 'No content chunks extracted from document.' }
+    }
+    return autoClassifyStart(source, chunks, extracted.images, dry_run, fileFingerprint)
+  }
+
+  // ── Classic Phase 1: extract + return all chunks + classify prompts ────────
+  let extracted
   try {
-    text = await extractText(source)
+    extracted = await extractText(source)
   } catch (e) {
     return { error: e.message }
   }
-
-  const chunks = chunkDocument(text)
+  const chunks = chunkDocument(extracted.text)
   if (chunks.length === 0) {
     return { error: 'No content chunks extracted from document.' }
   }
 
-  // ── Auto-classify: first call — start (or resume) session ──────────────────
-  if (auto_classify) {
-    if (restart) clearSession(source)
-    const fingerprint = computeFingerprint(chunks)
-
-    if (!restart) {
-      const existing = getSession(source)
-      if (existing) {
-        if (existing.fingerprint !== fingerprint) {
-          // Source changed since the saved run — discard and start fresh.
-          clearSession(source)
-        } else {
-          return resumeSession(source, existing)
-        }
-      }
-    }
-    return autoClassifyStart(source, chunks, dry_run, fingerprint)
-  }
-
-  // ── Classic Phase 1: return all chunks + classify prompts ──────────────────
   const classify_prompts = chunks.map(chunk => {
     const prompt = resolvePrompt('import-classify', {
       chunk_text: chunk.text.slice(0, 1500),
@@ -141,7 +151,7 @@ async function runTool({ source, dry_run = false, auto_classify = false, approve
 
 // ── Auto-classify flow ──────────────────────────────────────────────────────
 
-function autoClassifyStart(source, chunks, dry_run, fingerprint) {
+function autoClassifyStart(source, chunks, images, dry_run, fileFingerprint) {
   // Layer C: partition out low-signal chunks (screenshots, image refs) so the
   // agent never spends a round-trip "classifying" something it can't.
   const toClassifyIds = []
@@ -156,7 +166,9 @@ function autoClassifyStart(source, chunks, dry_run, fingerprint) {
     autoReviewIds,
     classifications: [],
     dry_run,
-    fingerprint,
+    fileFingerprint,
+    images: images || [],
+    stagingDir: stagingDirFor(source),
     phase: 'classifying'
   })
   const session = getSession(source)
@@ -350,6 +362,11 @@ function buildImportPlan(source, session) {
     filesToWrite.push({ path: entry.target_path, content })
   }
 
+  // Attach images from image-only chunks (which never produced a file of their
+  // own) to the nearest content doc, so screenshots stay with their section
+  // instead of being orphaned. Prunes pure-image chunks from review.
+  attachOrphanEmbeds(chunks, proposed, filesToWrite, needsReview)
+
   // Store plan in session (persisted to disk — survives a restart before approve)
   session.plan = { filesToWrite, proposed, needsReview, crossReferences }
   session.phase = 'plan_ready'
@@ -362,6 +379,51 @@ function buildImportPlan(source, session) {
   }
 
   return planResponse(source, session)
+}
+
+// Attach embeds from image-only / unclassified chunks to the nearest content
+// doc (preceding, else following). A pure-image chunk whose embeds land
+// somewhere is dropped from the review queue. If nothing was classified there
+// are no anchors — those images stay staged and surface via the review queue.
+function attachOrphanEmbeds(chunks, proposed, filesToWrite, needsReview) {
+  const fileByPath = new Map(filesToWrite.map(f => [f.path, f]))
+  const indexOf = new Map(chunks.map((c, i) => [c.id, i]))
+  const proposedIds = new Set(proposed.map(p => p.chunk_id))
+
+  const anchors = proposed
+    .filter(p => fileByPath.has(p.target_path))
+    .map(p => ({ idx: indexOf.get(p.chunk_id) ?? 0, path: p.target_path }))
+    .sort((a, b) => a.idx - b.idx)
+  if (anchors.length === 0) return
+
+  const addByPath = new Map()           // path → embed names to append
+  const attachedPureImage = new Set()   // chunk ids to prune from review
+
+  for (const chunk of chunks) {
+    if (proposedIds.has(chunk.id)) continue // its embeds already live in its own doc
+    const names = embedsIn(chunk.text)
+    if (!names.length) continue
+    const ci = indexOf.get(chunk.id) ?? 0
+    let anchor = anchors[0]
+    for (const a of anchors) { if (a.idx <= ci) anchor = a; else break }
+    if (!addByPath.has(anchor.path)) addByPath.set(anchor.path, [])
+    addByPath.get(anchor.path).push(...names)
+    if (classifiableText(chunk.text).length === 0) attachedPureImage.add(chunk.id)
+  }
+
+  for (const [p, names] of addByPath) {
+    const file = fileByPath.get(p)
+    const existing = new Set(embedsIn(file.content))
+    const add = [...new Set(names)].filter(n => !existing.has(n))
+    if (add.length) {
+      file.content = file.content.replace(/\s*$/, '') +
+        '\n\n## Screenshots\n\n' + add.map(obsidianEmbed).join('\n\n') + '\n'
+    }
+  }
+
+  for (let i = needsReview.length - 1; i >= 0; i--) {
+    if (attachedPureImage.has(needsReview[i].chunk.id)) needsReview.splice(i, 1)
+  }
 }
 
 // Render the stored plan as a tool response. Reused on resume so a session that
@@ -444,6 +506,20 @@ async function executeImportPlan(source, dry_run) {
   // Write files
   const writeResult = await applyImportFiles(filesToWrite, false)
 
+  // Relocate staged images into each written doc's mirror folder. Bare-filename
+  // embeds resolve post-move, so no content rewrite. Only for files actually
+  // written; un-relocated images (e.g. an all-screenshots source with no doc)
+  // stay in staging rather than being deleted.
+  if (session.stagingDir) {
+    const written = new Set(writeResult.written)
+    for (const f of filesToWrite) {
+      if (!written.has(f.path)) continue
+      const names = embedsIn(f.content)
+      if (names.length) relocateImages(names, session.stagingDir, f.path)
+    }
+    try { fs.rmdirSync(session.stagingDir) } catch { /* not empty / already gone */ }
+  }
+
   // Append low-confidence chunks to import-review.md
   if (needsReview.length > 0) {
     appendToReviewQueue(needsReview, sourceFile)
@@ -512,7 +588,9 @@ function generateCrossReferences(proposed, chunks) {
   for (const from of proposed) {
     const chunk = chunkMap.get(from.chunk_id)
     if (!chunk) continue
-    const text = chunk.text.toLowerCase()
+    // Strip image embeds first — an embed filename contains a slugified id and
+    // would otherwise fabricate a bogus `mentions` edge.
+    const text = stripEmbeds(chunk.text).toLowerCase()
 
     for (const to of proposed) {
       if (from.target_path === to.target_path) continue
@@ -605,7 +683,7 @@ module.exports = {
   runTool,
   definition: {
     name: 'kb_import',
-    description: 'Import a document into the KB. Auto-classify mode (recommended): Phase 1 extracts and classifies in batches (multi-label). Phase 2 returns an import plan with proposed files and cross-references. Phase 3 (approve: true) writes files. Classic mode: Phase 1 returns chunks, Phase 2 writes agent-generated files.',
+    description: 'Import a document (PDF/DOCX/HTML/MD/TXT) into the KB. Auto-classify mode (recommended): Phase 1 extracts and classifies in batches (multi-label). Phase 2 returns an import plan with proposed files and cross-references. Phase 3 (approve: true) writes files. Images are extracted to per-document asset folders and embedded as Obsidian ![[...]] links — auto_classify mode only. Classic mode: Phase 1 returns chunks, Phase 2 writes agent-generated files.',
     inputSchema: {
       type: 'object',
       properties: {
