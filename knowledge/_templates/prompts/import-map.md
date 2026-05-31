@@ -44,9 +44,12 @@ Suggested id: {{suggested_id}}
 
 - Fill only what the source text clearly states
 - Leave {{placeholder}} for anything not mentioned in the source
-- Set status: draft (always)
+- Do NOT add a `status` field (workflow state does not belong in KB files)
 - Set import_source: {{source_file}} in front-matter
 - Set import_chunk: {{chunk_id}} in front-matter
+- For a feature/integration owned by a single module, set app_scope to that
+  module's name (otherwise leave app_scope: all)
+- Keep body text in its original language; ids/headings should be English kebab-case
 - For ## Fields tables: include only explicitly named fields
 - For ## Edge cases: extract only conditions explicitly stated
 - For ## Open questions: add one entry if the source is ambiguous

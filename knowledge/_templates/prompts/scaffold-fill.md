@@ -87,7 +87,7 @@ tags: [auth, authentication, login, jwt, ldap, roles, sadm, plcmt, active-direct
 - For ## Edge cases: leave as {{placeholder}} if not described
 - For ## Open questions: add one entry if the description has
   ambiguity that needs PM or tech lead input
-- Set status to: draft (always — developer promotes when ready)
+- Do NOT add a `status` field (workflow state does not belong in KB files)
 - Set created to: {{date}} (filled at runtime, keep as-is)
 - Write only the filled template content. No explanation.
 - **Comment blocks are hard constraints.** If the template above contains

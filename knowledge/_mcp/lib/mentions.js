@@ -16,7 +16,11 @@ function extractMentions(content) {
   while ((match = WIKILINK_REGEX.exec(stripped)) !== null) {
     const p = match[1].trim()
     const section = match[2] ? match[2].trim() : null
-    if (p) mentions.push(section ? `${p}#${section}` : p)
+    // Skip targets carrying an unfilled {{placeholder}} (e.g. an example wikilink
+    // left in a template body) — these are not real edges and would surface as
+    // ghost orphan_dependencies in the index / broken-link warnings in lint.
+    if (!p || p.includes('{{')) continue
+    mentions.push(section ? `${p}#${section}` : p)
   }
   return [...new Set(mentions)]
 }

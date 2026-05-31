@@ -40,5 +40,5 @@ Document regex or reusable logic referenced by rule_id above.
 
 List KB files that reference these rules via wikilink.
 
-- [[specs/features/{{name}}#fields]]
-- [[data/schema/{{entity}}]]
+- `[[specs/features/<feature>#fields]]`
+- `[[data/schema/<entity>]]`

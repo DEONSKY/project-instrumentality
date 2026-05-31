@@ -31,6 +31,7 @@ const STOPWORDS = new Set([
   'values', 'name', 'format', 'response', 'request', 'data', 'file', 'path',
   'true', 'false', 'null', 'undefined', 'none', 'todo', 'note', 'info',
   'feature', 'flow', 'schema', 'standard', 'decision', 'validation', 'integration',
+  'policy', 'policies', 'reference', 'technical',
   // Fix 1: Markdown structural / template heading words
   'features', 'flows', 'steps', 'states', 'overview', 'conventions', 'structure',
   'module', 'purpose', 'why', 'core', 'external', 'key', 'supporting', 'areas',

@@ -160,7 +160,7 @@ module.exports = {
       type: 'object',
       required: ['type'],
       properties: {
-        type: { type: 'string', description: 'Template type: feature|flow|schema|validation|integration|decision|standard|group|component' },
+        type: { type: 'string', description: 'Template type: feature|flow|policy|schema|validation|integration|decision|standard|reference|technical|group|component' },
         id: { type: 'string', description: 'File identifier (kebab-case)' },
         group: { type: 'string', description: 'Group/subfolder for standards: code|contracts|knowledge|process' },
         description: { type: 'string', description: 'Description — tool returns a fill prompt for the agent to process' },

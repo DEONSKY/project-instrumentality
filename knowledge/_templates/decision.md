@@ -8,7 +8,6 @@ depends_on: []
 owner: "{{owner}}"
 created: "{{date}}"
 tags: []
-status: "{{proposed|accepted|superseded}}"
 ---
 
 <!--

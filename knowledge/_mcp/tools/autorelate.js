@@ -40,7 +40,8 @@ const STOPWORDS = new Set([
   'example', 'examples', 'section', 'details', 'list', 'item', 'items', 'value',
   'values', 'name', 'format', 'response', 'request', 'data', 'file', 'path',
   'true', 'false', 'null', 'undefined', 'none', 'feature', 'flow', 'schema',
-  'standard', 'decision', 'validation', 'integration'
+  'standard', 'decision', 'validation', 'integration',
+  'policy', 'policies', 'reference', 'technical'
 ])
 
 async function runTool({ file_path, dry_run = false, threshold } = {}) {

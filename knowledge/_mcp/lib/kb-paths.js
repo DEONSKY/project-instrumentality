@@ -12,11 +12,14 @@ function getTemplatesDir() {
 const TYPE_TO_PATH = {
   feature: 'specs/features/{id}.md',
   flow: 'specs/flows/{id}.md',
+  policy: 'specs/policies/{id}.md',
   schema: 'data/schema/{id}.md',
   validation: 'data/validation/{id}.md',
   integration: 'integrations/{id}.md',
   decision: 'decisions/{id}.md',
   standard: 'standards/{id}.md',
+  reference: 'reference/{id}.md',
+  technical: 'technical/{id}.md',
   group: '{folder}/{folder}.md',
   component: 'components/{id}.md'
 }
@@ -24,11 +27,14 @@ const TYPE_TO_PATH = {
 const TYPE_TO_TEMPLATE = {
   feature: 'feature.md',
   flow: 'flow.md',
+  policy: 'policy.md',
   schema: 'schema.md',
   validation: 'validation.md',
   integration: 'integration.md',
   decision: 'decision.md',
   standard: 'standards/standard.md',
+  reference: 'reference.md',
+  technical: 'technical.md',
   group: 'group.md',
   component: 'component.md'
 }
@@ -44,28 +50,41 @@ const REMOVED_TYPES = {
   'capabilities': 'no longer a folder convention; use standards/<group>/<id>.md'
 }
 
-// Maps import-classify types to scaffold types
+// Maps import-classify types to scaffold types. Business "must/shall" rules
+// (classified as `standard` by the prompt) become `policy` docs under specs/ —
+// the structured-standards model can't be machine-filled, so genuine code/
+// knowledge standards are left to manual authoring and fall through to review.
+// `enums` are folded into schema; UI permission/copy chunks into feature.
 const CLASSIFY_TYPE_TO_SCAFFOLD = {
   'feature': 'feature',
   'flow': 'flow',
+  'policy': 'policy',
   'schema': 'schema',
   'validation': 'validation',
   'integration': 'integration',
   'decision': 'decision',
-  'standard': 'standard',
-  'process': 'standard',
-  'component': 'component'
+  'reference': 'reference',
+  'technical': 'technical',
+  'component': 'component',
+  // Folded / legacy classifier labels
+  'standard': 'policy',
+  'enums': 'schema',
+  'ui-permissions': 'feature',
+  'ui-copy': 'feature'
 }
 
 function getGroupFolder(type) {
   const map = {
     feature: 'specs/features',
     flow: 'specs/flows',
+    policy: 'specs/policies',
     schema: 'data/schema',
     validation: 'data/validation',
     integration: 'integrations',
     decision: 'decisions',
     standard: 'standards',
+    reference: 'reference',
+    technical: 'technical',
     component: 'components'
   }
   return map[type] || 'specs/features'

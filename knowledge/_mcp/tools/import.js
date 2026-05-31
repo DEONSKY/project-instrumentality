@@ -1,10 +1,12 @@
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
+const matter = require('gray-matter')
 const { resolvePrompt } = require('../lib/prompts')
 const { runTool: reindex } = require('./reindex')
-const { CLASSIFY_TYPE_TO_SCAFFOLD, resolveFilePath } = require('../lib/kb-paths')
-const { fillTemplate, buildReviewEntry } = require('../lib/template-filler')
+const { CLASSIFY_TYPE_TO_SCAFFOLD, resolveFilePath, getTemplatesDir, TYPE_TO_TEMPLATE } = require('../lib/kb-paths')
+const { fillTemplate, buildReviewEntry, normalizeKbFile } = require('../lib/template-filler')
+const { matterStringify } = require('../lib/matter-utils')
 const { createSessionCache } = require('../lib/session-cache')
 const { extractText, chunkDocument } = require('./import/extract')
 const { embedsIn, stripEmbeds, obsidianEmbed, relocateImages, removeStagingDir, stagingDirFor } = require('./import/images')
@@ -64,7 +66,7 @@ function hashFile(source) {
  *   4. Agent calls with approve: true to write files.
  *   Combine with dry_run: true to preview proposed mappings.
  */
-async function runTool({ source, dry_run = false, auto_classify = false, approve = false, classifications, cursor, files_to_write, restart = false } = {}) {
+async function runTool({ source, dry_run = false, auto_classify = false, approve = false, classifications, cursor, files_to_write, restart = false, fill = false } = {}) {
   // ── Classic Phase 2: write agent-generated files ───────────────────────────
   if (files_to_write && Array.isArray(files_to_write)) {
     return applyImportFiles(files_to_write, dry_run)
@@ -110,7 +112,7 @@ async function runTool({ source, dry_run = false, auto_classify = false, approve
     if (chunks.length === 0) {
       return { error: 'No content chunks extracted from document.' }
     }
-    return autoClassifyStart(source, chunks, extracted.images, dry_run, fileFingerprint)
+    return autoClassifyStart(source, chunks, extracted.images, dry_run, fileFingerprint, fill)
   }
 
   // ── Classic Phase 1: extract + return all chunks + classify prompts ────────
@@ -129,6 +131,7 @@ async function runTool({ source, dry_run = false, auto_classify = false, approve
     const prompt = resolvePrompt('import-classify', {
       chunk_text: chunk.text.slice(0, 1500),
       chunk_id: chunk.page_hint,
+      parent_heading: chunk.parent_heading || chunk.heading || '',
       source_file: path.basename(source),
       existing_kb: ''
     })
@@ -151,7 +154,7 @@ async function runTool({ source, dry_run = false, auto_classify = false, approve
 
 // ── Auto-classify flow ──────────────────────────────────────────────────────
 
-function autoClassifyStart(source, chunks, images, dry_run, fileFingerprint) {
+function autoClassifyStart(source, chunks, images, dry_run, fileFingerprint, fill = false) {
   // Layer C: partition out low-signal chunks (screenshots, image refs) so the
   // agent never spends a round-trip "classifying" something it can't.
   const toClassifyIds = []
@@ -166,6 +169,7 @@ function autoClassifyStart(source, chunks, images, dry_run, fileFingerprint) {
     autoReviewIds,
     classifications: [],
     dry_run,
+    fill,
     fileFingerprint,
     images: images || [],
     stagingDir: stagingDirFor(source),
@@ -249,6 +253,7 @@ function buildBatchResponse(source, session, cursor) {
     const prompt = resolvePrompt('import-classify', {
       chunk_text: chunk.text.slice(0, 1500),
       chunk_id: chunk.page_hint,
+      parent_heading: chunk.parent_heading || chunk.heading || '',
       source_file: sourceFile,
       existing_kb: ''
     })
@@ -345,21 +350,47 @@ function buildImportPlan(source, session) {
   // Generate cross-references
   const crossReferences = generateCrossReferences(proposed, chunks)
 
-  // Build file contents with cross-references
-  const filesToWrite = []
+  // Aggregate N chunks → 1 file. Multiple chunks can resolve to the same target
+  // (grouping web services by service, schema by domain, or any duplicate
+  // suggested_id). Group `proposed` by target_path and build ONE file per path
+  // from all contributing chunks — otherwise the 2nd+ chunk for a path is
+  // silently dropped by applyImportFiles' skip-if-exists guard.
+  const chunkById = new Map(chunks.map(c => [c.id, c]))
+  const byPath = new Map()
   for (const entry of proposed) {
-    const chunk = chunks.find(c => c.id === entry.chunk_id)
-    const depsForFile = crossReferences
-      .filter(r => r.from === entry.target_path)
-      .map(r => r.to.replace(/^knowledge\//, '').replace(/\.md$/, ''))
+    if (!byPath.has(entry.target_path)) byPath.set(entry.target_path, [])
+    byPath.get(entry.target_path).push(entry)
+  }
 
-    const scaffoldType = CLASSIFY_TYPE_TO_SCAFFOLD[entry.type]
-    const content = fillTemplate(chunk, { ...entry, scaffoldType }, sourceFile, depsForFile)
+  const filesToWrite = []
+  const fillPrompts = []
+  for (const [targetPath, entries] of byPath) {
+    const contributing = entries.map(e => chunkById.get(e.chunk_id)).filter(Boolean)
+    const mergedChunk = mergeChunks(contributing, entries)
+    const depsForFile = [...new Set(
+      crossReferences
+        .filter(r => r.from === targetPath && r.to !== targetPath)
+        .map(r => r.to.replace(/^knowledge\//, '').replace(/\.md$/, ''))
+    )]
+
+    const scaffoldType = CLASSIFY_TYPE_TO_SCAFFOLD[entries[0].type]
+    const content = fillTemplate(mergedChunk, { ...entries[0], scaffoldType }, sourceFile, depsForFile)
     if (!content) {
-      needsReview.push({ chunk, classification: { ...entry, reason: 'Template not found' } })
+      for (const e of entries) {
+        needsReview.push({ chunk: chunkById.get(e.chunk_id), classification: { ...e, reason: 'Template not found' } })
+      }
       continue
     }
-    filesToWrite.push({ path: entry.target_path, content })
+    filesToWrite.push({ path: targetPath, content })
+
+    // Hybrid fill: when fill is on, surface an import-map prompt per file so the
+    // agent can replace the deterministic baseline with content extracted from
+    // the merged chunk text. Filled files are written via files_to_write and
+    // normalized by applyImportFiles (same post-process as the baseline).
+    if (session.fill) {
+      const prompt = buildFillPrompt(scaffoldType, mergedChunk, entries[0], sourceFile)
+      if (prompt) fillPrompts.push({ path: targetPath, type: entries[0].type, suggested_id: entries[0].suggested_id, prompt })
+    }
   }
 
   // Attach images from image-only chunks (which never produced a file of their
@@ -368,7 +399,7 @@ function buildImportPlan(source, session) {
   attachOrphanEmbeds(chunks, proposed, filesToWrite, needsReview)
 
   // Store plan in session (persisted to disk — survives a restart before approve)
-  session.plan = { filesToWrite, proposed, needsReview, crossReferences }
+  session.plan = { filesToWrite, proposed, needsReview, crossReferences, fillPrompts }
   session.phase = 'plan_ready'
   sessions.set(source, session)
 
@@ -430,7 +461,7 @@ function attachOrphanEmbeds(chunks, proposed, filesToWrite, needsReview) {
 // dropped after planning but before approve can re-surface the same plan.
 function planResponse(source, session, { dry_run = false, resumed = false } = {}) {
   const { chunks } = session
-  const { filesToWrite, proposed, needsReview, crossReferences } = session.plan
+  const { filesToWrite, proposed, needsReview, crossReferences, fillPrompts } = session.plan
 
   const resp = {
     auto_classify: true,
@@ -465,6 +496,19 @@ function planResponse(source, session, { dry_run = false, resumed = false } = {}
       `To execute, call kb_import({ source: "${source}", auto_classify: true, approve: true }).`,
       `To preview without writing, call kb_import({ source: "${source}", auto_classify: true, approve: true, dry_run: true }).`,
       'To cancel, do nothing (session expires after 45 min idle). To re-import from scratch, pass restart: true.'
+    ].join(' ')
+  }
+
+  // Hybrid fill: offer per-file import-map prompts. Filling is optional — the
+  // deterministic baseline is written on approve; filled content (written via
+  // files_to_write) supersedes it and is normalized the same way.
+  if (fillPrompts && fillPrompts.length > 0) {
+    resp.fill_prompts = fillPrompts
+    resp._fill_instruction = [
+      'Fill is ON. Optionally, for each entry in fill_prompts[], run the prompt to produce richer',
+      'content from the source text, then call',
+      `kb_import({ source: "${source}", files_to_write: [{ path, content }, ...] }) to write the filled files.`,
+      'Files you do not fill are covered by the deterministic baseline on approve.'
     ].join(' ')
   }
 
@@ -537,10 +581,53 @@ async function executeImportPlan(source, dry_run) {
   }
 }
 
+// ── Aggregation & fill helpers ──────────────────────────────────────────────
+
+// Combine the chunks that target one file into a single synthetic chunk. Each
+// section is concatenated under its own heading so an aggregated doc (e.g. all
+// of a service's endpoints, or a domain's tables) carries every contributing
+// section. import_chunk records all source ids for provenance.
+function mergeChunks(chunks, entries) {
+  const seen = new Set()
+  const parts = []
+  for (const c of chunks) {
+    if (!c || seen.has(c.id)) continue
+    seen.add(c.id)
+    const heading = c.heading ? `### ${c.heading}\n\n` : ''
+    parts.push(heading + c.text)
+  }
+  const ids = [...seen]
+  return {
+    id: ids.length === 1 ? ids[0] : ids.join(','),
+    heading: (chunks[0] && chunks[0].heading) || (entries[0] && entries[0].heading) || null,
+    text: parts.join('\n\n')
+  }
+}
+
+// Build an import-map (LLM fill) prompt for one target file: the raw template
+// plus the merged source text. The agent returns filled content, written via
+// files_to_write and normalized by applyImportFiles.
+function buildFillPrompt(scaffoldType, mergedChunk, entry, sourceFile) {
+  const templateFile = TYPE_TO_TEMPLATE[scaffoldType]
+  if (!templateFile) return null
+  const templatePath = path.join(getTemplatesDir(), templateFile)
+  if (!fs.existsSync(templatePath)) return null
+  const template = fs.readFileSync(templatePath, 'utf8')
+  return resolvePrompt('import-map', {
+    chunk_text: mergedChunk.text,
+    chunk_id: mergedChunk.id,
+    source_file: sourceFile,
+    kb_type: scaffoldType,
+    template,
+    suggested_id: entry.suggested_id || '',
+    kb_context: ''
+  })
+}
+
 // ── Cross-reference generation ──────────────────────────────────────────────
 
 // Priority order for directional depends_on links
-const TYPE_PRIORITY = { feature: 1, flow: 2, validation: 3, schema: 4, integration: 5, decision: 6, component: 7, standard: 8 }
+const TYPE_PRIORITY = { feature: 1, flow: 2, policy: 3, validation: 4, schema: 5, integration: 6, technical: 7, decision: 8, reference: 9, component: 10, standard: 11 }
 
 function generateCrossReferences(proposed, chunks) {
   const refs = []
@@ -627,6 +714,22 @@ function appendToReviewQueue(entries, sourceFile) {
 
 // ── Shared helpers ───────────────────────────────────────────────────────────
 
+// Shared post-process for EVERY written file (deterministic baseline AND
+// agent/LLM-filled content): force id == filename, drop residual placeholders
+// and the forbidden `status` field, strip ghost wikilinks, guarantee required
+// frontmatter. Idempotent on already-normalized content. Falls back to the raw
+// content if frontmatter can't be parsed (lint will then flag it).
+function normalizeWrittenFile(filePath, content) {
+  try {
+    const parsed = matter(content)
+    const id = path.basename(filePath, '.md')
+    const { fm, body } = normalizeKbFile(parsed.data || {}, parsed.content || '', { id })
+    return matterStringify(body, fm)
+  } catch {
+    return content
+  }
+}
+
 function validateKbPath(filePath) {
   const resolved = path.resolve(filePath)
   const kbDir = path.resolve('knowledge')
@@ -654,9 +757,11 @@ async function applyImportFiles(files_to_write, dry_run) {
       continue
     }
 
+    const finalContent = normalizeWrittenFile(filePath, content)
+
     if (!dry_run) {
       fs.mkdirSync(path.dirname(filePath), { recursive: true })
-      fs.writeFileSync(filePath, content, 'utf8')
+      fs.writeFileSync(filePath, finalContent, 'utf8')
       written.push(filePath)
     } else {
       written.push(filePath + ' (dry_run)')

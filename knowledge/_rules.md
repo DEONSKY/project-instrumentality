@@ -14,10 +14,13 @@ depth_policy:
     integrations: 2
     decisions: 1
     standards: 2
+    technical: 3
+    reference: 1
     sync: 1
   never_group:
     - data
     - decisions
+    - reference
     - sync
 
 secret_patterns:

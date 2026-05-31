@@ -345,7 +345,7 @@ module.exports = {
       properties: {
         scope: { description: 'Domain name, feature/flow id, or "all". Accepts an array for multi-scope export.', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], default: 'all' },
         format: { type: 'string', description: 'Output format: pdf|docx|markdown|confluence|notion|html|json', default: 'markdown' },
-        type: { type: 'string', description: 'Filter by KB type: feature, flow, schema, validation, integration, decision, component' },
+        type: { type: 'string', description: 'Filter by KB type: feature, flow, policy, schema, validation, integration, decision, reference, technical, component' },
         purpose: { type: 'string', description: 'Optional: describe the purpose and desired style of the export (e.g. "client-facing API overview", "onboarding guide for new backend engineers")' },
         app_scope: { type: 'string', description: 'Filter by app scope' },
         page: { type: 'number', description: 'Page number for paginated exports of large KBs (returned by previous call)' },

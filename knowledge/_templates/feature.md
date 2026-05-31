@@ -25,7 +25,10 @@ tags: []
 
 | field | label | type | required | default | validation | notes |
 | ----- | ----- | ---- | -------- | ------- | ---------- | ----- |
-| {{field}} | {{Human-readable label}} | {{type}} | {{yes\|no}} | {{default}} | [[data/validation/{{rule_id}}]] | {{notes}} |
+| {{field}} | {{Human-readable label}} | {{type}} | {{yes\|no}} | {{default}} | `[[data/validation/<rule-file>]]` | {{notes}} |
+
+<!-- In the validation column, replace the example with a real link to the
+     matching rule file, e.g. a wikilink to data/validation/user-management-rules. -->
 
 ## Business rules
 

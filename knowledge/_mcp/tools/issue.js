@@ -176,7 +176,7 @@ module.exports = {
         labels: { type: 'array', items: { type: 'string' }, description: 'Issue labels/tags (triage)' },
         priority: { type: 'string', description: 'Issue priority (triage)' },
         scope: { type: 'string', description: 'Scope filter — folder name or "all" (plan)' },
-        type: { type: 'string', description: 'KB doc type filter: feature, flow, decision (plan)' },
+        type: { type: 'string', description: 'KB doc type filter: feature, flow, policy, decision (plan)' },
         keywords: { description: 'Keyword filter (plan)', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
         target: { type: 'string', description: 'Target PM tool: jira, github, linear (plan)' },
         project_key: { type: 'string', description: 'PM tool project key, e.g. PROJ (plan)' },
