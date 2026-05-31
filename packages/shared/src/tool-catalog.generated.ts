@@ -169,7 +169,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     "name": "kb_conform",
     "category": "governance",
-    "shortDescription": "Three-phase non-functional conformance check. Phase 1 (no resolution args): MCP runs cheap pre-filters and returns requested_evaluations + a prompt for the agent to evaluate. Phase 1.5 (submit_judgments): agent submits per-rule judgments — must cover every requested triple in a single call (partial submissions return gaps[] and are not persisted across calls). Phase 2 (applied/exempted/promoted/dismissed): close queue entries. Promoted (file, rule) pairs are suppressed from re-detection until the standard is updated (auto-close on rule fingerprint change) or a senior reviewer calls closed_promotion. Aspirational mode (mode: aspirational, scope: <standard-file>): retroactive sweep into a separate backlog queue; pass path_filter to chunk a large sweep by subtree.",
+    "shortDescription": "Three-phase non-functional conformance check. Phase 1 (no resolution args): MCP runs cheap pre-filters and returns requested_evaluations + a prompt for the agent to evaluate. The prompt embeds the rule specs and file contents needed to judge; git diffs are NOT prefetched by default (pass include_diffs:true for the diff prefetch, or use the diffs_hint command on demand). Phase 1.5 (submit_judgments): agent submits per-rule judgments — must cover every requested triple in a single call (partial submissions return gaps[] and are not persisted across calls). Phase 2 (applied/exempted/promoted/dismissed): close queue entries. Promoted (file, rule) pairs are suppressed from re-detection until the standard is updated (auto-close on rule fingerprint change) or a senior reviewer calls closed_promotion. Aspirational mode (mode: aspirational, scope: <standard-file>): retroactive sweep into a separate backlog queue; pass path_filter to chunk a large sweep by subtree.",
     "whenToUse": "Sweep code against standards rules; the LLM judge classifies each finding and the verdict step closes it out.",
     "examplePrompts": [
       "Run conform on the auth standard against src/auth/.",
@@ -259,7 +259,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
         "name": "include_diffs",
         "type": "boolean",
         "required": false,
-        "hint": "Phase 1: pre-fetch diffs into result._diffs (default: true)"
+        "hint": "Phase 1: pre-fetch git diffs into result._diffs (default: false). The prompt already includes file_contents to judge against; set true only when you specifically need the diff (what changed since baseline) rather than current file state."
       },
       {
         "name": "readonly",
@@ -474,7 +474,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     "name": "kb_import",
     "category": "authoring",
-    "shortDescription": "Import a document into the KB. Auto-classify mode (recommended): Phase 1 extracts and classifies in batches (multi-label). Phase 2 returns an import plan with proposed files and cross-references. Phase 3 (approve: true) writes files. Classic mode: Phase 1 returns chunks, Phase 2 writes agent-generated files.",
+    "shortDescription": "Import a document (PDF/DOCX/HTML/MD/TXT) into the KB. Auto-classify mode (recommended): Phase 1 extracts and classifies in batches (multi-label). Phase 2 returns an import plan with proposed files and cross-references. Phase 3 (approve: true) writes files. Images are extracted to per-document asset folders and embedded as Obsidian ![[...]] links — auto_classify mode only. Classic mode: Phase 1 returns chunks, Phase 2 writes agent-generated files.",
     "whenToUse": "Bring outside docs into the KB — classic extract+classify, or paginated auto-classify with an approval gate.",
     "examplePrompts": [
       "Import this Notion export into the KB (auto-classify mode).",
@@ -516,6 +516,12 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
         "type": "number",
         "required": false,
         "hint": "Current position in chunk list (returned by previous auto_classify call)"
+      },
+      {
+        "name": "restart",
+        "type": "boolean",
+        "required": false,
+        "hint": "Discard any saved progress for this source and re-import from scratch (auto_classify)"
       },
       {
         "name": "files_to_write",

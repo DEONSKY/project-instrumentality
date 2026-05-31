@@ -168,6 +168,40 @@ test('Phase 1 detect surfaces files needing LLM judgment', withRepo(async (dir) 
   assert.deepEqual(res2.requested_evaluations[0].rule_ids, ['must-export-default'])
 }))
 
+// ── Payload: diffs off by default, no duplicated eval JSON in the prompt ────
+
+test('Phase 1 omits _diffs by default and emits diffs_hint instead', withRepo(async (dir) => {
+  bootstrapKb(dir, STANDARD_LLM_RULE, { 'src/foo.js': 'console.log("hi")\n' })
+  sh(dir, 'git add -A && git commit -q -m "init"')
+  writeFile(dir, 'src/baz.js', 'export default null\n')
+  sh(dir, 'git add -A && git commit -q -m "add baz"')
+
+  // No include_diffs passed → new default is false.
+  const res = await CONFORM.runTool({ since: 'HEAD~1' })
+  assert.ok(res.requested_evaluations.length > 0, 'has evaluations')
+  assert.ok(!('_diffs' in res), '_diffs not prefetched by default')
+  assert.ok(typeof res.diffs_hint === 'string' && /git diff/.test(res.diffs_hint), 'diffs_hint points to git diff')
+
+  // Opting in restores the prefetch and drops the hint.
+  const withDiffs = await CONFORM.runTool({ since: 'HEAD~1', include_diffs: true })
+  assert.ok(Array.isArray(withDiffs._diffs), 'include_diffs:true restores _diffs')
+  assert.ok(!('diffs_hint' in withDiffs), 'no hint when diffs are present')
+}))
+
+test('Phase 1 prompt no longer embeds the requested_evaluations JSON (kept as structured field)', withRepo(async (dir) => {
+  bootstrapKb(dir, STANDARD_LLM_RULE, { 'src/foo.js': 'console.log("hi")\n' })
+  sh(dir, 'git add -A && git commit -q -m "init"')
+  writeFile(dir, 'src/baz.js', 'export default null\n')
+  sh(dir, 'git add -A && git commit -q -m "add baz"')
+
+  const res = await CONFORM.runTool({ since: 'HEAD~1' })
+  // Structured field intact (what the agent and Phase 1.5 actually use).
+  assert.equal(res.requested_evaluations[0].file, 'src/baz.js')
+  // Prompt references the field but does not re-embed the JSON array of triples.
+  assert.ok(/requested_evaluations` field/.test(res.prompt), 'prompt points at the field')
+  assert.ok(!res.prompt.includes('"standard_id": "test-rule"'), 'prompt does not re-embed the eval JSON')
+}))
+
 // ── Pre-filter: regex deterministic fail queues without LLM round-trip ──────
 
 test('regex detector autoflags violations without going through Phase 1.5', withRepo(async (dir) => {

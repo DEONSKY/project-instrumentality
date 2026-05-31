@@ -19,9 +19,9 @@ judgments than requested triggers a `gaps[]` response from MCP and a re-ask.
 
 ## Requested evaluations
 
-```json
-{{requested_evaluations}}
-```
+Evaluate **every** (file, standard_id, rule_id) triple in the
+`requested_evaluations` field returned alongside this prompt — one judgment per
+triple, no skipping, no merging.
 
 ## Rule specs
 

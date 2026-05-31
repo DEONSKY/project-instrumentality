@@ -261,7 +261,7 @@ async function resolveBootstrapRef(git) {
 // ── Phase 1 detect ────────────────────────────────────────────────────────────
 
 async function detect(opts) {
-  const { mode = 'current', scope, since, includeDiffs = true, path_filter, readonly = false, includeWorkingTree = false, promptMode = 'inline' } = opts
+  const { mode = 'current', scope, since, includeDiffs = false, path_filter, readonly = false, includeWorkingTree = false, promptMode = 'inline' } = opts
   // Readonly callers (live overlay) always want working-tree visibility so the
   // panel previews drift before commit. Explicit opt-in (`include_working_tree`)
   // unlocks the same behavior for write-mode callers.
@@ -622,7 +622,13 @@ async function detect(opts) {
     const filesPrompt = buildFileContentsBlock(requestedEvaluations, fileContents)
     try {
       prompt = resolvePrompt('conform-check', {
-        requested_evaluations: JSON.stringify(requestedEvaluations, null, 2),
+        // Don't embed the full requested_evaluations JSON — it's already a
+        // top-level structured field in the same result, so embedding it again
+        // doubled it in the agent's context. The updated template references the
+        // field instead; we still pass a short pointer (not the JSON) so a
+        // not-yet-synced template degrades to this string rather than a literal
+        // {{requested_evaluations}} placeholder.
+        requested_evaluations: '(see the requested_evaluations field in this tool result — evaluate every triple there)',
         rule_specs: ruleSpecsTable,
         file_contents: filesPrompt
       })
@@ -698,6 +704,13 @@ async function detect(opts) {
     auto_dismissed: autoDismissed.length,
     ...(configWarnings.length > 0 && { config_warnings: configWarnings }),
     ...(diffs && { _diffs: diffs }),
+    // Diffs are no longer prefetched by default (they were ~half this tool's
+    // payload and overlap with file_contents in the prompt). Tell the agent how
+    // to get change-context on demand. Suppressed for readonly callers (live
+    // watcher / CI) and aspirational mode, which never use diffs.
+    ...(!diffs && !readonly && mode !== 'aspirational' && requestedEvaluations.length > 0 && {
+      diffs_hint: `Diffs not prefetched. For change context on a file: \`git diff ${baseline}..HEAD -- <file>\`, or re-call kb_conform with include_diffs:true.`
+    }),
     // Live watcher / CI consume the in-memory entries instead of re-reading
     // the queue file. Same shape as readQueue().entries.
     ...(readonly && { _state: { entries: queueState.entries, headSha } })
@@ -1300,7 +1313,7 @@ async function runTool(args = {}) {
     acknowledge,
     force_baseline,
     purge,
-    include_diffs = true,
+    include_diffs = false,
     readonly = false,
     include_working_tree = false,
     prompt_mode = 'inline'
@@ -1360,7 +1373,7 @@ module.exports = {
   upsertQueueEntry,
   definition: {
     name: 'kb_conform',
-    description: 'Three-phase non-functional conformance check. Phase 1 (no resolution args): MCP runs cheap pre-filters and returns requested_evaluations + a prompt for the agent to evaluate. Phase 1.5 (submit_judgments): agent submits per-rule judgments — must cover every requested triple in a single call (partial submissions return gaps[] and are not persisted across calls). Phase 2 (applied/exempted/promoted/dismissed): close queue entries. Promoted (file, rule) pairs are suppressed from re-detection until the standard is updated (auto-close on rule fingerprint change) or a senior reviewer calls closed_promotion. Aspirational mode (mode: aspirational, scope: <standard-file>): retroactive sweep into a separate backlog queue; pass path_filter to chunk a large sweep by subtree.',
+    description: 'Three-phase non-functional conformance check. Phase 1 (no resolution args): MCP runs cheap pre-filters and returns requested_evaluations + a prompt for the agent to evaluate. The prompt embeds the rule specs and file contents needed to judge; git diffs are NOT prefetched by default (pass include_diffs:true for the diff prefetch, or use the diffs_hint command on demand). Phase 1.5 (submit_judgments): agent submits per-rule judgments — must cover every requested triple in a single call (partial submissions return gaps[] and are not persisted across calls). Phase 2 (applied/exempted/promoted/dismissed): close queue entries. Promoted (file, rule) pairs are suppressed from re-detection until the standard is updated (auto-close on rule fingerprint change) or a senior reviewer calls closed_promotion. Aspirational mode (mode: aspirational, scope: <standard-file>): retroactive sweep into a separate backlog queue; pass path_filter to chunk a large sweep by subtree.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1391,7 +1404,7 @@ module.exports = {
         acknowledge: { type: 'array', description: 'Non-resolving annotation: stamps the entry with `**Acknowledged**: @author at SHA — "reason"` and leaves it in the queue. CI still treats acked entries as pending; a later resolving verdict overrides.', items: { type: 'object', required: ['queue_key', 'reason'], properties: { queue_key: { type: 'string' }, reason: { type: 'string' } } } },
         force_baseline: { type: 'string', description: 'Admin: reset baseline to a SHA or "HEAD"' },
         purge: { type: 'boolean', description: 'Admin: with force_baseline, also clear all entries' },
-        include_diffs: { type: 'boolean', description: 'Phase 1: pre-fetch diffs into result._diffs (default: true)' },
+        include_diffs: { type: 'boolean', description: 'Phase 1: pre-fetch git diffs into result._diffs (default: false). The prompt already includes file_contents to judge against; set true only when you specifically need the diff (what changed since baseline) rather than current file state.' },
         readonly: { type: 'boolean', description: 'Compute results in memory but skip every fs write. Used by the live watcher in the extension and the soft-mode CI check.' },
         include_working_tree: { type: 'boolean', description: 'Phase 1: also evaluate uncommitted/untracked files matching the standard\'s applies_to (default: false). In current mode this unions working-tree changes with the committed diff. In aspirational mode it unions git-tracked files with untracked-non-ignored files. Useful when you want a verdict on a file before committing.' },
         prompt_mode: { type: 'string', enum: ['inline', 'reference'], description: 'Phase 1 only. "inline" (default): the agent-facing prompt is included in the response — can exceed the MCP response cap on sweeps with many evaluations. "reference": the prompt is written to knowledge/sync/.prompts/conform-phase1-<mode>-<hash>.md and a `prompt_path` field is returned instead; the agent reads the file directly. Use this when the inline response is being truncated.' }
