@@ -14,19 +14,19 @@
 //
 // All exports return absolute paths.
 
-const path = require('path')
+import * as path from 'path'
 
 // Package root = knowledge/_mcp, regardless of whether this file is loaded
 // from lib/ (source, via tsx) or dist/lib/ (compiled). This file sits at
-// <pkg>/lib/pkg-paths.js → <pkg>/dist/lib/pkg-paths.js; stepping up once
+// <pkg>/lib/pkg-paths.ts → <pkg>/dist/lib/pkg-paths.js; stepping up once
 // gives <pkg> or <pkg>/dist, and we strip a trailing `dist` segment.
-function packageRoot() {
+function computePackageRoot(): string {
   let root = path.resolve(__dirname, '..')
   if (path.basename(root) === 'dist') root = path.resolve(root, '..')
   return root
 }
 
-const PKG_ROOT = packageRoot()
+const PKG_ROOT = computePackageRoot()
 
 // Monorepo root (contains knowledge/ and packages/). Two levels above the
 // package root: knowledge/_mcp → knowledge → <repo>.
@@ -42,10 +42,8 @@ const PRESETS_DIR = path.join(PKG_ROOT, 'presets')
 // kb-mcp's own package.json (read for the version string).
 const PACKAGE_JSON = path.join(PKG_ROOT, 'package.json')
 
-module.exports = {
-  packageRoot: () => PKG_ROOT,
-  repoRoot: () => REPO_ROOT,
-  bundledTemplatesDir: () => BUNDLED_TEMPLATES_DIR,
-  presetsDir: () => PRESETS_DIR,
-  packageJsonPath: () => PACKAGE_JSON
-}
+export const packageRoot = (): string => PKG_ROOT
+export const repoRoot = (): string => REPO_ROOT
+export const bundledTemplatesDir = (): string => BUNDLED_TEMPLATES_DIR
+export const presetsDir = (): string => PRESETS_DIR
+export const packageJsonPath = (): string => PACKAGE_JSON

@@ -1,6 +1,6 @@
-const path = require('path')
-const fs = require('fs')
-const pkgPaths = require('./pkg-paths')
+import * as path from 'path'
+import * as fs from 'fs'
+import * as pkgPaths from './pkg-paths'
 
 const KB_ROOT = 'knowledge'
 const PROJECT_TEMPLATES_DIR = path.join(KB_ROOT, '_templates')
@@ -8,11 +8,11 @@ const PROJECT_TEMPLATES_DIR = path.join(KB_ROOT, '_templates')
 // knowledge/_templates whether running from source (lib/) or compiled (dist/lib/).
 const BUNDLED_TEMPLATES_DIR = pkgPaths.bundledTemplatesDir()
 
-function getTemplatesDir() {
+function getTemplatesDir(): string {
   return fs.existsSync(PROJECT_TEMPLATES_DIR) ? PROJECT_TEMPLATES_DIR : BUNDLED_TEMPLATES_DIR
 }
 
-const TYPE_TO_PATH = {
+const TYPE_TO_PATH: Record<string, string> = {
   feature: 'specs/features/{id}.md',
   flow: 'specs/flows/{id}.md',
   policy: 'specs/policies/{id}.md',
@@ -27,7 +27,7 @@ const TYPE_TO_PATH = {
   component: 'components/{id}.md'
 }
 
-const TYPE_TO_TEMPLATE = {
+const TYPE_TO_TEMPLATE: Record<string, string> = {
   feature: 'feature.md',
   flow: 'flow.md',
   policy: 'policy.md',
@@ -46,7 +46,7 @@ const TYPE_TO_TEMPLATE = {
 // hint to anyone still calling kb_scaffold with these so they migrate cleanly.
 // Includes the legacy folder-convention names (foundation/, capabilities/) in
 // case a caller passes the obsolete folder as a scaffold type.
-const REMOVED_TYPES = {
+const REMOVED_TYPES: Record<string, string> = {
   'tech-stack': 'use standards/code/<id>.md for stack rules',
   'conventions': 'use one or more standards/code/<id>.md documents with structured rules',
   'foundation': 'no longer a folder convention; use standards/<group>/<id>.md',
@@ -58,7 +58,7 @@ const REMOVED_TYPES = {
 // the structured-standards model can't be machine-filled, so genuine code/
 // knowledge standards are left to manual authoring and fall through to review.
 // `enums` are folded into schema; UI permission/copy chunks into feature.
-const CLASSIFY_TYPE_TO_SCAFFOLD = {
+const CLASSIFY_TYPE_TO_SCAFFOLD: Record<string, string> = {
   'feature': 'feature',
   'flow': 'flow',
   'policy': 'policy',
@@ -76,8 +76,8 @@ const CLASSIFY_TYPE_TO_SCAFFOLD = {
   'ui-copy': 'feature'
 }
 
-function getGroupFolder(type) {
-  const map = {
+function getGroupFolder(type: string): string {
+  const map: Record<string, string> = {
     feature: 'specs/features',
     flow: 'specs/flows',
     policy: 'specs/policies',
@@ -98,7 +98,7 @@ function getGroupFolder(type) {
 // scaffolding into a typo'd folder.
 const VALID_STANDARD_GROUPS = new Set(['code', 'contracts', 'knowledge', 'process'])
 
-function resolveFilePath(type, id, group) {
+function resolveFilePath(type: string, id?: string, group?: string): string | null {
   const template = TYPE_TO_PATH[type]
   if (!template) return null
 
@@ -122,12 +122,12 @@ function resolveFilePath(type, id, group) {
 }
 
 // Returns true if the type maps to a single shared file (not {id}-based)
-function isSingletonType(type) {
+function isSingletonType(type: string): boolean {
   const t = TYPE_TO_PATH[type]
-  return t && !t.includes('{id}')
+  return Boolean(t && !t.includes('{id}'))
 }
 
-module.exports = {
+export {
   KB_ROOT,
   TYPE_TO_PATH,
   TYPE_TO_TEMPLATE,

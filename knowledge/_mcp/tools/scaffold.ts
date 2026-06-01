@@ -1,11 +1,20 @@
-const fs = require('fs')
-const path = require('path')
-const { loadRules } = require('../lib/rules')
-const { validateDepth } = require('../lib/depth')
-const { resolvePrompt } = require('../lib/prompts')
-const { runTool: write } = require('./write')
-const { runTool: get } = require('./get')
-const { KB_ROOT, TYPE_TO_TEMPLATE, REMOVED_TYPES, VALID_STANDARD_GROUPS, getTemplatesDir, getGroupFolder, resolveFilePath } = require('../lib/kb-paths')
+import * as fs from 'fs'
+import * as path from 'path'
+import { loadRules } from '../lib/rules'
+import { validateDepth } from '../lib/depth'
+import { resolvePrompt } from '../lib/prompts'
+import { KB_ROOT, TYPE_TO_TEMPLATE, REMOVED_TYPES, VALID_STANDARD_GROUPS, getTemplatesDir, getGroupFolder, resolveFilePath } from '../lib/kb-paths'
+import type { ToolDefinition } from '../src/types/tool'
+import type { Rules } from '../src/types/rules'
+
+// write and get convert in Phase 4; pull them in via runtime require with the
+// result slices this tool reads typed.
+const { runTool: write } = require('./write') as {
+  runTool: (args: { file_path: string; content: string }) => Promise<{ written?: boolean; lint_errors?: number }>
+}
+const { runTool: get } = require('./get') as {
+  runTool: (args: { keywords?: string[] }) => Promise<{ files?: Array<{ path: string; id?: string; type?: string }> }>
+}
 
 const TEMPLATES_DIR = getTemplatesDir()
 
@@ -17,7 +26,16 @@ const TEMPLATES_DIR = getTemplatesDir()
  *   the template and calls kb_write({ file_path, content }) to save it.
  * With content: writes the agent-filled content directly.
  */
-async function runTool({ type, id, group, description, content, app_scope = 'all' } = {}) {
+async function runTool(
+  { type, id, group, description, content, app_scope = 'all' }: {
+    type?: string
+    id?: string
+    group?: string
+    description?: string
+    content?: string
+    app_scope?: string
+  } = {}
+): Promise<Record<string, unknown>> {
   if (!type) return { error: 'type is required' }
 
   if (type === 'agent-rules') {
@@ -41,6 +59,7 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
 
   const rules = loadRules(KB_ROOT)
   const filePath = resolveFilePath(type, id, group)
+  if (!filePath) return { error: `Could not resolve a file path for type "${type}"` }
 
   const depthResult = validateDepth(filePath, rules)
   if (!depthResult.valid) {
@@ -48,7 +67,7 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
   }
 
   // Warn if the group subfolder doesn't exist yet
-  let groupWarning
+  let groupWarning: string | undefined
   if (group) {
     const parentFolder = path.join(KB_ROOT, getGroupFolder(type))
     const groupDir = path.join(parentFolder, group)
@@ -79,7 +98,7 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
   // Agent passes back filled content → write it
   if (content) {
     const writeResult = await write({ file_path: filePath, content })
-    const r = { file_path: filePath, written: writeResult.written, lint_errors: writeResult.lint_errors }
+    const r: Record<string, unknown> = { file_path: filePath, written: writeResult.written, lint_errors: writeResult.lint_errors }
     if (groupWarning) r.group_warning = groupWarning
     attachMappingStatus(r, filePath, rules)
     return r
@@ -103,7 +122,7 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
     })
 
     if (prompt) {
-      const r = {
+      const r: Record<string, unknown> = {
         file_path: filePath,
         template: templateContent,
         prompt,
@@ -117,7 +136,7 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
 
   // No description → write template as-is
   const writeResult = await write({ file_path: filePath, content: templateContent })
-  const result = {
+  const result: Record<string, unknown> = {
     file_path: filePath,
     written: writeResult.written,
     lint_errors: writeResult.lint_errors,
@@ -135,9 +154,11 @@ async function runTool({ type, id, group, description, content, app_scope = 'all
  * for files no pattern targets — surfacing the gap at birth keeps the system
  * in sync going forward.
  */
-function attachMappingStatus(result, filePath, rules) {
+function attachMappingStatus(result: Record<string, unknown>, filePath: string, rules: Rules): void {
   try {
-    const { checkSingleKbFile } = require('../lib/pattern-audit')
+    const { checkSingleKbFile } = require('../lib/pattern-audit') as {
+      checkSingleKbFile: (kbRel: string, patterns: Array<Record<string, unknown>>) => { unmapped: boolean; suggested_pattern?: unknown }
+    }
     const kbRel = filePath.replace(/^knowledge\//, '')
     const status = checkSingleKbFile(kbRel, rules.getCodePathPatterns())
     if (status.unmapped) {
@@ -147,26 +168,25 @@ function attachMappingStatus(result, filePath, rules) {
     }
   } catch (e) {
     // Don't let an audit failure block the write — the file is already saved.
-    process.stderr.write(`[kb-scaffold] mapping check failed: ${e.message}\n`)
+    process.stderr.write(`[kb-scaffold] mapping check failed: ${(e as Error).message}\n`)
   }
 }
 
-module.exports = {
-  runTool,
-  definition: {
-    name: 'kb_scaffold',
-    description: 'Create a new KB file from a template. With description: returns a fill prompt for the agent. With content: writes agent-filled content. Without either: writes template with placeholders.',
-    inputSchema: {
-      type: 'object',
-      required: ['type'],
-      properties: {
-        type: { type: 'string', description: 'Template type: feature|flow|policy|schema|validation|integration|decision|standard|reference|technical|group|component' },
-        id: { type: 'string', description: 'File identifier (kebab-case)' },
-        group: { type: 'string', description: 'Group/subfolder for standards: code|contracts|knowledge|process' },
-        description: { type: 'string', description: 'Description — tool returns a fill prompt for the agent to process' },
-        content: { type: 'string', description: 'Agent-filled content to write (use after processing the fill prompt)' },
-        app_scope: { type: 'string', description: 'App scope for this standard (e.g. frontend, backend). Default: all' }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_scaffold',
+  description: 'Create a new KB file from a template. With description: returns a fill prompt for the agent. With content: writes agent-filled content. Without either: writes template with placeholders.',
+  inputSchema: {
+    type: 'object',
+    required: ['type'],
+    properties: {
+      type: { type: 'string', description: 'Template type: feature|flow|policy|schema|validation|integration|decision|standard|reference|technical|group|component' },
+      id: { type: 'string', description: 'File identifier (kebab-case)' },
+      group: { type: 'string', description: 'Group/subfolder for standards: code|contracts|knowledge|process' },
+      description: { type: 'string', description: 'Description — tool returns a fill prompt for the agent to process' },
+      content: { type: 'string', description: 'Agent-filled content to write (use after processing the fill prompt)' },
+      app_scope: { type: 'string', description: 'App scope for this standard (e.g. frontend, backend). Default: all' }
     }
   }
 }
+
+export { runTool, definition }
