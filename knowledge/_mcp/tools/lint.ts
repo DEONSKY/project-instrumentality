@@ -1,27 +1,45 @@
-const fs = require('fs')
-const path = require('path')
-const matter = require('gray-matter')
-const { loadRules } = require('../lib/rules')
-const { extractMentions } = require('../lib/mentions')
-const { validateDepth } = require('../lib/depth')
-const { inferType } = require('../lib/types')
-const { scan: scanSecrets } = require('../lib/secrets')
-const { loadGraph } = require('../lib/graph')
-const { validateStandard } = require('../lib/standards')
+import * as fs from 'fs'
+import * as path from 'path'
+import matter from 'gray-matter'
+import { loadRules } from '../lib/rules'
+import { extractMentions } from '../lib/mentions'
+import { validateDepth } from '../lib/depth'
+import { inferType } from '../lib/types'
+import { scan as scanSecrets } from '../lib/secrets'
+import { loadGraph } from '../lib/graph'
+import { validateStandard } from '../lib/standards'
+import type { ToolDefinition } from '../src/types/tool'
+import type { Rules } from '../src/types/rules'
+import type { Graph } from '../src/types/graph'
 
 const KB_ROOT = 'knowledge'
 const REQUIRED_FRONTMATTER = ['id', 'app_scope', 'created']
+
+interface Violation {
+  file: string
+  line: number
+  severity: 'error' | 'warn'
+  message: string
+}
+
+export interface LintResult {
+  violations: Violation[]
+  error_count: number
+  warn_count: number
+}
+
+type Frontmatter = Record<string, unknown>
 
 // Folders whose files are not KB content — skip linting
 const SKIP_LINT_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules', '_templates', 'drift-log', 'sync', '.obsidian'])
 
 // Called only by kb_reindex — never directly by tools
-async function runTool({ file_path = 'all' } = {}) {
+async function runTool({ file_path = 'all' }: { file_path?: string } = {}): Promise<LintResult> {
   const rules = loadRules(KB_ROOT)
   const graph = loadGraph(KB_ROOT)
-  const violations = []
+  const violations: Violation[] = []
 
-  let filesToCheck = []
+  let filesToCheck: string[] = []
 
   if (file_path === 'all') {
     filesToCheck = collectKBFiles()
@@ -40,14 +58,14 @@ async function runTool({ file_path = 'all' } = {}) {
   return { violations, error_count: errors.length, warn_count: warnings.length }
 }
 
-function lintFile(filePath, rules, graph) {
-  const violations = []
-  let content
+function lintFile(filePath: string, rules: Rules, graph: Graph): Violation[] {
+  const violations: Violation[] = []
+  let content: string
 
   try {
     content = fs.readFileSync(filePath, 'utf8')
   } catch (e) {
-    return [{ file: filePath, line: 0, severity: 'error', message: `Cannot read file: ${e.message}` }]
+    return [{ file: filePath, line: 0, severity: 'error', message: `Cannot read file: ${(e as Error).message}` }]
   }
 
   // Skip rules file
@@ -68,12 +86,12 @@ function lintFile(filePath, rules, graph) {
   }
 
   // Parse front-matter
-  let data
+  let data: Frontmatter
   try {
     const parsed = matter(content)
     data = parsed.data || {}
   } catch (e) {
-    violations.push({ file: filePath, line: 1, severity: 'error', message: `Invalid YAML front-matter: ${e.message}` })
+    violations.push({ file: filePath, line: 1, severity: 'error', message: `Invalid YAML front-matter: ${(e as Error).message}` })
     return violations
   }
 
@@ -131,7 +149,7 @@ function lintFile(filePath, rules, graph) {
     // regex hint (e.g. a field-name literal for contract drift) lets MCP's
     // cheap pre-filter skip irrelevant files in current mode.
     if (Array.isArray(data.rules)) {
-      for (const rule of data.rules) {
+      for (const rule of data.rules as Array<Record<string, unknown> & { id?: string; detect?: { kind?: string; pre_filter?: string } }>) {
         if (rule && rule.detect && rule.detect.kind === 'llm' && !rule.detect.pre_filter) {
           violations.push({
             file: filePath,
@@ -172,11 +190,11 @@ function lintFile(filePath, rules, graph) {
   })
 
   // Detect unfilled {{placeholders}} from templates
-  const placeholderNames = []
+  const placeholderNames: string[] = []
   let firstPlaceholderLine = 0
   content.split('\n').forEach((line, idx) => {
     const re = /\{\{([^}]+)\}\}/g
-    let m
+    let m: RegExpExecArray | null
     while ((m = re.exec(line)) !== null) {
       if (!firstPlaceholderLine) firstPlaceholderLine = idx + 1
       placeholderNames.push(m[1].trim())
@@ -234,13 +252,13 @@ function lintFile(filePath, rules, graph) {
  * The downstream schema validator treats the corrupt field as "present" and
  * passes, so this pre-scan is needed to surface the corruption explicitly.
  */
-function checkSerializationSentinels(data, filePath, violations, pathPrefix = '') {
+function checkSerializationSentinels(data: unknown, filePath: string, violations: Violation[], pathPrefix = ''): void {
   if (data === null || typeof data !== 'object') return
   if (Array.isArray(data)) {
     data.forEach((item, idx) => checkSerializationSentinels(item, filePath, violations, `${pathPrefix}[${idx}]`))
     return
   }
-  for (const [key, val] of Object.entries(data)) {
+  for (const [key, val] of Object.entries(data as Record<string, unknown>)) {
     const fullPath = pathPrefix ? `${pathPrefix}.${key}` : key
     if (key === '[object Object]') {
       violations.push({
@@ -264,23 +282,25 @@ function checkSerializationSentinels(data, filePath, violations, pathPrefix = ''
   }
 }
 
-function lintPromptOverride(filePath, data, rules, violations) {
+function lintPromptOverride(filePath: string, data: Frontmatter, rules: Rules, violations: Violation[]): Violation[] {
   const overrides = rules.getPromptOverrides()
   const validTypes = overrides.valid_override_types || []
   const protected_ = overrides.protected || []
+  const base = data.base as string | undefined
+  const override = data.override as string | undefined
 
-  if (!data.base) {
+  if (!base) {
     violations.push({ file: filePath, line: 1, severity: 'error', message: 'Prompt override missing required field: base' })
   }
-  if (!data.override) {
+  if (!override) {
     violations.push({ file: filePath, line: 1, severity: 'error', message: 'Prompt override missing required field: override' })
   }
-  if (data.override && !validTypes.includes(data.override)) {
-    violations.push({ file: filePath, line: 1, severity: 'error', message: `Invalid override type: ${data.override}. Valid: ${validTypes.join(', ')}` })
+  if (override && !validTypes.includes(override)) {
+    violations.push({ file: filePath, line: 1, severity: 'error', message: `Invalid override type: ${override}. Valid: ${validTypes.join(', ')}` })
   }
-  if (data.override === 'suppress') {
-    if (protected_.includes(data.base)) {
-      violations.push({ file: filePath, line: 1, severity: 'error', message: `Cannot suppress protected prompt: ${data.base}` })
+  if (override === 'suppress') {
+    if (base && protected_.includes(base)) {
+      violations.push({ file: filePath, line: 1, severity: 'error', message: `Cannot suppress protected prompt: ${base}` })
     }
     if (overrides.suppress_requires_reason && !data.reason) {
       violations.push({ file: filePath, line: 1, severity: 'error', message: 'suppress override requires a reason: field' })
@@ -288,18 +308,18 @@ function lintPromptOverride(filePath, data, rules, violations) {
   }
 
   // Check base prompt exists
-  if (data.base) {
-    const basePath = path.join(overrides.base_dir || 'knowledge/_templates/prompts', `${data.base}.md`)
+  if (base) {
+    const basePath = path.join(overrides.base_dir || 'knowledge/_templates/prompts', `${base}.md`)
     if (!fs.existsSync(basePath)) {
-      violations.push({ file: filePath, line: 1, severity: 'error', message: `Base prompt not found: ${data.base}` })
+      violations.push({ file: filePath, line: 1, severity: 'error', message: `Base prompt not found: ${base}` })
     }
   }
 
   return violations
 }
 
-function buildGitignoreChecker() {
-  const patterns = []
+function buildGitignoreChecker(): (filePath: string) => boolean {
+  const patterns: Array<{ regex: RegExp; negated: boolean }> = []
 
   const sources = [
     { filePath: '.gitignore', base: '' },
@@ -345,7 +365,7 @@ function buildGitignoreChecker() {
     }
   }
 
-  return (filePath) => {
+  return (filePath: string): boolean => {
     let ignored = false
     for (const { regex, negated } of patterns) {
       if (regex.test(filePath)) ignored = !negated
@@ -354,11 +374,11 @@ function buildGitignoreChecker() {
   }
 }
 
-function collectKBFiles() {
-  const files = []
+function collectKBFiles(): string[] {
+  const files: string[] = []
   const isGitignored = buildGitignoreChecker()
 
-  function walk(dir) {
+  function walk(dir: string): void {
     if (!fs.existsSync(dir)) return
     const entries = fs.readdirSync(dir, { withFileTypes: true })
     entries.forEach(entry => {
@@ -375,4 +395,4 @@ function collectKBFiles() {
   return files
 }
 
-module.exports = { runTool }
+export { runTool }

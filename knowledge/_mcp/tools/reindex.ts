@@ -1,22 +1,24 @@
-const fs = require('fs')
-const path = require('path')
-const matter = require('gray-matter')
-const yaml = require('js-yaml')
-const { loadGraph, resolveDep, findCycles, validateEdges, EDGE_RULES } = require('../lib/graph')
-const { loadRules } = require('../lib/rules')
-const { estimateTokens } = require('../lib/budget')
-const { extractMentions } = require('../lib/mentions')
-const { inferType } = require('../lib/types')
-const { runTool: lint } = require('./lint')
-const { collectMdFiles } = require('../lib/fs-walk')
-const { KB_ROOT } = require('../lib/kb-constants')
+import * as fs from 'fs'
+import * as path from 'path'
+import matter from 'gray-matter'
+import * as yaml from 'js-yaml'
+import { loadGraph, resolveDep, findCycles, validateEdges, EDGE_RULES } from '../lib/graph'
+import { loadRules } from '../lib/rules'
+import { estimateTokens } from '../lib/budget'
+import { extractMentions } from '../lib/mentions'
+import { inferType } from '../lib/types'
+import { runTool as lint } from './lint'
+import { collectMdFiles } from '../lib/fs-walk'
+import { KB_ROOT } from '../lib/kb-constants'
+import type { Graph, GraphEntry, GraphGroup } from '../src/types/graph'
 
-async function runTool({ silent = false } = {}) {
+async function runTool({ silent = false }: { silent?: boolean } = {}): Promise<Record<string, unknown>> {
   const rules = loadRules(KB_ROOT)
   const existingGraph = loadGraph(KB_ROOT)
+  void rules; void existingGraph // computed for parity with prior behavior; not read here
 
-  const files = {}
-  const groups = {}
+  const files: Record<string, GraphEntry> = {}
+  const groups: Record<string, GraphGroup> = {}
 
   // Walk all .md files in knowledge/
   collectMdFiles(KB_ROOT).forEach(filePath => {
@@ -24,17 +26,17 @@ async function runTool({ silent = false } = {}) {
     try {
       const content = fs.readFileSync(filePath, 'utf8')
       const parsed = matter(content)
-      const data = parsed.data || {}
+      const data: Record<string, unknown> = parsed.data || {}
 
       // Detect [[wikilinks]] and merge with frontmatter depends_on (deduped by bare ID)
       const mentions = extractMentions(parsed.content)
-      const existingDeps = data.depends_on || []
-      const seen = new Map()
+      const existingDeps = (data.depends_on as string[]) || []
+      const seen = new Map<string, string>()
       for (const d of [...existingDeps, ...mentions]) {
         if (!d) continue
-        const key = d.replace(/#.*$/, '').replace(/\.md$/, '').split('/').pop()
+        const key = d.replace(/#.*$/, '').replace(/\.md$/, '').split('/').pop() as string
         // When duplicates collide, keep the longer (more qualified) form
-        if (!seen.has(key) || d.length > seen.get(key).length) seen.set(key, d)
+        if (!seen.has(key) || d.length > (seen.get(key) as string).length) seen.set(key, d)
       }
       const selfKey = relative.replace(/\.md$/, '').split('/').pop()
       const allDeps = [...seen.values()].filter(d => {
@@ -44,15 +46,15 @@ async function runTool({ silent = false } = {}) {
 
       const tokensEst = estimateTokens(content)
 
-      const entry = {
-        id: data.id || path.basename(filePath, '.md'),
-        type: data.type || inferType(relative),
-        app_scope: data.app_scope || 'all',
+      const entry: GraphEntry = {
+        id: (data.id as string) || path.basename(filePath, '.md'),
+        type: (data.type as string) || inferType(relative),
+        app_scope: (data.app_scope as string | string[]) || 'all',
         tokens_est: tokensEst,
-        always_load: data.always_load || false,
+        always_load: (data.always_load as boolean) || false,
         depends_on: allDeps,
-        affects_flows: data.affects_flows || [],
-        tags: data.tags || []
+        affects_flows: (data.affects_flows as string[]) || [],
+        tags: (data.tags as string[]) || []
       }
 
       if (data.owner) entry.owner = data.owner
@@ -91,7 +93,7 @@ async function runTool({ silent = false } = {}) {
 
       files[relative] = entry
     } catch (e) {
-      if (!silent) console.error(`[reindex] Skipping ${filePath}: ${e.message}`)
+      if (!silent) console.error(`[reindex] Skipping ${filePath}: ${(e as Error).message}`)
     }
   })
 
@@ -111,8 +113,9 @@ async function runTool({ silent = false } = {}) {
     const isGroupFile = entry.type === 'group' ||
       path.basename(fp) === '_group.md' ||
       path.basename(fp, '.md') === path.basename(path.dirname(fp))
-    if (entry.group && groups[entry.group] && !isGroupFile) {
-      groups[entry.group].file_count = (groups[entry.group].file_count || 0) + 1
+    const groupKey = entry.group as string | undefined
+    if (groupKey && groups[groupKey] && !isGroupFile) {
+      groups[groupKey].file_count = ((groups[groupKey].file_count as number) || 0) + 1
     }
   })
 
@@ -121,8 +124,8 @@ async function runTool({ silent = false } = {}) {
   // renames/deletes), cycles (graph integrity), and edge-type violations
   // (currently no-op — EDGE_RULES ships empty). All emitted conditionally
   // so clean projects don't see noise.
-  const intermediate = { version: '1.0', files, groups }
-  const orphan_dependencies = []
+  const intermediate: Graph = { version: '1.0', files, groups }
+  const orphan_dependencies: Array<{ source: string; missing_dep: string }> = []
   Object.entries(files).forEach(([fp, entry]) => {
     for (const dep of [...(entry.depends_on || []), ...(entry.affects_flows || [])]) {
       if (!resolveDep(intermediate, dep)) {
@@ -184,6 +187,6 @@ async function runTool({ silent = false } = {}) {
   }
 }
 
-// inferType moved to lib/types.js
+// inferType moved to lib/types.ts
 
-module.exports = { runTool }
+export { runTool }
