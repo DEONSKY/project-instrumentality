@@ -4,7 +4,7 @@
   "description": "MCP server for managing a structured knowledge base inside a monorepo",
   "main": "dist/server.js",
   "scripts": {
-    "build": "rm -rf dist && tsc",
+    "build": "rm -rf dist && tsc && node scripts/copy-assets.cjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test --import tsx tests/*.test.js"
   },

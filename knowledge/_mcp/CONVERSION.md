@@ -126,22 +126,28 @@ GraphEntry/EdgeRule) — reusable shapes for later phases.
 `any` count: 0 (justified narrowing casts only: generic spread in session-cache,
 guarded Map.get in tag-model/promotion-ledger, dynamic fs indexing in fs-tracker)
 
-## Phase 2 — lib/ with intra-lib deps
-- [ ] agent-rules
-- [ ] kb-paths  *(already routed through pkg-paths)*
-- [ ] patterns  *(14 test require sites — heavily tested, good safety net)*
-- [ ] rule-detect
-- [ ] rules
-- [ ] standards
-- [ ] tag-extract
-- [ ] git-hooks  ⚠ **see follow-up F1** (bakes absolute __dirname paths into hook
-      scripts; references `scripts/kb-feature.sh` + `tools/reindex.js` which tsc
-      won't emit — needs pkg-paths + an asset-copy step)
-- [ ] pattern-audit
-- [ ] prompts  *(already routed through pkg-paths)*
-- [ ] template-filler
+## Phase 2 — lib/ with intra-lib deps ✅ DONE
+- [x] agent-rules
+- [ ] kb-paths  *(still clean CJS .js like pkg-paths — routed, leaf, converts in a later sweep)*
+- [x] patterns  *(14 test require sites — heavily tested, good safety net)*
+- [x] rule-detect
+- [x] rules  *(expanded src/types/rules.ts to the full Rules API)*
+- [x] standards
+- [x] tag-extract
+- [x] git-hooks  *(F1 RESOLVED — see below)*
+- [x] pattern-audit
+- [x] prompts
+- [x] template-filler
 
-`any` count: ___
+`any` count: 0 (documented casts only at dynamic-YAML / graph-entry boundaries)
+
+**F1 resolved:** git-hooks' script/server refs (`__dirname/../scripts/lint-standalone.js`,
+`../server.js`, `../tools/reindex.js`) already resolve correctly under dist/ — tsc
+emits those `.js`. The only gap was the non-JS asset `scripts/kb-feature.sh`, which
+tsc doesn't emit. Added `scripts/copy-assets.cjs` (run after tsc in the build) to
+copy it into `dist/scripts/` preserving the exec bit. tsconfig now excludes
+`**/*.cjs` so build scripts don't leak into dist. Data dirs (presets/schemas/
+_templates) still resolve from source via pkg-paths — not copied.
 
 ## Phase 3 — tools/ simpler half
 - [ ] status  *(already routed; consider switching loadShared to `require('@instrumentality/shared')`)*

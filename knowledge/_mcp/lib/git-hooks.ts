@@ -9,13 +9,14 @@
 // matches the previous from-tools/init.js resolution. The baked-in absolute
 // paths inside the template literals are the same in both locations.
 
-const fs = require('fs')
-const path = require('path')
+import * as fs from 'fs'
+import * as path from 'path'
+import type { Rules } from '../src/types/rules'
 
 // Hooks check local path first, then fall back to the MCP server's own location.
 // This makes them work whether or not the MCP server is installed inside the project.
 // On Windows, convert C:\... paths to /c/... so Git's sh.exe (MSYS2) can resolve them.
-const toShPath = p => process.platform === 'win32'
+const toShPath = (p: string): string => process.platform === 'win32'
   ? p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`)
   : p
 const _LINT_SCRIPT = toShPath(path.join(__dirname, '../scripts/lint-standalone.js'))
@@ -262,18 +263,18 @@ elif [ -f "$BUNDLED" ]; then node "$BUNDLED"
 fi
 `
 
-function installGitHooks() {
+function installGitHooks(): string[] {
   const hooksDir = '.git/hooks'
   if (!fs.existsSync(hooksDir)) return []
 
-  const hooks = {
+  const hooks: Record<string, string> = {
     'pre-commit': PRE_COMMIT_HOOK,
     'pre-push': PRE_PUSH_HOOK,
     'post-merge': POST_MERGE_HOOK,
     'post-checkout': POST_CHECKOUT_HOOK
   }
 
-  const installed = []
+  const installed: string[] = []
   Object.entries(hooks).forEach(([name, content]) => {
     const hookPath = path.join(hooksDir, name)
     const exists = fs.existsSync(hookPath)
@@ -310,15 +311,15 @@ function installGitHooks() {
  * already include prefixed patterns for each submodule path.
  * Returns suggestions for missing patterns (informational only).
  */
-function detectSubmodulePatternGaps(rules) {
+function detectSubmodulePatternGaps(rules: Rules | null): Array<{ path: string; isShared: boolean }> {
   const gitmodulesPath = '.gitmodules'
   if (!fs.existsSync(gitmodulesPath)) return []
   const content = fs.readFileSync(gitmodulesPath, 'utf8')
   const blocks = content.split(/(?=\[submodule\s+"[^"]+"\])/).filter(b => b.trim())
   const patterns = rules ? rules.getCodePathPatterns() : []
-  const allPaths = patterns.flatMap(p => p.paths || [])
+  const allPaths = patterns.flatMap(p => (p.paths as string[]) || [])
 
-  const suggestions = []
+  const suggestions: Array<{ path: string; isShared: boolean }> = []
   for (const block of blocks) {
     const nameMatch = block.match(/\[submodule\s+"([^"]+)"\]/)
     const pathMatch = block.match(/path\s*=\s*(.+)/)
@@ -333,7 +334,7 @@ function detectSubmodulePatternGaps(rules) {
   return suggestions
 }
 
-function installMergeDrivers() {
+function installMergeDrivers(): void {
   try {
     const gitConfigPath = '.git/config'
     if (!fs.existsSync(gitConfigPath)) return
@@ -348,11 +349,11 @@ function installMergeDrivers() {
 
     fs.writeFileSync(gitConfigPath, config)
   } catch (e) {
-    console.warn('[init] Could not install merge drivers:', e.message)
+    console.warn('[init] Could not install merge drivers:', (e as Error).message)
   }
 }
 
-module.exports = {
+export {
   installGitHooks,
   installMergeDrivers,
   detectSubmodulePatternGaps,
