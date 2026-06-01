@@ -1,8 +1,13 @@
-const fs = require('fs')
-const path = require('path')
-const matter = require('gray-matter')
+import * as fs from 'fs'
+import * as path from 'path'
+import matter from 'gray-matter'
+import type { ToolDefinition } from '../src/types/tool'
 
 const KB_ROOT = 'knowledge'
+
+interface DbmlBlock { name: string; content: string }
+interface ParsedDbml { tables: DbmlBlock[]; enums: DbmlBlock[]; refs: string[] }
+interface CurrentBlock { type: string; name: string; lines: string[] }
 
 // ── DBML Parser ─────────────────────────────────────────────────────────────
 
@@ -11,15 +16,15 @@ const KB_ROOT = 'knowledge'
  * Returns { tables, enums, refs } where tables/enums are { name, content } arrays
  * and refs is an array of standalone Ref: strings.
  */
-function parseDbml(fileContent) {
+function parseDbml(fileContent: string): ParsedDbml {
   const { content } = matter(fileContent)
   const lines = content.split('\n')
 
-  const tables = []
-  const enums = []
-  const refs = []
+  const tables: DbmlBlock[] = []
+  const enums: DbmlBlock[] = []
+  const refs: string[] = []
 
-  let current = null       // { type, name, lines }
+  let current: CurrentBlock | null = null
   let braceDepth = 0
 
   for (const line of lines) {
@@ -46,7 +51,7 @@ function parseDbml(fileContent) {
         refs.push(trimmed)
         continue
       }
-    } else {
+    } else if (current) {
       // Inside a block — accumulate lines
       current.lines.push(line)
       braceDepth += countBraces(line)
@@ -61,7 +66,7 @@ function parseDbml(fileContent) {
   return { tables, enums, refs }
 }
 
-function countBraces(line) {
+function countBraces(line: string): number {
   let depth = 0
   for (const ch of line) {
     if (ch === '{') depth++
@@ -70,7 +75,7 @@ function countBraces(line) {
   return depth
 }
 
-function pushBlock(block, tables, enums) {
+function pushBlock(block: CurrentBlock, tables: DbmlBlock[], enums: DbmlBlock[]): void {
   const entry = { name: block.name, content: block.lines.join('\n') }
   if (block.type === 'table' || block.type === 'tablegroup') {
     tables.push(entry)
@@ -85,7 +90,7 @@ function pushBlock(block, tables, enums) {
  * Filter tables by exact name match (case-insensitive).
  * Returns matching tables + refs that mention any matched table.
  */
-function filterTablesByNames(parsed, names) {
+function filterTablesByNames(parsed: ParsedDbml, names: string[]): ParsedDbml {
   const lower = names.map(n => n.toLowerCase())
   const matched = parsed.tables.filter(t => lower.includes(t.name.toLowerCase()))
   const matchedNames = matched.map(t => t.name.toLowerCase())
@@ -107,7 +112,7 @@ function filterTablesByNames(parsed, names) {
  * Filter tables by keyword scoring.
  * Returns tables sorted by relevance, plus related enums and refs.
  */
-function filterTablesByKeywords(parsed, keywords) {
+function filterTablesByKeywords(parsed: ParsedDbml, keywords: string | string[]): ParsedDbml {
   const kwList = Array.isArray(keywords) ? keywords : [keywords]
   const kwLower = kwList.map(k => k.toLowerCase())
 
@@ -139,7 +144,7 @@ function filterTablesByKeywords(parsed, keywords) {
 
 // ── File resolution ─────────────────────────────────────────────────────────
 
-function resolveSchemaPath(file) {
+function resolveSchemaPath(file?: string): string | null {
   if (!file) return null
 
   // Full path: knowledge/data/schema/postgres.md
@@ -160,7 +165,14 @@ function resolveSchemaPath(file) {
 
 // ── Tool commands ───────────────────────────────────────────────────────────
 
-async function runTool({ command, file, entities, keywords } = {}) {
+async function runTool(
+  { command, file, entities, keywords }: {
+    command?: string
+    file?: string
+    entities?: string[]
+    keywords?: string | string[]
+  } = {}
+): Promise<Record<string, unknown>> {
   if (!command) return { error: 'command is required. Valid: query, list' }
 
   switch (command) {
@@ -170,7 +182,7 @@ async function runTool({ command, file, entities, keywords } = {}) {
   }
 }
 
-function handleList(file) {
+function handleList(file?: string): Record<string, unknown> {
   const resolved = resolveSchemaPath(file)
   if (!resolved) return { error: `Schema file not found: ${file}` }
 
@@ -185,7 +197,7 @@ function handleList(file) {
   }
 }
 
-function handleQuery(file, entities, keywords) {
+function handleQuery(file?: string, entities?: string[], keywords?: string | string[]): Record<string, unknown> {
   const resolved = resolveSchemaPath(file)
   if (!resolved) return { error: `Schema file not found: ${file}` }
 
@@ -215,23 +227,19 @@ function handleQuery(file, entities, keywords) {
   }
 }
 
-module.exports = {
-  runTool,
-  parseDbml,
-  filterTablesByNames,
-  filterTablesByKeywords,
-  definition: {
-    name: 'kb_schema',
-    description: 'Query database schema files (DBML format) with table-level extraction. Returns only relevant table/enum definitions.',
-    inputSchema: {
-      type: 'object',
-      required: ['command'],
-      properties: {
-        command: { type: 'string', enum: ['query', 'list'], description: 'query: extract table definitions. list: list all tables and enums.' },
-        file: { type: 'string', description: 'Schema file path or bare name (e.g. "postgres" or "data/schema/postgres.md")' },
-        entities: { type: 'array', items: { type: 'string' }, description: 'Table names to extract (exact match)' },
-        keywords: { description: 'Keywords for relevance-scored table extraction', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_schema',
+  description: 'Query database schema files (DBML format) with table-level extraction. Returns only relevant table/enum definitions.',
+  inputSchema: {
+    type: 'object',
+    required: ['command'],
+    properties: {
+      command: { type: 'string', enum: ['query', 'list'], description: 'query: extract table definitions. list: list all tables and enums.' },
+      file: { type: 'string', description: 'Schema file path or bare name (e.g. "postgres" or "data/schema/postgres.md")' },
+      entities: { type: 'array', items: { type: 'string' }, description: 'Table names to extract (exact match)' },
+      keywords: { description: 'Keywords for relevance-scored table extraction', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] }
     }
   }
 }
+
+export { runTool, parseDbml, filterTablesByNames, filterTablesByKeywords, definition }

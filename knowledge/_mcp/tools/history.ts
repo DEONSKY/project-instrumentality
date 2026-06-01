@@ -1,19 +1,42 @@
-const fs = require('fs')
-const path = require('path')
-const { execFileSync } = require('child_process')
+import * as fs from 'fs'
+import * as path from 'path'
+import { execFileSync } from 'child_process'
+import type { ToolDefinition } from '../src/types/tool'
 
 const KB_ROOT = 'knowledge'
 const DRIFT_LOG_DIR = path.join(KB_ROOT, 'sync/drift-log')
 const DEFAULT_LIMIT = 20
 const EXCERPT_MAX = 300
 
+interface Commit {
+  sha: string
+  full_sha: string
+  date: string
+  author: string
+  subject: string
+  file_changes: string | null
+  patch?: string | null
+}
+
+interface DriftMention {
+  path: string
+  section: string | null
+  excerpt: string
+}
+
+interface Section {
+  heading: string | null
+  body: string
+}
+
 // ── git side ───────────────────────────────────────────────────────────────
 
-function runGit(args) {
+function runGit(args: string[]): string {
   try {
     return execFileSync('git', args, { stdio: ['ignore', 'pipe', 'pipe'] }).toString()
   } catch (err) {
-    const stderr = err.stderr ? err.stderr.toString().trim() : err.message
+    const e = err as { stderr?: Buffer; message: string }
+    const stderr = e.stderr ? e.stderr.toString().trim() : e.message
     throw new Error(`git ${args.join(' ')} failed: ${stderr}`)
   }
 }
@@ -25,7 +48,10 @@ const FIELD_SEP = '\x1f'
 const RECORD_START = '\x1e'
 const LOG_FORMAT = RECORD_START + ['%H', '%h', '%ad', '%an', '%s'].join(FIELD_SEP)
 
-function collectCommits(file, { limit, since, includeDiff }) {
+function collectCommits(
+  file: string,
+  { limit, since, includeDiff }: { limit: number; since?: string; includeDiff: boolean }
+): Commit[] {
   const args = [
     'log',
     '--follow',
@@ -44,10 +70,10 @@ function collectCommits(file, { limit, since, includeDiff }) {
   return parseLog(raw, includeDiff)
 }
 
-function parseLog(raw, includeDiff) {
+function parseLog(raw: string, includeDiff: boolean): Commit[] {
   // First chunk is empty (before the first RECORD_START); drop it.
   const records = raw.split(RECORD_START).slice(1)
-  const commits = []
+  const commits: Commit[] = []
 
   for (const record of records) {
     const [header, ...rest] = record.split('\n')
@@ -57,7 +83,7 @@ function parseLog(raw, includeDiff) {
     const body = rest.join('\n')
     const { fileChanges, patch } = splitNumstatFromPatch(body, includeDiff)
 
-    const commit = { sha: shortSha, full_sha: sha, date, author, subject, file_changes: fileChanges }
+    const commit: Commit = { sha: shortSha, full_sha: sha, date, author, subject, file_changes: fileChanges }
     if (includeDiff && patch) commit.patch = patch
     commits.push(commit)
   }
@@ -67,9 +93,9 @@ function parseLog(raw, includeDiff) {
 
 // numstat lines look like: "12\t3\tpath/to/file" — one line per file touched in the commit.
 // When -p is on, the diff blocks follow after the numstat block (separated by a blank line).
-function splitNumstatFromPatch(body, includeDiff) {
+function splitNumstatFromPatch(body: string, includeDiff: boolean): { fileChanges: string | null; patch?: string | null } {
   const lines = body.split('\n')
-  const numstatLines = []
+  const numstatLines: string[] = []
   let i = 0
   while (i < lines.length && /^\d+\t\d+\t/.test(lines[i])) {
     numstatLines.push(lines[i])
@@ -86,7 +112,7 @@ function splitNumstatFromPatch(body, includeDiff) {
 
 // ── drift-log side ─────────────────────────────────────────────────────────
 
-function collectDriftMentions(file) {
+function collectDriftMentions(file: string): DriftMention[] {
   if (!fs.existsSync(DRIFT_LOG_DIR)) return []
 
   const logFiles = fs.readdirSync(DRIFT_LOG_DIR)
@@ -94,7 +120,7 @@ function collectDriftMentions(file) {
     .map(f => path.join(DRIFT_LOG_DIR, f))
 
   const needles = buildSearchNeedles(file)
-  const mentions = []
+  const mentions: DriftMention[] = []
 
   for (const logFile of logFiles) {
     const content = fs.readFileSync(logFile, 'utf8')
@@ -113,8 +139,8 @@ function collectDriftMentions(file) {
   return mentions
 }
 
-function buildSearchNeedles(file) {
-  const needles = new Set()
+function buildSearchNeedles(file: string): string[] {
+  const needles = new Set<string>()
   const lower = file.toLowerCase()
   needles.add(lower)
   needles.add(lower.replace(/^knowledge\//, ''))
@@ -123,10 +149,10 @@ function buildSearchNeedles(file) {
   return [...needles].filter(Boolean)
 }
 
-function splitSections(markdown) {
+function splitSections(markdown: string): Section[] {
   const lines = markdown.split('\n')
-  const sections = []
-  let current = { heading: null, body: '' }
+  const sections: Section[] = []
+  let current: Section = { heading: null, body: '' }
   for (const line of lines) {
     if (/^#{1,6}\s+/.test(line)) {
       if (current.heading !== null || current.body.trim()) sections.push(current)
@@ -139,14 +165,14 @@ function splitSections(markdown) {
   return sections
 }
 
-function truncate(text, max) {
+function truncate(text: string, max: number): string {
   if (text.length <= max) return text
   return text.slice(0, max).trimEnd() + '…'
 }
 
 // ── entry ──────────────────────────────────────────────────────────────────
 
-function resolveFile(file) {
+function resolveFile(file?: string): { file?: string; error?: string; warning?: string } {
   if (!file) return { error: 'file is required' }
   if (fs.existsSync(file)) return { file }
   const withPrefix = file.startsWith(KB_ROOT + '/') ? file : path.join(KB_ROOT, file)
@@ -155,23 +181,30 @@ function resolveFile(file) {
   return { file, warning: `file not found on disk: ${file} — git --follow may still return history if it was renamed` }
 }
 
-async function runTool({ file, limit, since, include_diff } = {}) {
+async function runTool(
+  { file, limit, since, include_diff }: {
+    file?: string
+    limit?: number
+    since?: string
+    include_diff?: boolean
+  } = {}
+): Promise<Record<string, unknown>> {
   const resolved = resolveFile(file)
   if (resolved.error) return { error: resolved.error }
 
   const effectiveLimit = Math.max(1, Math.min(Number(limit) || DEFAULT_LIMIT, 200))
   const includeDiff = Boolean(include_diff)
 
-  let commits
+  let commits: Commit[]
   try {
-    commits = collectCommits(resolved.file, { limit: effectiveLimit, since, includeDiff })
+    commits = collectCommits(resolved.file as string, { limit: effectiveLimit, since, includeDiff })
   } catch (err) {
-    return { error: err.message }
+    return { error: (err as Error).message }
   }
 
-  const driftMentions = collectDriftMentions(resolved.file)
+  const driftMentions = collectDriftMentions(resolved.file as string)
 
-  const result = {
+  const result: Record<string, unknown> = {
     file: resolved.file,
     commits,
     drift_log_mentions: driftMentions
@@ -180,24 +213,20 @@ async function runTool({ file, limit, since, include_diff } = {}) {
   return result
 }
 
-module.exports = {
-  runTool,
-  // exported for tests
-  parseLog,
-  splitSections,
-  buildSearchNeedles,
-  definition: {
-    name: 'kb_history',
-    description: 'Get the change history of a KB file: git commits that touched it + any drift-log entries that reference it. Call this when a decision depends on why or when something changed — not for routine reads.',
-    inputSchema: {
-      type: 'object',
-      required: ['file'],
-      properties: {
-        file: { type: 'string', description: 'KB file path (e.g. knowledge/decisions/auth.md or decisions/auth.md)' },
-        limit: { type: 'number', description: `Max number of commits (default: ${DEFAULT_LIMIT}, max 200)` },
-        since: { type: 'string', description: 'ISO date filter, e.g. "2026-01-01"' },
-        include_diff: { type: 'boolean', description: 'Include patch bodies. Off by default to save tokens.' }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_history',
+  description: 'Get the change history of a KB file: git commits that touched it + any drift-log entries that reference it. Call this when a decision depends on why or when something changed — not for routine reads.',
+  inputSchema: {
+    type: 'object',
+    required: ['file'],
+    properties: {
+      file: { type: 'string', description: 'KB file path (e.g. knowledge/decisions/auth.md or decisions/auth.md)' },
+      limit: { type: 'number', description: `Max number of commits (default: ${DEFAULT_LIMIT}, max 200)` },
+      since: { type: 'string', description: 'ISO date filter, e.g. "2026-01-01"' },
+      include_diff: { type: 'boolean', description: 'Include patch bodies. Off by default to save tokens.' }
     }
   }
 }
+
+// parseLog/splitSections/buildSearchNeedles are exported for tests.
+export { runTool, parseLog, splitSections, buildSearchNeedles, definition }
