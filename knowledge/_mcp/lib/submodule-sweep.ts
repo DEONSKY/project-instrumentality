@@ -1,6 +1,13 @@
-const fs = require('fs')
-const path = require('path')
-const simpleGit = require('simple-git')
+import * as fs from 'fs'
+import * as path from 'path'
+import simpleGit, { type SimpleGit } from 'simple-git'
+
+interface Submodule {
+  name: string
+  path: string
+  fullPath: string
+  isShared: boolean
+}
 
 /**
  * Detect submodules from the parent's .gitmodules. Returns
@@ -8,11 +15,11 @@ const simpleGit = require('simple-git')
  * `kb-shared = true` in their .gitmodules block — the drift/conform
  * detectors treat shared modules with a softer-touch policy.
  */
-function detectSubmodules(cwd = process.cwd()) {
+function detectSubmodules(cwd = process.cwd()): Submodule[] {
   const gitmodulesPath = path.join(cwd, '.gitmodules')
   if (!fs.existsSync(gitmodulesPath)) return []
   const content = fs.readFileSync(gitmodulesPath, 'utf8')
-  const submodules = []
+  const submodules: Submodule[] = []
   const blocks = content.split(/(?=\[submodule\s+"[^"]+"\])/).filter(b => b.trim())
   for (const block of blocks) {
     const nameMatch = block.match(/\[submodule\s+"([^"]+)"\]/)
@@ -52,6 +59,38 @@ function detectSubmodules(cwd = process.cwd()) {
  * Expected keys: `baselineReachable`, `resolveLastSyncRef`,
  * `getSubmodulePointerAt`.
  */
+interface ResolveSubmoduleRefsHelpers {
+  baselineReachable: (git: SimpleGit, sha: string | null) => Promise<boolean>
+  resolveLastSyncRef: (git: SimpleGit, remote: string, meta?: { via?: string }) => Promise<string | null>
+  getSubmodulePointerAt: (git: SimpleGit, ref: string, subPath: string) => Promise<string | null>
+}
+
+interface ResolveSubmoduleRefsArgs {
+  mainGit: SimpleGit
+  sub: Submodule
+  baseline: string | null
+  headSha: string | null
+  remote: string
+  toolName: string
+  helpers: ResolveSubmoduleRefsHelpers
+}
+
+interface RebootstrapEvent {
+  repo: string
+  old_sha: string
+  new_sha: string | null
+  resolver_used: string | undefined
+}
+
+interface ResolveSubmoduleRefsResult {
+  subGit: SimpleGit
+  subRef: string | null
+  subHeadRef: string | null
+  headInfo: { commit: string; date: string }
+  rebootstrapEvent: RebootstrapEvent | null
+  pointerMoved: boolean
+}
+
 async function resolveSubmoduleRefs({
   mainGit,
   sub,
@@ -60,18 +99,18 @@ async function resolveSubmoduleRefs({
   remote,
   toolName,
   helpers
-}) {
+}: ResolveSubmoduleRefsArgs): Promise<ResolveSubmoduleRefsResult> {
   const { baselineReachable, resolveLastSyncRef, getSubmodulePointerAt } = helpers
   const subGit = simpleGit(sub.fullPath)
 
   // ── subRef: parent's recorded gitlink at the queue baseline ─────────
-  let subRef = null
-  let rebootstrapEvent = null
+  let subRef: string | null = null
+  let rebootstrapEvent: RebootstrapEvent | null = null
   if (baseline) subRef = await getSubmodulePointerAt(mainGit, baseline, sub.path)
 
   if (subRef && !(await baselineReachable(subGit, subRef))) {
     const old = subRef
-    const meta = {}
+    const meta: { via?: string } = {}
     try { subRef = await resolveLastSyncRef(subGit, remote, meta) } catch { subRef = null }
     process.stderr.write(
       `[${toolName}] warning: submodule ${sub.path} baseline ${old} unreachable (likely squash-merged or never fetched); ` +
@@ -89,7 +128,7 @@ async function resolveSubmoduleRefs({
   }
 
   // ── subHeadRef: parent's recorded gitlink at HEAD, with fallback ────
-  let subHeadRef = null
+  let subHeadRef: string | null = null
   if (headSha) subHeadRef = await getSubmodulePointerAt(mainGit, headSha, sub.path)
   if (subHeadRef && !(await baselineReachable(subGit, subHeadRef))) {
     process.stderr.write(
@@ -126,7 +165,7 @@ async function resolveSubmoduleRefs({
   }
 }
 
-module.exports = {
+export {
   detectSubmodules,
   resolveSubmoduleRefs
 }

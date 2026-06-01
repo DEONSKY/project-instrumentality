@@ -3,7 +3,7 @@
  * Converts heading tags to markdown # syntax, paragraphs to double newlines,
  * and strips remaining HTML. No external dependencies.
  */
-function htmlHeadingsToMarkdown(html) {
+function htmlHeadingsToMarkdown(html: string): string {
   let md = html
 
   // Convert heading tags to markdown (h1-h6)
@@ -55,4 +55,4 @@ function htmlHeadingsToMarkdown(html) {
   return md.trim()
 }
 
-module.exports = { htmlHeadingsToMarkdown }
+export { htmlHeadingsToMarkdown }

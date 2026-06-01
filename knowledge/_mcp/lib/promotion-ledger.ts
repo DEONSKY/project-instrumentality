@@ -1,6 +1,41 @@
-const fs = require('fs')
-const path = require('path')
-const crypto = require('crypto')
+import * as fs from 'fs'
+import * as path from 'path'
+import * as crypto from 'crypto'
+
+interface LedgerFile {
+  path: string
+  promotedAt: string
+  note?: string
+}
+
+interface LedgerEntry {
+  queueKey: string
+  standardId: string
+  standardKind: string | null
+  ruleId: string
+  severity: string | null
+  ruleFingerprint: string | null
+  files: LedgerFile[]
+}
+
+interface LedgerState {
+  header: string
+  entries: LedgerEntry[]
+}
+
+// A rule object as carried in the standards index (only fingerprinted fields
+// are read here). The full standards types arrive when standards.js converts.
+interface FingerprintRule {
+  description?: string
+  severity?: string
+  detect?: unknown
+  applies_to?: unknown
+}
+
+interface FingerprintStandard {
+  kind?: string
+  parties?: Record<string, { applies_to?: { paths?: string[] } }>
+}
 
 const KB_ROOT = 'knowledge'
 const STANDARDS_PROMOTIONS_PATH = path.join(KB_ROOT, 'sync/standards-promotions.md')
@@ -25,11 +60,12 @@ Phase 1 re-detection until either:
 // Recursive key-sort so JSON.stringify produces deterministic output regardless
 // of insertion order in the source YAML. Arrays preserve order (semantically
 // meaningful for things like detect.pattern lists); objects don't.
-function canonicalize(value) {
+function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize)
   if (value && typeof value === 'object') {
-    const sorted = {}
-    for (const k of Object.keys(value).sort()) sorted[k] = canonicalize(value[k])
+    const sorted: Record<string, unknown> = {}
+    const obj = value as Record<string, unknown>
+    for (const k of Object.keys(obj).sort()) sorted[k] = canonicalize(obj[k])
     return sorted
   }
   return value
@@ -51,18 +87,18 @@ function canonicalize(value) {
  * which causes auto-close on the next sweep. That is a recovery path, not data
  * loss — re-promoting brings them back at the new fingerprint.
  *
- * @param {object} rule       - rule object from standardsIndex
- * @param {object} [standard] - parent standard (required if kind === 'contract')
+ * @param rule       - rule object from standardsIndex
+ * @param standard - parent standard (required if kind === 'contract')
  */
-function computeRuleFingerprint(rule, standard) {
-  const parts = {
+function computeRuleFingerprint(rule: FingerprintRule, standard?: FingerprintStandard): string {
+  const parts: Record<string, unknown> = {
     description: rule.description || '',
     severity: rule.severity || '',
     detect: canonicalize(rule.detect || null),
     applies_to: canonicalize(rule.applies_to || null)
   }
   if (standard && standard.kind === 'contract') {
-    const partyPaths = []
+    const partyPaths: Array<[string, string]> = []
     for (const [name, party] of Object.entries(standard.parties || {})) {
       const paths = (party.applies_to && party.applies_to.paths) || []
       partyPaths.push([name, [...paths].sort().join('|')])
@@ -76,7 +112,7 @@ function computeRuleFingerprint(rule, standard) {
 
 // ── Read / write ─────────────────────────────────────────────────────────────
 
-function readLedger() {
+function readLedger(): LedgerState {
   // Read-only: callers like kb_inventory document themselves as side-effect-free,
   // so we must not materialize the ledger file just because someone asked what's
   // in it. writeLedger() creates the file when there's actually something to
@@ -90,14 +126,14 @@ function readLedger() {
   const entriesStr = headerEnd === -1 ? '' : content.slice(headerEnd + 1)
   const blocks = entriesStr.split(/\n(?=## )/).filter(b => b.trim())
 
-  const entries = blocks.map(block => {
+  const entries = blocks.map((block): LedgerEntry | null => {
     const headingMatch = block.match(/^## (.+)/)
     const queueKey = headingMatch ? headingMatch[1].trim() : null
     const stdMatch = block.match(/\*\*Standard:\*\*\s*`([^`]+)`(?:\s*\(([^)]+)\))?/)
     const ruleMatch = block.match(/\*\*Rule:\*\*\s*`([^`]+)`\s*—\s*(\w+)/)
     const fpMatch = block.match(/\*\*Rule fingerprint:\*\*\s*`([^`]+)`/)
 
-    const files = []
+    const files: LedgerFile[] = []
     const lines = block.split('\n')
     let inFiles = false
     for (const line of lines) {
@@ -124,12 +160,12 @@ function readLedger() {
       ruleFingerprint: fpMatch ? fpMatch[1] : null,
       files
     }
-  }).filter(Boolean)
+  }).filter((e): e is LedgerEntry => e !== null)
 
   return { header: hdr, entries }
 }
 
-function writeLedger(state) {
+function writeLedger(state: LedgerState): void {
   const body = state.entries.map(entry => {
     const fileLines = entry.files.length > 0
       ? entry.files.map(f => {
@@ -155,7 +191,7 @@ function writeLedger(state) {
  * promotedAt/note (so re-promoting refreshes the timestamp). Fingerprint is
  * always overwritten with the latest computed value.
  */
-function addPromotions(state, items) {
+function addPromotions(state: LedgerState, items: LedgerEntry[]): void {
   for (const it of items) {
     let entry = state.entries.find(e => e.queueKey === it.queueKey)
     if (!entry) {
@@ -191,8 +227,8 @@ function addPromotions(state, items) {
  * remaining files, drop the entry entirely. Returns the list of entries that
  * were fully removed (caller logs them).
  */
-function removePromotions(state, items) {
-  const fullyRemoved = []
+function removePromotions(state: LedgerState, items: Array<{ queueKey: string; file_paths?: string[] }>): string[] {
+  const fullyRemoved: string[] = []
   for (const it of items) {
     const entry = state.entries.find(e => e.queueKey === it.queueKey)
     if (!entry) continue
@@ -215,7 +251,7 @@ function removePromotions(state, items) {
  * Remove entries whose queueKey is in the provided set. Used by auto-close on
  * standard removal and on fingerprint mismatch.
  */
-function removeEntriesByKey(state, queueKeys) {
+function removeEntriesByKey(state: LedgerState, queueKeys: string[]): LedgerEntry[] {
   const set = new Set(queueKeys)
   const removed = state.entries.filter(e => set.has(e.queueKey))
   state.entries = state.entries.filter(e => !set.has(e.queueKey))
@@ -227,8 +263,8 @@ function removeEntriesByKey(state, queueKeys) {
 /**
  * Map<queueKey, Set<filePath>> for O(1) suppression checks in detect().
  */
-function getSuppressedPairs(state) {
-  const map = new Map()
+function getSuppressedPairs(state: LedgerState): Map<string, Set<string>> {
+  const map = new Map<string, Set<string>>()
   for (const entry of state.entries) {
     map.set(entry.queueKey, new Set(entry.files.map(f => f.path)))
   }
@@ -241,15 +277,19 @@ function getSuppressedPairs(state) {
  * Mirrors conform.js applyFileChangesToQueue. Renames update the file path;
  * deletes drop the file row. An entry that loses all files is dropped entirely.
  */
-function applyFileChangesToLedger(state, renamed, deleted) {
+function applyFileChangesToLedger(
+  state: LedgerState,
+  renamed: Array<{ from: string; to: string }>,
+  deleted: string[]
+): void {
   const renameMap = new Map(renamed.map(r => [r.from, r.to]))
   const deletedSet = new Set(deleted)
-  const surviving = []
+  const surviving: LedgerEntry[] = []
   for (const entry of state.entries) {
-    const updated = []
+    const updated: LedgerFile[] = []
     for (const f of entry.files) {
       if (deletedSet.has(f.path)) continue
-      if (renameMap.has(f.path)) updated.push({ ...f, path: renameMap.get(f.path) })
+      if (renameMap.has(f.path)) updated.push({ ...f, path: renameMap.get(f.path) as string })
       else updated.push(f)
     }
     entry.files = updated
@@ -258,7 +298,7 @@ function applyFileChangesToLedger(state, renamed, deleted) {
   state.entries = surviving
 }
 
-module.exports = {
+export {
   STANDARDS_PROMOTIONS_PATH,
   STANDARDS_PROMOTIONS_HEADER,
   canonicalize,

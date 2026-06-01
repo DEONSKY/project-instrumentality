@@ -7,8 +7,15 @@ const DEFAULT_PATTERNS = [
   'secret:'
 ]
 
-function scan(content, patterns = DEFAULT_PATTERNS) {
-  const violations = []
+interface SecretViolation {
+  pattern: string
+  line: number
+  column: number
+  snippet: string
+}
+
+function scan(content: string, patterns: string[] = DEFAULT_PATTERNS): SecretViolation[] {
+  const violations: SecretViolation[] = []
   const lines = content.split('\n')
 
   lines.forEach((line, index) => {
@@ -30,4 +37,4 @@ function scan(content, patterns = DEFAULT_PATTERNS) {
   return violations
 }
 
-module.exports = { scan, DEFAULT_PATTERNS }
+export { scan, DEFAULT_PATTERNS }

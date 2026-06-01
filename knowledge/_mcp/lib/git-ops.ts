@@ -5,6 +5,8 @@
 // signatures (drift: 3-arg ref/toRef; conform: 2-arg ref-to-HEAD) and bodies
 // (conform expands submodules via local helper) diverge meaningfully.
 
+import type { SimpleGit } from 'simple-git'
+
 /**
  * Parse `git diff --name-status -M` output into entries.
  *
@@ -13,12 +15,19 @@
  *
  * Returns: Array<{ status, path, oldPath?, similarity? }>
  */
-function parseNameStatus(output, { includeSimilarity = false } = {}) {
+interface NameStatusEntry {
+  status: string
+  path: string
+  oldPath?: string
+  similarity?: number
+}
+
+function parseNameStatus(output: string, { includeSimilarity = false } = {}): NameStatusEntry[] {
   return output.split('\n').filter(l => l.trim()).map(line => {
     const parts = line.split('\t')
     const statusCode = parts[0].trim()
     if (statusCode.startsWith('R') || statusCode.startsWith('C')) {
-      const entry = { status: statusCode.charAt(0), oldPath: parts[1], path: parts[2] }
+      const entry: NameStatusEntry = { status: statusCode.charAt(0), oldPath: parts[1], path: parts[2] }
       if (includeSimilarity) {
         entry.similarity = parseInt(statusCode.slice(1), 10) || 0
       }
@@ -35,7 +44,7 @@ function parseNameStatus(output, { includeSimilarity = false } = {}) {
  *   `mert.yilmaz@tme.eu` → `mert.yilmaz`
  *   `12345+mert@users.noreply.github.com` → `mert`
  */
-function authorHandleFromEmail(email) {
+function authorHandleFromEmail(email: string | null | undefined): string | null {
   if (!email || typeof email !== 'string') return null
   const local = email.trim().split('@')[0]
   if (!local) return null
@@ -49,7 +58,7 @@ function authorHandleFromEmail(email) {
  * never fetched locally — those cases otherwise fall through to a
  * getChangedFiles empty-tree fallback that surfaces every file as changed.
  */
-async function baselineReachable(git, sha) {
+async function baselineReachable(git: SimpleGit, sha: string | null | undefined): Promise<boolean> {
   if (!sha) return false
   try {
     await git.raw(['cat-file', '-e', `${sha}^{commit}`])
@@ -63,7 +72,7 @@ async function baselineReachable(git, sha) {
  * credited to the author rather than showing as anonymous. Returns null when
  * both user.email and user.name are unset.
  */
-async function getLocalGitUserHandle(git) {
+async function getLocalGitUserHandle(git: SimpleGit): Promise<string | null> {
   try {
     const email = (await git.raw(['config', '--get', 'user.email'])).trim()
     if (email) {
@@ -77,7 +86,7 @@ async function getLocalGitUserHandle(git) {
   } catch { return null }
 }
 
-module.exports = {
+export {
   parseNameStatus,
   authorHandleFromEmail,
   baselineReachable,

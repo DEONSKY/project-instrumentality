@@ -39,6 +39,13 @@ also works (see server.ts → fs-tracker).
 Keep **dynamic/conditional/lazy `require()`** (variable paths, in-function lazy
 loads, `require.resolve`) as runtime `require` — don't force them to static `import`.
 
+**Gotcha — monkey-patching a module needs `require`, not `import * as`.** Code
+that mutates a module's exports in place (e.g. fs-tracker reassigns
+`fs.writeFileSync`) must pull the module via `const fs = require('fs') as typeof
+import('fs')`. A namespace import (`import * as fs from 'fs'`) compiles to
+getter-only bindings, so the assignment throws "Cannot set property … which has
+only a getter" at runtime (caught by fs-tracker.test in Phase 1).
+
 ## Mechanical engine: none (manual + LLM)
 Phase-0 audition rejected both codemods: **lebab** emits the breaking
 `export default` form (would need per-file post-fixing, defeating the point);
@@ -92,31 +99,32 @@ cycles as batches land); `lebab` was removed from devDeps.
 
 `any` count: server.ts uses `unknown`/typed shapes (0 bare any). pkg-paths: 0.
 
-## Phase 1 — lib/ leaf utilities (no intra-lib deps)
-Create `src/types/` (graph, rules, tool-definition shapes) here as needed.
-`pkg-paths` is already clean CJS (leave as-is until a convenient batch; it has 0 deps).
-- [ ] budget
-- [ ] depth
-- [ ] fs-tracker  *(monkey-patches fs — exercise via tests after)*
-- [ ] fs-walk
-- [ ] git-ops
-- [ ] graph
-- [ ] html-to-md-headings
-- [ ] issue-keywords
-- [ ] kb-constants
-- [ ] manifest
-- [ ] matter-utils
-- [ ] md-to-runs
-- [ ] mentions
-- [ ] pkg-paths
-- [ ] promotion-ledger
-- [ ] secrets
-- [ ] session-cache
-- [ ] submodule-sweep
-- [ ] tag-model
-- [ ] types  *(4 callers use `const { inferType } = require(...)` → MUST be `export { inferType }`)*
+## Phase 1 — lib/ leaf utilities (no intra-lib deps) ✅ DONE
+Added src/types/rules.ts (DepthPolicy/Rules) and src/types/graph.ts (Graph/
+GraphEntry/EdgeRule) — reusable shapes for later phases.
+- [x] budget
+- [x] depth
+- [x] fs-tracker  *(monkey-patches fs → uses `require('fs')`, not `import * as`; see Gotcha)*
+- [x] fs-walk
+- [x] git-ops
+- [x] graph
+- [x] html-to-md-headings
+- [x] issue-keywords
+- [x] kb-constants
+- [x] manifest
+- [x] matter-utils
+- [x] md-to-runs  *(lazy `require('docx')` kept, typed via `import('docx')`)*
+- [x] mentions
+- [ ] pkg-paths  *(intentionally left as clean CJS .js — created in Phase 0; converts in a later sweep, 0 deps so order-independent)*
+- [x] promotion-ledger
+- [x] secrets
+- [x] session-cache
+- [x] submodule-sweep
+- [x] tag-model
+- [x] types  *(named `export { inferType }` — 4 callers destructure)*
 
-`any` count: ___
+`any` count: 0 (justified narrowing casts only: generic spread in session-cache,
+guarded Map.get in tag-model/promotion-ledger, dynamic fs indexing in fs-tracker)
 
 ## Phase 2 — lib/ with intra-lib deps
 - [ ] agent-rules

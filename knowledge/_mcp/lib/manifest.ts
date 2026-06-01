@@ -1,13 +1,27 @@
-const fs = require('fs')
-const path = require('path')
-const crypto = require('crypto')
+import * as fs from 'fs'
+import * as path from 'path'
+import * as crypto from 'crypto'
 
 const MANIFEST_FILENAME = '.mcp-manifest.json'
+
+// { relPath: sha256hex }
+type TemplateHashes = Record<string, string>
+
+interface Manifest {
+  mcp_version: string
+  installed_at: string
+  templates: TemplateHashes
+}
+
+interface TemplateFile {
+  relPath: string
+  absPath: string
+}
 
 /**
  * SHA-256 hex digest of a file's content.
  */
-function hashFileContent(filePath) {
+function hashFileContent(filePath: string): string {
   const content = fs.readFileSync(filePath, 'utf8')
   return crypto.createHash('sha256').update(content).digest('hex')
 }
@@ -16,11 +30,11 @@ function hashFileContent(filePath) {
  * Load the manifest from a project templates directory.
  * Returns the parsed object or null if missing/corrupt.
  */
-function loadManifest(projectTemplatesDir) {
+function loadManifest(projectTemplatesDir: string): Manifest | null {
   const manifestPath = path.join(projectTemplatesDir, MANIFEST_FILENAME)
   if (!fs.existsSync(manifestPath)) return null
   try {
-    return JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+    return JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Manifest
   } catch {
     return null
   }
@@ -28,13 +42,13 @@ function loadManifest(projectTemplatesDir) {
 
 /**
  * Write the manifest to a project templates directory.
- * @param {string} projectTemplatesDir
- * @param {string} version - MCP version string
- * @param {Object} templateHashes - { relPath: sha256hex }
+ * @param projectTemplatesDir
+ * @param version - MCP version string
+ * @param templateHashes - { relPath: sha256hex }
  */
-function writeManifest(projectTemplatesDir, version, templateHashes) {
+function writeManifest(projectTemplatesDir: string, version: string, templateHashes: TemplateHashes): void {
   const manifestPath = path.join(projectTemplatesDir, MANIFEST_FILENAME)
-  const manifest = {
+  const manifest: Manifest = {
     mcp_version: version,
     installed_at: new Date().toISOString(),
     templates: templateHashes
@@ -44,10 +58,9 @@ function writeManifest(projectTemplatesDir, version, templateHashes) {
 
 /**
  * Recursively walk a directory and return all .md files.
- * @returns {Array<{relPath: string, absPath: string}>}
  */
-function walkTemplateFiles(dir, base = '') {
-  const results = []
+function walkTemplateFiles(dir: string, base = ''): TemplateFile[] {
+  const results: TemplateFile[] = []
   if (!fs.existsSync(dir)) return results
 
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -64,17 +77,17 @@ function walkTemplateFiles(dir, base = '') {
 
 /**
  * Build a hash map of all .md template files in a directory.
- * @returns {Object} { relPath: sha256hex }
+ * @returns { relPath: sha256hex }
  */
-function buildTemplateHashes(dir) {
-  const hashes = {}
+function buildTemplateHashes(dir: string): TemplateHashes {
+  const hashes: TemplateHashes = {}
   for (const { relPath, absPath } of walkTemplateFiles(dir)) {
     hashes[relPath] = hashFileContent(absPath)
   }
   return hashes
 }
 
-module.exports = {
+export {
   MANIFEST_FILENAME,
   hashFileContent,
   loadManifest,
