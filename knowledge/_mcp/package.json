@@ -2,11 +2,14 @@
   "name": "kb-mcp",
   "version": "1.1.2",
   "description": "MCP server for managing a structured knowledge base inside a monorepo",
-  "main": "server.js",
+  "main": "dist/server.js",
   "scripts": {
-    "test": "node --test tests/*.test.js"
+    "build": "rm -rf dist && tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.js"
   },
   "dependencies": {
+    "@instrumentality/shared": "file:../../packages/shared",
     "@modelcontextprotocol/sdk": "^0.5.0",
     "docx": "^8.5.0",
     "gray-matter": "^4.0.3",
@@ -18,5 +21,14 @@
     "pngjs": "^7.0.0",
     "simple-git": "^3.22.0",
     "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.19.41",
+    "@types/uuid": "^9.0.8",
+    "lebab": "^3.2.9",
+    "madge": "^8.0.0",
+    "tsx": "^4.22.4",
+    "typescript": "^5.9.3"
   }
 }
