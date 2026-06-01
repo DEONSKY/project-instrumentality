@@ -1,7 +1,7 @@
-const matter = require('gray-matter')
-const yaml = require('js-yaml')
+import matter from 'gray-matter'
+import * as yaml from 'js-yaml'
 
-function isScalarArray(arr) {
+function isScalarArray(arr: unknown[]): boolean {
   return arr.every((item) => item === null || typeof item !== 'object')
 }
 
@@ -9,11 +9,11 @@ function isScalarArray(arr) {
 // rest of the tree in block style. After dumping, substitute placeholders back
 // with inline flow notation.  Object arrays (e.g. rules) stay as plain Arrays
 // and get block sequences automatically.
-function encodePlaceholders(val, map, counter) {
+function encodePlaceholders(val: unknown, map: Map<string, string>, counter: { n: number }): unknown {
   if (Array.isArray(val)) {
     if (isScalarArray(val)) {
       const key = `SaPlaceholder${counter.n++}End`
-      map.set(key, yaml.dump(val, { flowLevel: 0, lineWidth: -1 }).trim())
+      map.set(key, (yaml.dump(val, { flowLevel: 0, lineWidth: -1 }) as string).trim())
       return key
     }
     return val.map((item) => encodePlaceholders(item, map, counter))
@@ -23,7 +23,7 @@ function encodePlaceholders(val, map, counter) {
   // js-yaml's dump handles Date natively as a YAML timestamp — pass through.
   if (val instanceof Date) return val
   if (val && typeof val === 'object') {
-    const out = {}
+    const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(val)) {
       out[k] = encodePlaceholders(v, map, counter)
     }
@@ -32,10 +32,10 @@ function encodePlaceholders(val, map, counter) {
   return val
 }
 
-function matterStringify(content, data) {
-  const map = new Map()
+function matterStringify(content: string, data: object): string {
+  const map = new Map<string, string>()
   const counter = { n: 0 }
-  const encoded = encodePlaceholders(data, map, counter)
+  const encoded = encodePlaceholders(data, map, counter) as object
 
   return matter.stringify(content, encoded, {
     engines: {
@@ -45,9 +45,9 @@ function matterStringify(content, data) {
         // the just-stringified frontmatter) throws "expected yaml.parse to be
         // a function" — the misleading error in F40. Delegate parse to
         // js-yaml.load so the engine satisfies the contract.
-        parse: (str) => yaml.load(str),
-        stringify: (obj) => {
-          let str = yaml.dump(obj, { lineWidth: -1 })
+        parse: (str: string) => yaml.load(str) as object,
+        stringify: (obj: object) => {
+          let str = yaml.dump(obj, { lineWidth: -1 }) as string
           for (const [key, flow] of map) {
             str = str.replace(key, flow)
           }
@@ -58,4 +58,4 @@ function matterStringify(content, data) {
   })
 }
 
-module.exports = { matterStringify }
+export { matterStringify }

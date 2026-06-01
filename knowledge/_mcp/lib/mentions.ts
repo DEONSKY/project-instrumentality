@@ -9,10 +9,10 @@ const WIKILINK_REGEX = /(?<!!)\[\[([^\]|#]+?)(?:#([^\]|]+?))?(?:\|[^\]]+?)?\]\]/
  * Returns deduplicated array of paths, preserving #section where present
  * (e.g. ["specs/features/auth", "data/schema/postgres#users"]).
  */
-function extractMentions(content) {
+function extractMentions(content: string): string[] {
   const stripped = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '')
-  const mentions = []
-  let match
+  const mentions: string[] = []
+  let match: RegExpExecArray | null
   while ((match = WIKILINK_REGEX.exec(stripped)) !== null) {
     const p = match[1].trim()
     const section = match[2] ? match[2].trim() : null
@@ -25,4 +25,4 @@ function extractMentions(content) {
   return [...new Set(mentions)]
 }
 
-module.exports = { extractMentions }
+export { extractMentions }

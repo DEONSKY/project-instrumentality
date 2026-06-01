@@ -1,5 +1,5 @@
-const fs = require('fs')
-const path = require('path')
+import * as fs from 'fs'
+import * as path from 'path'
 
 const SKIP_DIRS = new Set(['_mcp', 'exports', 'node_modules', 'drift-log', '_templates', 'sync'])
 const SKIP_FILES = new Set(['_index.yaml', '_rules.md'])
@@ -8,12 +8,12 @@ const SKIP_FILES = new Set(['_index.yaml', '_rules.md'])
 // imports/ hold binaries and auto-pasted images. Sidecar markdown under
 // assets/design/ (e.g. mockup-source.md) is meant to surface in kb_get
 // keyword search — see decisions/design-asset-storage.md.
-function collectMdFiles(dir) {
-  const files = []
+function collectMdFiles(dir: string): string[] {
+  const files: string[] = []
   if (!fs.existsSync(dir)) return files
   const rootDir = path.resolve(dir)
 
-  function walk(current) {
+  function walk(current: string) {
     const entries = fs.readdirSync(current, { withFileTypes: true })
     entries.forEach(entry => {
       const full = path.join(current, entry.name)
@@ -34,4 +34,4 @@ function collectMdFiles(dir) {
   return files
 }
 
-module.exports = { collectMdFiles, SKIP_DIRS, SKIP_FILES }
+export { collectMdFiles, SKIP_DIRS, SKIP_FILES }

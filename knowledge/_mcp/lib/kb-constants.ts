@@ -7,4 +7,4 @@
 
 const KB_ROOT = 'knowledge'
 
-module.exports = { KB_ROOT }
+export { KB_ROOT }

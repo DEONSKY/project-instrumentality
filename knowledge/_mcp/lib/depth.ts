@@ -1,4 +1,13 @@
-function getMaxDepth(filePath, rules) {
+import type { Rules } from '../src/types/rules'
+
+interface DepthResult {
+  valid: boolean
+  actual: number
+  max: number
+  suggestion?: string
+}
+
+function getMaxDepth(filePath: string, rules: Rules): number {
   const policy = rules.getDepthPolicy()
   const parts = filePath.replace(/^knowledge\//, '').split('/')
   const topFolder = parts[0]
@@ -8,18 +17,18 @@ function getMaxDepth(filePath, rules) {
   return policy.default_max || 3
 }
 
-function measureDepth(filePath) {
+function measureDepth(filePath: string): number {
   const normalized = filePath.replace(/^knowledge\//, '')
   const parts = normalized.split('/')
   return parts.length - 1
 }
 
-function isNeverGroup(folder, rules) {
+function isNeverGroup(folder: string, rules: Rules): boolean {
   const policy = rules.getDepthPolicy()
   return (policy.never_group || []).includes(folder)
 }
 
-function suggestFlatter(filePath) {
+function suggestFlatter(filePath: string): string {
   const normalized = filePath.replace(/^knowledge\//, '')
   const parts = normalized.split('/')
   if (parts.length < 3) return filePath
@@ -29,11 +38,11 @@ function suggestFlatter(filePath) {
   const deepest = parts.pop()         // "c"
   const parent = parts.pop()          // "b"
   parts.push(`${parent}-${deepest}`)  // "b-c"
-  parts.push(fileName)                // "file.md"
+  parts.push(fileName as string)      // "file.md"
   return 'knowledge/' + parts.join('/')
 }
 
-function validateDepth(filePath, rules) {
+function validateDepth(filePath: string, rules: Rules): DepthResult {
   const max = getMaxDepth(filePath, rules)
   const actual = measureDepth(filePath)
   if (actual > max) {
@@ -47,4 +56,4 @@ function validateDepth(filePath, rules) {
   return { valid: true, actual, max }
 }
 
-module.exports = { getMaxDepth, measureDepth, isNeverGroup, suggestFlatter, validateDepth }
+export { getMaxDepth, measureDepth, isNeverGroup, suggestFlatter, validateDepth }

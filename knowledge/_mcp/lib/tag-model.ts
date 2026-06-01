@@ -81,7 +81,7 @@ const SHORT_KEEP = new Set([
   'http', 'rest', 'grpc', 'amqp', 'smtp', 'imap', 'ftp', 'tcp', 'udp'
 ])
 
-function isLikelyGerund(term) {
+function isLikelyGerund(term: string): boolean {
   if (!term || term.length <= 5) return false
   if (!term.endsWith('ing')) return false
   if (SHORT_KEEP.has(term)) return false
@@ -97,8 +97,8 @@ function isLikelyGerund(term) {
  * a Map<compound, count> and cleaned has the matched spans replaced with spaces
  * so subsequent single-word passes don't double-count the constituent tokens.
  */
-function findKnownCompounds(cleaned, knownCompounds) {
-  const hits = new Map()
+function findKnownCompounds(cleaned: string, knownCompounds: Set<string>): { hits: Map<string, number>; cleaned: string } {
+  const hits = new Map<string, number>()
   if (!knownCompounds || knownCompounds.size === 0) return { hits, cleaned }
 
   let working = cleaned
@@ -123,10 +123,10 @@ function findKnownCompounds(cleaned, knownCompounds) {
  * appearing 3+ times in bodyOnly, where neither word is a stopword/action verb.
  * Returns Map<compound, count>.
  */
-function findLowercaseBigrams(bodyOnly, blockedWords) {
+function findLowercaseBigrams(bodyOnly: string, blockedWords?: Set<string>): Map<string, number> {
   const re = /\b([a-z]{3,})\s+([a-z]{3,})\b/g
-  const counts = new Map()
-  let m
+  const counts = new Map<string, number>()
+  let m: RegExpExecArray | null
   while ((m = re.exec(bodyOnly)) !== null) {
     const a = m[1], b = m[2]
     if (STOPWORDS.has(a) || STOPWORDS.has(b)) continue
@@ -136,7 +136,7 @@ function findLowercaseBigrams(bodyOnly, blockedWords) {
     const compound = `${a}-${b}`
     counts.set(compound, (counts.get(compound) || 0) + 1)
   }
-  const hits = new Map()
+  const hits = new Map<string, number>()
   for (const [k, v] of counts) {
     if (v >= 3) hits.set(k, v)
   }
@@ -146,7 +146,7 @@ function findLowercaseBigrams(bodyOnly, blockedWords) {
 /**
  * Phase 2 #5: Compute adaptive tag count based on content length.
  */
-function computeTargetCount(markdownContent) {
+function computeTargetCount(markdownContent: string): number {
   const wordCount = (markdownContent.match(/\S+/g) || []).length
   return Math.min(12, Math.max(5, Math.ceil(wordCount / 200)))
 }
@@ -155,8 +155,8 @@ function computeTargetCount(markdownContent) {
  * Extract topic anchor words from file id and path.
  * Used for topic cohesion filtering.
  */
-function extractTopicWords(opts) {
-  const words = new Set()
+function extractTopicWords(opts: { id?: string; filePath?: string }): Set<string> {
+  const words = new Set<string>()
   if (opts.id) {
     for (const w of opts.id.split('-')) {
       if (w.length > 2 && !STOPWORDS.has(w)) words.add(w)
@@ -178,9 +178,9 @@ function extractTopicWords(opts) {
 // Fix 4: Strip table data rows but preserve inline code from them.
 // Header rows are kept in full. Data rows are stripped to just their
 // inline code spans (backtick-wrapped terms) which are meaningful.
-function stripTableDataRows(text) {
+function stripTableDataRows(text: string): string {
   const lines = text.split('\n')
-  const result = []
+  const result: string[] = []
   let inTable = false
   let headerDone = false
 
@@ -218,7 +218,7 @@ function stripTableDataRows(text) {
 }
 
 // Fix 3: Detect URL-like or path-like tokens
-function isUrlOrPath(term) {
+function isUrlOrPath(term: string): boolean {
   if (!term) return false
   if (/^https?:/.test(term)) return true
   if (/^\/[a-z]/.test(term)) return true
@@ -228,15 +228,15 @@ function isUrlOrPath(term) {
 }
 
 // Fix 6: Merge plurals into singular, summing their scores
-function deduplicatePlurals(scores) {
-  const result = new Map()
+function deduplicatePlurals(scores: Map<string, number>): Map<string, number> {
+  const result = new Map<string, number>()
   const entries = [...scores.entries()].sort((a, b) => b[1] - a[1])
 
   for (const [tag, score] of entries) {
     const singular = toSingular(tag)
     if (singular !== tag && result.has(singular)) {
       // Plural form — merge score into existing singular
-      result.set(singular, result.get(singular) + score)
+      result.set(singular, (result.get(singular) || 0) + score)
     } else if (singular !== tag && scores.has(singular)) {
       // Singular exists in original but not yet processed — use singular
       result.set(singular, (result.get(singular) || 0) + score)
@@ -244,7 +244,7 @@ function deduplicatePlurals(scores) {
       // Check if a plural of this already exists in result
       const asPlural = tag + 's'
       if (result.has(asPlural)) {
-        const pluralScore = result.get(asPlural)
+        const pluralScore = result.get(asPlural) || 0
         result.delete(asPlural)
         result.set(tag, score + pluralScore)
       } else {
@@ -256,7 +256,7 @@ function deduplicatePlurals(scores) {
 }
 
 // Simple English singular: strips trailing 's', 'es', 'ies' → 'y'
-function toSingular(word) {
+function toSingular(word: string): string {
   if (word.length <= 3) return word
   if (word.endsWith('ies') && word.length > 4) return word.slice(0, -3) + 'y'
   if (word.endsWith('ses') || word.endsWith('xes') || word.endsWith('zes') ||
@@ -265,7 +265,7 @@ function toSingular(word) {
   return word
 }
 
-function normalize(term) {
+function normalize(term: string): string {
   if (!term) return ''
   return term
     .replace(/([a-z])([A-Z])/g, '$1-$2')
@@ -276,7 +276,7 @@ function normalize(term) {
     .replace(/^-|-$/g, '')
 }
 
-function isValidTag(tag) {
+function isValidTag(tag: string): boolean {
   if (!tag) return false
   if (tag.length <= 2 && !SHORT_KEEP.has(tag)) return false
   if (tag.length > 30) return false
@@ -296,14 +296,14 @@ function isValidTag(tag) {
   return true
 }
 
-function splitWords(text) {
+function splitWords(text: string): string[] {
   return text
     .replace(/[^a-zA-Z0-9-]/g, ' ')
     .split(/\s+/)
     .filter(w => w.length > 0)
 }
 
-module.exports = {
+export {
   // Constants
   STOPWORDS,
   ACTION_VERBS,

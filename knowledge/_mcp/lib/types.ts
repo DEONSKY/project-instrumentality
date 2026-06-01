@@ -2,7 +2,7 @@
  * Infer KB document type from its relative path (relative to knowledge/).
  * Shared by reindex and lint to ensure consistent type derivation.
  */
-function inferType(relativePath) {
+function inferType(relativePath: string): string {
   if (relativePath.startsWith('specs/features/')) return 'feature'
   if (relativePath.startsWith('specs/flows/')) return 'flow'
   if (relativePath.startsWith('specs/policies/')) return 'policy'
@@ -18,4 +18,4 @@ function inferType(relativePath) {
   return 'unknown'
 }
 
-module.exports = { inferType }
+export { inferType }

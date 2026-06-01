@@ -7,10 +7,10 @@ const STOP = new Set(['the','a','an','is','are','was','were','be','been','being'
   'own','same','so','than','too','very','just','because','but','and','or','if','that',
   'this','it','its','i','we','you','they','he','she','what','which','who','whom'])
 
-function extractKeywords(title, body) {
+function extractKeywords(title?: string, body?: string): string[] {
   const text = `${title || ''} ${body || ''}`.toLowerCase()
   const words = text.match(/[a-z0-9_-]{3,}/g) || []
-  const freq = {}
+  const freq: Record<string, number> = {}
   for (const w of words) {
     if (!STOP.has(w)) freq[w] = (freq[w] || 0) + 1
   }
@@ -20,4 +20,4 @@ function extractKeywords(title, body) {
     .map(([w]) => w)
 }
 
-module.exports = { extractKeywords }
+export { extractKeywords }
