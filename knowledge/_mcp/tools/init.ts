@@ -1,15 +1,31 @@
-const fs = require('fs')
-const path = require('path')
-const readline = require('readline')
-const matter = require('gray-matter')
-const yaml = require('js-yaml')
-const { matterStringify } = require('../lib/matter-utils')
-const { runTool: reindex } = require('./reindex')
-const { runTool: scaffold } = require('./scaffold')
-const { resolveFilePath } = require('../lib/kb-paths')
-const pkgPaths = require('../lib/pkg-paths')
+import * as fs from 'fs'
+import * as path from 'path'
+import * as readline from 'readline'
+import matter from 'gray-matter'
+import * as yaml from 'js-yaml'
+import { matterStringify } from '../lib/matter-utils'
+import { runTool as reindex } from './reindex'
+import { runTool as scaffold } from './scaffold'
+import { resolveFilePath } from '../lib/kb-paths'
+import * as pkgPaths from '../lib/pkg-paths'
+import type { ToolDefinition } from '../src/types/tool'
 
 const KB_ROOT = 'knowledge'
+
+interface SubmoduleStack { dir: string; stack: string }
+interface StackHints {
+  stack: string | null
+  srcDirs: string[]
+  submoduleStacks?: SubmoduleStack[]
+}
+interface InitConfig { projectName?: string }
+interface SubmoduleGap { path: string; isShared: boolean }
+interface ScaffoldEntry { type: string; id?: string; group?: string }
+interface Preset {
+  standards_scaffold?: ScaffoldEntry[]
+  code_path_patterns?: Array<Record<string, unknown>>
+  [key: string]: unknown
+}
 
 const FOLDER_STRUCTURE = [
   'specs/features',
@@ -77,16 +93,23 @@ const VSCODE_MCP = {
 // Hook templates + installers live in ../lib/git-hooks.js. They use __dirname
 // to bake in the bundled paths; lib/git-hooks.js resolves the same paths as
 // the previous in-file location (both are one level under _mcp/).
-const {
+import {
   installGitHooks,
   installMergeDrivers,
   detectSubmodulePatternGaps
-} = require('../lib/git-hooks')
+} from '../lib/git-hooks'
 
 
-async function runTool({ interactive = true, config = null, regenerate_agent_rules = false, force = false } = {}) {
+async function runTool(
+  { interactive = true, config = null, regenerate_agent_rules = false, force = false }: {
+    interactive?: boolean
+    config?: InitConfig | null
+    regenerate_agent_rules?: boolean
+    force?: boolean
+  } = {}
+): Promise<Record<string, unknown>> {
   if (regenerate_agent_rules) {
-    const { generateAgentRules, AGENT_RULE_FILES } = require('../lib/agent-rules')
+    const { generateAgentRules, AGENT_RULE_FILES } = require('../lib/agent-rules') as typeof import('../lib/agent-rules')
     if (force) {
       for (const f of AGENT_RULE_FILES) {
         if (fs.existsSync(f)) fs.writeFileSync(f, '', 'utf8')
@@ -101,7 +124,7 @@ async function runTool({ interactive = true, config = null, regenerate_agent_rul
     }
   }
 
-  let cfg = config
+  let cfg: InitConfig | null = config
 
   if (interactive && !cfg && process.stdin.isTTY) {
     cfg = await promptConfig()
@@ -109,7 +132,7 @@ async function runTool({ interactive = true, config = null, regenerate_agent_rul
     cfg = getDefaultConfig()
   }
 
-  const filesCreated = []
+  const filesCreated: string[] = []
 
   // 1. Create folder structure
   FOLDER_STRUCTURE.forEach(folder => {
@@ -162,24 +185,25 @@ async function runTool({ interactive = true, config = null, regenerate_agent_rul
     const rulesContent = generateRulesContent(cfg, hints)
     fs.writeFileSync(rulesPath, rulesContent)
     filesCreated.push(rulesPath)
-  } else if (hints.stack || hints.submoduleStacks?.length > 0) {
+  } else if (hints.stack || (hints.submoduleStacks?.length ?? 0) > 0) {
     // Re-init: update code_path_patterns if detected stacks changed, preserving other user edits
     const existing = fs.readFileSync(rulesPath, 'utf8')
     const parsed = matter(existing)
+    const data = parsed.data as Record<string, unknown>
     const stacksSummary = buildStacksSummary(hints)
     const summaryKey = JSON.stringify([...stacksSummary].sort())
     // Backward compat: read old _detected_stack (string) or new _detected_stacks (array)
-    const existingRaw = parsed.data._detected_stacks
-      || (parsed.data._detected_stack ? [parsed.data._detected_stack] : ['unknown'])
-    const existingKey = JSON.stringify([].concat(existingRaw).sort())
+    const existingRaw = data._detected_stacks
+      || (data._detected_stack ? [data._detected_stack] : ['unknown'])
+    const existingKey = JSON.stringify(([] as unknown[]).concat(existingRaw).sort())
 
     let workingContent = existing
 
     // F44: inject app_root_patterns if monorepo detected AND block is missing.
     // Idempotent — if the user already has the block (even with custom values),
     // leave it alone. Insert before code_path_patterns: so the YAML is grouped.
-    const monorepoDetected = hints.stack === 'monorepo' && (hints.submoduleStacks?.length > 0)
-    const hasAppRootPatterns = parsed.data.app_root_patterns !== undefined
+    const monorepoDetected = hints.stack === 'monorepo' && ((hints.submoduleStacks?.length ?? 0) > 0)
+    const hasAppRootPatterns = data.app_root_patterns !== undefined
     if (monorepoDetected && !hasAppRootPatterns) {
       const block = generateAppRootPatterns(hints) + '\n\n'
       workingContent = workingContent.replace(
@@ -204,7 +228,7 @@ async function runTool({ interactive = true, config = null, regenerate_agent_rul
       delete updatedParsed.data._detected_stack
       const final = matterStringify(updatedParsed.content, updatedParsed.data)
       fs.writeFileSync(rulesPath, final)
-      const changes = []
+      const changes: string[] = []
       if (summaryKey !== existingKey) changes.push('code_path_patterns')
       if (monorepoDetected && !hasAppRootPatterns) changes.push('app_root_patterns')
       filesCreated.push(rulesPath + ` (updated ${changes.join(', ')})`)
@@ -215,13 +239,13 @@ async function runTool({ interactive = true, config = null, regenerate_agent_rul
   copyTemplates(filesCreated)
 
   // 4b. Scaffold standard stubs from all detected presets (deduplicated)
-  const scaffoldedStandards = []
-  const stacksToScaffold = []
+  const scaffoldedStandards: string[] = []
+  const stacksToScaffold: string[] = []
   if (hints.stack && hints.stack !== 'monorepo') stacksToScaffold.push(hints.stack)
   for (const entry of (hints.submoduleStacks || [])) {
     if (!stacksToScaffold.includes(entry.stack)) stacksToScaffold.push(entry.stack)
   }
-  const seenScaffold = new Set()
+  const seenScaffold = new Set<string>()
   for (const stackName of stacksToScaffold) {
     const preset = loadPresetFull(stackName)
     if (!preset?.standards_scaffold) continue
@@ -253,7 +277,7 @@ async function runTool({ interactive = true, config = null, regenerate_agent_rul
       gitInitialized = true
       console.log('[kb-init] No git repository found — ran `git init` automatically.')
     } catch (e) {
-      console.warn('[kb-init] Could not run `git init`:', e.message)
+      console.warn('[kb-init] Could not run `git init`:', (e as Error).message)
     }
   }
 
@@ -284,7 +308,7 @@ async function runTool({ interactive = true, config = null, regenerate_agent_rul
   }
 
   // 9b. Generate agent rule files (CLAUDE.md, .cursorrules, .windsurfrules, .github/copilot-instructions.md)
-  const { generateAgentRules } = require('../lib/agent-rules')
+  const { generateAgentRules } = require('../lib/agent-rules') as typeof import('../lib/agent-rules')
   generateAgentRules(filesCreated)
 
   // 10. Generate initial _index.yaml
@@ -292,7 +316,7 @@ async function runTool({ interactive = true, config = null, regenerate_agent_rul
   filesCreated.push(path.join(KB_ROOT, '_index.yaml'))
 
   // 11. Check for submodule pattern gaps
-  const { loadRules } = require('../lib/rules')
+  const { loadRules } = require('../lib/rules') as typeof import('../lib/rules')
   const submoduleGaps = detectSubmodulePatternGaps(loadRules(KB_ROOT))
 
   // 12. Print setup guide
@@ -303,15 +327,15 @@ async function runTool({ interactive = true, config = null, regenerate_agent_rul
     files_created: filesCreated,
     hooks_installed: hooksInstalled,
     ...(hints.stack && { detected_stack: hints.stack }),
-    ...(hints.submoduleStacks?.length > 0 && { detected_stacks: buildStacksSummary(hints) }),
+    ...((hints.submoduleStacks?.length ?? 0) > 0 && { detected_stacks: buildStacksSummary(hints) }),
     ...(scaffoldedStandards.length > 0 && { scaffolded_standards: scaffoldedStandards }),
     ...(gitInitialized && { git_initialized: true, note: '`git init` was run automatically — remember to set your remote with `git remote add origin <url>`' })
   }
 }
 
-async function promptConfig() {
+async function promptConfig(): Promise<InitConfig> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
-  const ask = (q) => new Promise(resolve => rl.question(q, resolve))
+  const ask = (q: string): Promise<string> => new Promise(resolve => rl.question(q, resolve))
 
   console.log('\n=== KB-MCP Setup ===\n')
 
@@ -322,11 +346,11 @@ async function promptConfig() {
   return { projectName }
 }
 
-function getDefaultConfig() {
+function getDefaultConfig(): InitConfig {
   return { projectName: 'My Project' }
 }
 
-function generateRulesContent(cfg, hints = {}) {
+function generateRulesContent(cfg: InitConfig, hints: StackHints): string {
   return `---
 version: "1.0"
 project_name: "${cfg.projectName || 'My Project'}"
@@ -395,7 +419,7 @@ See knowledge/_mcp/presets/ for stack-specific code_path_patterns presets.
  * Detect stack for a single directory. Checks indicator files first, then falls
  * back to scanning for dominant source file extensions when no indicator is found.
  */
-function detectSubdirStack(dirPath) {
+function detectSubdirStack(dirPath: string): string | null {
   if (fs.existsSync(path.join(dirPath, 'go.mod'))) return 'go'
   if (fs.existsSync(path.join(dirPath, 'pom.xml')) ||
       fs.existsSync(path.join(dirPath, 'build.gradle')) ||
@@ -424,8 +448,8 @@ function detectSubdirStack(dirPath) {
  * Scan a directory (up to 2 levels deep) for source files and infer stack
  * from the dominant extension. Returns a generic stack name or null.
  */
-function detectStackByExtension(dirPath) {
-  const EXT_MAP = {
+function detectStackByExtension(dirPath: string): string | null {
+  const EXT_MAP: Record<string, string> = {
     '.py': 'python',
     '.go': 'go',
     '.rb': 'rails',
@@ -434,11 +458,11 @@ function detectStackByExtension(dirPath) {
     '.rs': 'rust',
   }
   const SKIP = new Set(['node_modules', '.git', '__pycache__', 'dist', 'build', '.venv', 'venv'])
-  const counts = {}
+  const counts: Record<string, number> = {}
 
-  const scanDir = (dir, depth) => {
+  const scanDir = (dir: string, depth: number): void => {
     if (depth > 2) return
-    let entries
+    let entries: fs.Dirent[]
     try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
     for (const e of entries) {
       if (e.name.startsWith('.') || SKIP.has(e.name)) continue
@@ -460,8 +484,8 @@ function detectStackByExtension(dirPath) {
  * Build a serializable summary array of all detected stacks for frontmatter storage.
  * Root stack (no dir prefix) + submodule stacks (stack:dir format).
  */
-function buildStacksSummary(hints) {
-  const result = []
+function buildStacksSummary(hints: StackHints): string[] {
+  const result: string[] = []
   if (hints.stack && hints.stack !== 'monorepo') result.push(hints.stack)
   for (const entry of (hints.submoduleStacks || [])) {
     result.push(`${entry.stack}:${entry.dir}`)
@@ -473,10 +497,10 @@ function buildStacksSummary(hints) {
  * Copy a parsed code_path_patterns array, prefixing every path glob with a dir.
  * Used to scope a preset's patterns to a specific submodule directory.
  */
-function prefixPatternPaths(patterns, prefix) {
+function prefixPatternPaths(patterns: Array<Record<string, unknown>>, prefix: string): Array<Record<string, unknown>> {
   return patterns.map(p => ({
     ...p,
-    paths: (p.paths || []).map(glob => `${prefix}/${glob}`)
+    paths: ((p.paths as string[]) || []).map(glob => `${prefix}/${glob}`)
   }))
 }
 
@@ -484,9 +508,9 @@ function prefixPatternPaths(patterns, prefix) {
  * Detect the project's tech stack by scanning indicator files and package.json.
  * Returns { stack: string|null, srcDirs: string[], submoduleStacks: Array<{dir, stack}> }
  */
-function detectStackHints() {
+function detectStackHints(): StackHints {
   const cwd = process.cwd()
-  const hints = { stack: null, srcDirs: [] }
+  const hints: StackHints = { stack: null, srcDirs: [] }
 
   // Detect source dirs that actually exist
   const knownSrcDirs = ['src', 'app', 'lib', 'pkg', 'cmd', 'internal', 'api', 'web']
@@ -526,8 +550,8 @@ function detectStackHints() {
   }
 
   // Multi-stack submodule/subdir detection — runs regardless of whether root stack was found
-  const submoduleStacks = []
-  const dirsToScan = []
+  const submoduleStacks: SubmoduleStack[] = []
+  const dirsToScan: string[] = []
 
   // Prefer .gitmodules paths (precise — knows which dirs are submodules)
   const gitmodulesPath = path.join(cwd, '.gitmodules')
@@ -557,11 +581,11 @@ function detectStackHints() {
 }
 
 
-function loadPresetFull(stackName) {
+function loadPresetFull(stackName: string): Preset | null {
   const presetPath = path.join(pkgPaths.presetsDir(), `${stackName}.yaml`)
   if (!fs.existsSync(presetPath)) return null
   try {
-    return yaml.load(fs.readFileSync(presetPath, 'utf8'))
+    return yaml.load(fs.readFileSync(presetPath, 'utf8')) as Preset
   } catch { return null }
 }
 
@@ -576,7 +600,7 @@ function loadPresetFull(stackName) {
  * Single-stack / unknown case: emit a commented example so users have a
  *   template to copy from if their layout becomes monorepo later.
  */
-function generateAppRootPatterns(hints = {}) {
+function generateAppRootPatterns(hints: StackHints): string {
   const stacks = hints.submoduleStacks || []
   if (hints.stack !== 'monorepo' || stacks.length === 0) {
     return `# app_root_patterns:               # path glob → app_scope (monorepos only)
@@ -584,8 +608,8 @@ function generateAppRootPatterns(hints = {}) {
 #   "ms-be-go/**": ms-be-go`
   }
   // Dedup by dir; keep insertion order
-  const seen = new Set()
-  const lines = []
+  const seen = new Set<string>()
+  const lines: string[] = []
   for (const s of stacks) {
     if (seen.has(s.dir)) continue
     seen.add(s.dir)
@@ -603,8 +627,8 @@ ${lines.join('\n')}`
  * Merges patterns from all detected stacks, prefixing submodule paths.
  * Falls back to universal defaults if no stacks detected.
  */
-function generateCodePathPatterns(hints = {}) {
-  const allPatterns = []
+function generateCodePathPatterns(hints: StackHints): string {
+  const allPatterns: Array<Record<string, unknown>> = []
 
   // Root single-stack: load preset as-is (no prefix) — backward compat
   if (hints.stack && hints.stack !== 'monorepo') {
@@ -659,7 +683,7 @@ function generateCodePathPatterns(hints = {}) {
       - ".prettierrc*"`
 }
 
-function copyTemplates(filesCreated) {
+function copyTemplates(filesCreated: string[]): void {
   // Templates are bundled with the MCP server — copy from server location into the new project.
   const mcpTemplatesDir = pkgPaths.bundledTemplatesDir()
   const kbTemplatesDir = path.join(KB_ROOT, '_templates')
@@ -668,13 +692,13 @@ function copyTemplates(filesCreated) {
     copyDirRecursive(mcpTemplatesDir, kbTemplatesDir, filesCreated)
 
     // Write manifest so kb_upgrade can track what was installed
-    const { writeManifest, buildTemplateHashes } = require('../lib/manifest')
-    const pkg = require(pkgPaths.packageJsonPath())
+    const { writeManifest, buildTemplateHashes } = require('../lib/manifest') as typeof import('../lib/manifest')
+    const pkg = require(pkgPaths.packageJsonPath()) as { version: string }
     writeManifest(kbTemplatesDir, pkg.version, buildTemplateHashes(kbTemplatesDir))
   }
 }
 
-function copyDirRecursive(src, dest, filesCreated) {
+function copyDirRecursive(src: string, dest: string, filesCreated: string[]): void {
   if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true })
   const entries = fs.readdirSync(src, { withFileTypes: true })
   entries.forEach(entry => {
@@ -690,10 +714,10 @@ function copyDirRecursive(src, dest, filesCreated) {
 }
 
 
-function printSetupGuide(cfg, hints = {}, submoduleGaps = []) {
-  let stackLine
-  if (hints.submoduleStacks?.length > 0) {
-    const subEntries = hints.submoduleStacks.map(e => `${e.stack} (${e.dir})`).join(', ')
+function printSetupGuide(cfg: InitConfig, hints: StackHints, submoduleGaps: SubmoduleGap[] = []): void {
+  let stackLine: string
+  if ((hints.submoduleStacks?.length ?? 0) > 0) {
+    const subEntries = (hints.submoduleStacks ?? []).map(e => `${e.stack} (${e.dir})`).join(', ')
     const rootPart = (hints.stack && hints.stack !== 'monorepo') ? `${hints.stack} (root), ` : ''
     stackLine = `   Detected stacks: ${rootPart}${subEntries} — code_path_patterns pre-filled with prefixed paths.`
   } else if (hints.stack) {
@@ -769,22 +793,22 @@ Rules: knowledge/_rules.md
 `)
 }
 
-module.exports = {
-  runTool,
-  // Exported for unit-test reach into the helpers. NOT part of the MCP
-  // surface — kb-mcp consumers should call runTool, not these.
-  _internal: { generateAppRootPatterns, generateRulesContent, generateCodePathPatterns, detectStackHints, buildStacksSummary },
-  definition: {
-    name: 'kb_init',
-    description: 'Bootstrap a new KB structure in the current monorepo. Pass regenerate_agent_rules: true to (re)generate CLAUDE.md/.cursorrules/.windsurfrules/.github/copilot-instructions.md in the project root.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        interactive: { type: 'boolean', description: 'Run interactive setup prompts', default: true },
-        config: { type: 'object', description: 'Config object (skips interactive prompts)' },
-        regenerate_agent_rules: { type: 'boolean', description: 'Only regenerate CLAUDE.md/.cursorrules/.windsurfrules/.github/copilot-instructions.md; skip the full bootstrap.' },
-        force: { type: 'boolean', description: 'With regenerate_agent_rules: overwrite existing files. Default: false (preserves customizations).' }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_init',
+  description: 'Bootstrap a new KB structure in the current monorepo. Pass regenerate_agent_rules: true to (re)generate CLAUDE.md/.cursorrules/.windsurfrules/.github/copilot-instructions.md in the project root.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      interactive: { type: 'boolean', description: 'Run interactive setup prompts', default: true },
+      config: { type: 'object', description: 'Config object (skips interactive prompts)' },
+      regenerate_agent_rules: { type: 'boolean', description: 'Only regenerate CLAUDE.md/.cursorrules/.windsurfrules/.github/copilot-instructions.md; skip the full bootstrap.' },
+      force: { type: 'boolean', description: 'With regenerate_agent_rules: overwrite existing files. Default: false (preserves customizations).' }
     }
   }
 }
+
+// _internal is exported for unit-test reach into the helpers. NOT part of the
+// MCP surface — kb-mcp consumers should call runTool, not these.
+const _internal = { generateAppRootPatterns, generateRulesContent, generateCodePathPatterns, detectStackHints, buildStacksSummary }
+
+export { runTool, _internal, definition }

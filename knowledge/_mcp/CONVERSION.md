@@ -149,30 +149,32 @@ copy it into `dist/scripts/` preserving the exec bit. tsconfig now excludes
 `**/*.cjs` so build scripts don't leak into dist. Data dirs (presets/schemas/
 _templates) still resolve from source via pkg-paths — not copied.
 
-## Phase 3 — tools/ simpler half  (8/15 done)
+## Phase 3 — tools/ simpler half ✅ DONE (15/15)
 - [x] status  *(imports getStatus type from @instrumentality/shared)*
 - [x] schema
 - [x] history
 - [x] ask  *(get still CJS → runtime require with typed result slice)*
-- [ ] inventory
+- [x] inventory
 - [x] sub
 - [x] issue  *(get still CJS → runtime require with typed result slice)*
-- [ ] autotag
-- [ ] autorelate
-- [ ] upgrade  *(already routed via pkg-paths)*
+- [x] autotag
+- [x] autorelate
+- [x] upgrade
 - [x] migrate
-- [ ] init  *(already routed; large file ~790 lines)*
-- [ ] scaffold
+- [x] init  *(large file; lazy requires typed via `as typeof import(...)`)*
+- [x] scaffold
 - [x] reindex  *(internal; consumes typed LintResult)*
 - [x] lint  *(internal; exports LintResult)*
 
 Added `src/types/tool.ts` (ToolDefinition/JsonSchema/RunTool/ToolResult).
-Pattern for tools that call the not-yet-converted `get` (Phase 4): runtime
-`require('./get')` cast to a typed result slice — no `any`.
+Also converted the two deferred CJS leaves **kb-paths + pkg-paths** during this
+phase (scaffold's named imports forced it) — **all of lib/ is now TS too.**
 
-`any` count: 0 (documented casts only at MCP-arg / dynamic boundaries)
+Pattern for tools that call the not-yet-converted Phase-4 tools (get/write):
+runtime `require('./x')` cast to a typed result slice — no `any`. Lazy intra-
+tool requires that are already `.ts` use `as typeof import('./x')`.
 
-**Remaining P3 (next session):** inventory, autotag, autorelate, upgrade, init, scaffold.
+`any` count: 0 (documented casts only at MCP-arg / dynamic-YAML boundaries)
 
 ## Phase 4 — tools/ complex half (+ subdirs)
 - [ ] get
