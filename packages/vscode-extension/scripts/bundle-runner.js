@@ -3,10 +3,12 @@
 
 // Bundles the kb-mcp live-status runner into dist/runner/ so the extension
 // can drive the readonly drift/conform overlay in consumer projects that
-// don't vendor knowledge/_mcp/ in tree. The runner is plain CJS — we copy
-// source + run a one-shot npm install for its three runtime deps
-// (simple-git, gray-matter, js-yaml). Templates live at dist/_templates/
-// because lib/prompts.js resolves them via `__dirname/../../_templates`.
+// don't vendor knowledge/_mcp/ in tree. kb-mcp is now TypeScript compiled to
+// knowledge/_mcp/dist/, so we copy the COMPILED .js output (run plain under
+// node) — never the .ts source. We then run a one-shot npm install for the
+// three runtime deps (simple-git, gray-matter, js-yaml). Templates live at
+// dist/_templates/: lib/pkg-paths.js resolves them via packageRoot()/../
+// _templates, which from dist/runner/lib/ lands at dist/_templates.
 
 const fs = require('node:fs')
 const path = require('node:path')
@@ -15,6 +17,8 @@ const { execFileSync } = require('node:child_process')
 const EXT_ROOT = path.resolve(__dirname, '..')
 const REPO_ROOT = path.resolve(EXT_ROOT, '..', '..')
 const MCP_DIR = path.join(REPO_ROOT, 'knowledge', '_mcp')
+// Copy from kb-mcp's compiled output, not source (source is .ts).
+const MCP_DIST = path.join(MCP_DIR, 'dist')
 const TEMPLATES_DIR = path.join(REPO_ROOT, 'knowledge', '_templates')
 
 const RUNNER_OUT = path.join(EXT_ROOT, 'dist', 'runner')
@@ -29,8 +33,10 @@ const RUNTIME_DEPS = {
   'js-yaml': '^4.1.0'
 }
 
-// File-level copy: scripts/, tools/, lib/ as-is. Nothing else from _mcp/
-// is reachable from the live-status entrypoint, so the tree stays small.
+// File-level copy of the compiled output: dist/scripts, dist/tools, dist/lib.
+// Nothing else from _mcp/dist is reachable from the live-status entrypoint,
+// so the tree stays small. (.js.map files are copied too — harmless, and
+// keep stack traces readable if the runner throws.)
 const COPY_DIRS = ['scripts', 'tools', 'lib']
 
 function rmrf(p) {
@@ -78,12 +84,20 @@ function main() {
     console.error(`[bundle-runner] missing source tree at ${MCP_DIR}`)
     process.exit(1)
   }
+  if (!fs.existsSync(MCP_DIST)) {
+    console.error(
+      `[bundle-runner] missing compiled output at ${MCP_DIST}.\n` +
+      `  kb-mcp is TypeScript — run \`npm --prefix knowledge/_mcp run build\` first ` +
+      `(the extension build does this automatically; see esbuild.config.js).`
+    )
+    process.exit(1)
+  }
   rmrf(RUNNER_OUT)
   rmrf(TEMPLATES_OUT)
   fs.mkdirSync(RUNNER_OUT, { recursive: true })
 
   for (const dir of COPY_DIRS) {
-    const src = path.join(MCP_DIR, dir)
+    const src = path.join(MCP_DIST, dir)
     if (!fs.existsSync(src)) continue
     copyDir(src, path.join(RUNNER_OUT, dir))
   }

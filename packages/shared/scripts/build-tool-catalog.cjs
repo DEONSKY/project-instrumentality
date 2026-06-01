@@ -14,7 +14,10 @@ const path = require('node:path');
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 const toolsDir = path.join(repoRoot, 'knowledge', '_mcp', 'tools');
-const serverPath = path.join(repoRoot, 'knowledge', '_mcp', 'server.js');
+// kb-mcp's entry is server.ts (the root server.js is just a runtime shim that
+// requires the compiled dist). The tool-registration map we parse below lives
+// in server.ts. The regex/format is identical to the old JS source.
+const serverPath = path.join(repoRoot, 'knowledge', '_mcp', 'server.ts');
 const proseJsonPath = path.resolve(__dirname, '..', 'src', 'tool-catalog-prose.json');
 const outPath = path.resolve(__dirname, '..', 'src', 'tool-catalog.generated.ts');
 
@@ -36,9 +39,13 @@ function loadRegisteredToolNames() {
 }
 
 function loadDefinition(toolFile) {
-  const full = path.join(toolsDir, `${toolFile}.js`);
   // Each tool module exports { runTool, definition }. Requiring is safe — they
   // do not have side effects at load time (no listeners, no IO).
+  // NOTE (TS migration): tools are still CommonJS .js in tools/ today. Once
+  // Phase 4 converts them to .ts, node can't require the source directly —
+  // this must switch to requiring kb-mcp's compiled dist/tools/<file>.js
+  // (which means kb-mcp must be built before this catalog step).
+  const full = path.join(toolsDir, `${toolFile}.js`);
   const mod = require(full);
   if (!mod.definition) {
     throw new Error(`Tool module ${full} missing 'definition' export`);

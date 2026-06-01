@@ -325,7 +325,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
         "name": "type",
         "type": "string",
         "required": true,
-        "hint": "Template type: feature|flow|schema|validation|integration|decision|standard|group|component"
+        "hint": "Template type: feature|flow|policy|schema|validation|integration|decision|standard|reference|technical|group|component"
       },
       {
         "name": "id",
@@ -474,7 +474,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     "name": "kb_import",
     "category": "authoring",
-    "shortDescription": "Import a document (PDF/DOCX/HTML/MD/TXT) into the KB. Auto-classify mode (recommended): Phase 1 extracts and classifies in batches (multi-label). Phase 2 returns an import plan with proposed files and cross-references. Phase 3 (approve: true) writes files. Images are extracted to per-document asset folders and embedded as Obsidian ![[...]] links — auto_classify mode only. Classic mode: Phase 1 returns chunks, Phase 2 writes agent-generated files.",
+    "shortDescription": "Import a document (PDF/DOCX/HTML/MD/TXT) into the KB. Auto-classify mode (recommended): Phase 1 extracts and classifies in batches (multi-label). Phase 2 returns an import plan with proposed files and cross-references, plus per-file fill prompts (structural fill is ON by default — lifts prose into Fields/Rules tables; pass no_fill: true for the cheap baseline-only run). Phase 3 (approve: true) writes files. Images are extracted to per-document asset folders and embedded as Obsidian ![[...]] links — auto_classify mode only. Classic mode: Phase 1 returns chunks, Phase 2 writes agent-generated files.",
     "whenToUse": "Bring outside docs into the KB — classic extract+classify, or paginated auto-classify with an approval gate.",
     "examplePrompts": [
       "Import this Notion export into the KB (auto-classify mode).",
@@ -524,6 +524,12 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
         "hint": "Discard any saved progress for this source and re-import from scratch (auto_classify)"
       },
       {
+        "name": "no_fill",
+        "type": "boolean",
+        "required": false,
+        "hint": "Opt out of structural fill (default ON). With no_fill, the plan writes the deterministic baseline only — prose stays under ## Imported Content and is NOT lifted into Fields/Rules tables."
+      },
+      {
         "name": "files_to_write",
         "type": "object[]",
         "required": false,
@@ -560,7 +566,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
         "name": "type",
         "type": "string",
         "required": false,
-        "hint": "Filter by KB type: feature, flow, schema, validation, integration, decision, component"
+        "hint": "Filter by KB type: feature, flow, policy, schema, validation, integration, decision, reference, technical, component"
       },
       {
         "name": "purpose",
@@ -750,7 +756,7 @@ export const GENERATED_TOOL_CATALOG: ToolCatalogEntry[] = [
         "name": "type",
         "type": "string",
         "required": false,
-        "hint": "KB doc type filter: feature, flow, decision (plan)"
+        "hint": "KB doc type filter: feature, flow, policy, decision (plan)"
       },
       {
         "name": "keywords",

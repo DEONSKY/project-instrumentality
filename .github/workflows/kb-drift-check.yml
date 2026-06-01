@@ -43,18 +43,30 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install KB MCP dependencies
-        # Only the runtime deps the readonly detection needs (simple-git,
-        # gray-matter, js-yaml). Adjust if the tool grows new ones.
-        working-directory: knowledge/_mcp
+      - name: Build shared package
+        # kb-mcp imports @instrumentality/shared via a file: dep and needs its
+        # compiled dist/ at type-check + run time, so build it first.
         run: |
-          if [ -f package.json ]; then
-            npm ci --omit=dev || npm install --omit=dev
+          npm --prefix packages/shared ci || npm --prefix packages/shared install
+          npm --prefix packages/shared run build
+
+      - name: Install + build KB MCP
+        # Full install (incl. devDeps) is required now that kb-mcp is built
+        # from TypeScript — the build needs the `typescript` toolchain. tsc
+        # compiles knowledge/_mcp/ → dist/; the drift CI check runs the
+        # compiled output (dist/scripts/drift-ci-check.js).
+        run: |
+          if [ -f knowledge/_mcp/package.json ]; then
+            npm --prefix knowledge/_mcp ci || npm --prefix knowledge/_mcp install
+            npm --prefix knowledge/_mcp run build
           fi
+
+      - name: Type-check KB MCP
+        run: npm --prefix knowledge/_mcp run typecheck
 
       - name: Run drift CI check
         id: check
-        run: node knowledge/_mcp/scripts/drift-ci-check.js
+        run: node knowledge/_mcp/dist/scripts/drift-ci-check.js
 
       - name: Step summary on failure
         if: failure()

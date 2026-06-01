@@ -40,16 +40,31 @@ function checkBudget() {
   }
 }
 
+const REPO_ROOT = path.resolve(__dirname, "..", "..");
+
+function buildKbMcp() {
+  // kb-mcp is TypeScript now; bundle-runner copies its compiled dist/, so it
+  // must be built first. The shared package is a file: dep of kb-mcp and must
+  // be built before it.
+  execFileSync("npm", ["--prefix", path.join(REPO_ROOT, "packages", "shared"), "run", "build"], {
+    stdio: "inherit",
+  });
+  execFileSync("npm", ["--prefix", path.join(REPO_ROOT, "knowledge", "_mcp"), "run", "build"], {
+    stdio: "inherit",
+  });
+}
+
 function bundleRunner() {
   // Ships the kb-mcp readonly runner inside the VSIX so consumer projects
-  // that don't vendor knowledge/_mcp/ still get the live overlay. The
-  // bundle script copies source + installs the three runtime npm deps
-  // — see scripts/bundle-runner.js for the rationale. Opt out with
-  // `--skip-runner` during fast iteration when only TS changes.
+  // that don't vendor knowledge/_mcp/ still get the live overlay. The bundle
+  // script copies kb-mcp's COMPILED dist/ + installs the three runtime npm
+  // deps — see scripts/bundle-runner.js for the rationale. Opt out with
+  // `--skip-runner` during fast iteration when only extension TS changes.
   if (skipRunner) {
     console.log("[bundle-runner] skipped (--skip-runner)");
     return;
   }
+  buildKbMcp();
   const script = path.join(__dirname, "scripts", "bundle-runner.js");
   execFileSync(process.execPath, [script], { stdio: "inherit" });
 }
