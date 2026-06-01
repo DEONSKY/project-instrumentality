@@ -1,8 +1,16 @@
-const fs = require('fs')
-const path = require('path')
-const matter = require('gray-matter')
-const { loadRules } = require('./rules')
-const pkgPaths = require('./pkg-paths')
+import * as fs from 'fs'
+import * as path from 'path'
+import matter from 'gray-matter'
+import { loadRules } from './rules'
+import * as pkgPaths from './pkg-paths'
+
+interface OverridesConfig {
+  base_dir: string
+  override_dir: string
+  valid_override_types: string[]
+  suppress_requires_reason: boolean
+  protected: string[]
+}
 
 // Fallback values used when prompt_overrides config can't be resolved (e.g.
 // _rules.md missing). Match getDefaultRules().prompt_overrides.
@@ -14,7 +22,7 @@ const BUNDLED_PROMPTS_DIR = path.join(pkgPaths.bundledTemplatesDir(), 'prompts')
 const DEFAULT_VALID_TYPES = ['replace', 'extend-before', 'extend-after', 'suppress', 'section-replace']
 const DEFAULT_PROTECTED = ['drift-summary', 'ask-sync', 'conform-check', 'conform-resolve']
 
-function getOverridesConfig() {
+function getOverridesConfig(): OverridesConfig {
   try {
     const cfg = loadRules('knowledge').getPromptOverrides() || {}
     return {
@@ -37,12 +45,12 @@ function getOverridesConfig() {
   }
 }
 
-function resolveBaseDir(configuredBaseDir) {
+function resolveBaseDir(configuredBaseDir: string): string {
   if (fs.existsSync(configuredBaseDir)) return configuredBaseDir
   return BUNDLED_PROMPTS_DIR
 }
 
-function loadFile(filePath) {
+function loadFile(filePath: string): matter.GrayMatterFile<string> | null {
   if (!fs.existsSync(filePath)) return null
   const parsed = matter(fs.readFileSync(filePath, 'utf8'))
   return { ...parsed, content: stripCommentHeader(parsed.content) }
@@ -58,7 +66,7 @@ function loadFile(filePath) {
  * This protects templates that use `---` as a real markdown rule inside the
  * body (e.g. issue-triage.md) and those with no divider at all.
  */
-function stripCommentHeader(content) {
+function stripCommentHeader(content: string): string {
   if (!content) return content
   const lines = content.split('\n')
   for (let i = 0; i < lines.length; i++) {
@@ -75,13 +83,13 @@ function stripCommentHeader(content) {
   return content
 }
 
-function fillPlaceholders(content, context = {}) {
+function fillPlaceholders(content: string, context: Record<string, string> = {}): string {
   return content.replace(/\{\{(\w+)\}\}/g, (_, key) => {
     return context[key] !== undefined ? context[key] : `{{${key}}}`
   })
 }
 
-function mergeSection(baseContent, overrideContent, sectionName) {
+function mergeSection(baseContent: string, overrideContent: string, sectionName: string): string {
   const sectionRegex = new RegExp(
     `(## ${sectionName}[\\s\\S]*?)(?=\\n## |$)`, 'i'
   )
@@ -94,7 +102,7 @@ function mergeSection(baseContent, overrideContent, sectionName) {
   return baseContent.replace(sectionRegex, `## ${sectionName}\n\n${overrideContent.trim()}`)
 }
 
-function resolvePrompt(promptName, context = {}) {
+function resolvePrompt(promptName: string, context: Record<string, string> = {}): string | null {
   const cfg = getOverridesConfig()
   const basePath = path.join(resolveBaseDir(cfg.base_dir), `${promptName}.md`)
   const overridePath = path.join(cfg.override_dir, `${promptName}.md`)
@@ -108,9 +116,13 @@ function resolvePrompt(promptName, context = {}) {
     return fillPlaceholders(base.content, context)
   }
 
-  const { override: type, section, reason } = override.data
+  const { override: type, section, reason } = override.data as {
+    override?: string
+    section?: string
+    reason?: string
+  }
 
-  if (!cfg.valid_override_types.includes(type)) {
+  if (!type || !cfg.valid_override_types.includes(type)) {
     throw new Error(
       `Invalid override type: ${type}. Valid: ${cfg.valid_override_types.join(', ')}`
     )
@@ -155,4 +167,4 @@ function resolvePrompt(promptName, context = {}) {
   throw new Error(`Unknown override type: ${type}`)
 }
 
-module.exports = { resolvePrompt, stripCommentHeader }
+export { resolvePrompt, stripCommentHeader }

@@ -1,13 +1,32 @@
-const fs = require('fs')
-const path = require('path')
-const matter = require('gray-matter')
-const { matterStringify } = require('./matter-utils')
-const { getTemplatesDir, TYPE_TO_TEMPLATE } = require('./kb-paths')
-const { extractTagsFromText } = require('./tag-extract')
+import * as fs from 'fs'
+import * as path from 'path'
+import matter from 'gray-matter'
+import { matterStringify } from './matter-utils'
+import { getTemplatesDir, TYPE_TO_TEMPLATE } from './kb-paths'
+import { extractTagsFromText } from './tag-extract'
+
+type Frontmatter = Record<string, unknown>
+
+interface Chunk {
+  id: string | number
+  text: string
+  heading?: string
+  page_hint?: string | number
+  [key: string]: unknown
+}
+
+interface Classification {
+  scaffoldType?: string
+  suggested_id?: string
+  type?: string
+  confidence?: number
+  reason?: string
+  [key: string]: unknown
+}
 
 // Net structural brace count of a line, ignoring the braces inside {{...}}
 // placeholders (so `Table {{name}} {` counts as +1, not +3-2+1).
-function netBraces(line) {
+function netBraces(line: string): number {
   const structural = line.replace(/\{\{[^}]*\}\}/g, '')
   const open = (structural.match(/\{/g) || []).length
   const close = (structural.match(/\}/g) || []).length
@@ -21,7 +40,7 @@ function netBraces(line) {
  * DBML `Table {{table_name}} { ... }` example). Section headers, prose, and the
  * inserted `## Imported Content` are kept.
  */
-function stripPlaceholders(body) {
+function stripPlaceholders(body: string): string {
   const noComments = body
     .replace(/<!--[\s\S]*?-->/g, '')
     // Collapse multi-line {{ ... }} placeholders onto one line so the per-line
@@ -29,7 +48,7 @@ function stripPlaceholders(body) {
     // otherwise survive — the opening line has no closing }} to match).
     .replace(/\{\{[\s\S]*?\}\}/g, m => m.replace(/\s*\n\s*/g, ' '))
   const lines = noComments.split('\n')
-  const out = []
+  const out: string[] = []
   let skipDepth = 0
   for (const line of lines) {
     if (skipDepth > 0) {
@@ -59,8 +78,12 @@ function stripPlaceholders(body) {
  * - strips residual body placeholders, blocks, and authoring comments
  * Shared by both fill paths — see kb_import.
  */
-function normalizeKbFile(fm, body, { id, date } = {}) {
-  const out = { ...fm }
+function normalizeKbFile(
+  fm: Frontmatter,
+  body: string,
+  { id, date }: { id?: string; date?: string } = {}
+): { fm: Frontmatter; body: string } {
+  const out: Frontmatter = { ...fm }
   const today = date || new Date().toISOString().split('T')[0]
 
   if (id) {
@@ -90,9 +113,14 @@ function normalizeKbFile(fm, body, { id, date } = {}) {
  * No LLM — inserts raw chunk text under an "## Imported Content" section
  * and fills frontmatter fields, then normalizes the result.
  */
-function fillTemplate(chunk, classification, sourceFile, dependsOn = []) {
+function fillTemplate(
+  chunk: Chunk,
+  classification: Classification,
+  sourceFile: string,
+  dependsOn: string[] = []
+): string | null {
   const scaffoldType = classification.scaffoldType
-  const templateFile = TYPE_TO_TEMPLATE[scaffoldType]
+  const templateFile = scaffoldType ? (TYPE_TO_TEMPLATE as Record<string, string>)[scaffoldType] : undefined
   if (!templateFile) return null
 
   const templatePath = path.join(getTemplatesDir(), templateFile)
@@ -109,7 +137,7 @@ function fillTemplate(chunk, classification, sourceFile, dependsOn = []) {
   // rules[].detect.hint, etc. Templates quote {{...}} placeholders so YAML
   // parses them as strings; without this recursion the top-level walk would
   // miss nested fields and they'd survive as literal "{{placeholder}}".
-  const substitute = (val) => {
+  const substitute = (val: unknown): unknown => {
     if (typeof val === 'string') {
       return val
         .replace(/\{\{id\}\}/g, id)
@@ -120,23 +148,24 @@ function fillTemplate(chunk, classification, sourceFile, dependsOn = []) {
     }
     if (Array.isArray(val)) return val.map(substitute)
     if (val && typeof val === 'object') {
-      const out = {}
+      const out: Frontmatter = {}
       for (const [k, v] of Object.entries(val)) out[k] = substitute(v)
       return out
     }
     return val
   }
-  let fm = substitute({ ...parsed.data })
+  const fm = substitute({ ...parsed.data }) as Frontmatter
 
   fm.import_source = sourceFile
   fm.import_chunk = chunk.id
   if (dependsOn.length > 0) {
-    fm.depends_on = [...new Set([...(fm.depends_on || []), ...dependsOn])]
+    const existingDeps = Array.isArray(fm.depends_on) ? fm.depends_on as string[] : []
+    fm.depends_on = [...new Set([...existingDeps, ...dependsOn])]
   }
 
   // Auto-extract tags from imported content
   const extractedTags = extractTagsFromText(chunk.text, { id })
-  const existingTags = Array.isArray(fm.tags) ? fm.tags : []
+  const existingTags = Array.isArray(fm.tags) ? fm.tags as string[] : []
   fm.tags = [...new Set([...existingTags, ...extractedTags])]
 
   // Build body: insert imported content after first heading, preserve rest
@@ -162,7 +191,7 @@ function fillTemplate(chunk, classification, sourceFile, dependsOn = []) {
 /**
  * Build a markdown entry for the import-review queue.
  */
-function buildReviewEntry(chunk, classification, sourceFile) {
+function buildReviewEntry(chunk: Chunk, classification: Classification, sourceFile: string): string {
   const heading = chunk.heading || `Chunk ${chunk.id}`
   const bestGuess = classification.type || 'unknown'
   const confidence = classification.confidence || 0
@@ -181,4 +210,4 @@ function buildReviewEntry(chunk, classification, sourceFile) {
   ].join('\n')
 }
 
-module.exports = { fillTemplate, buildReviewEntry, normalizeKbFile, stripPlaceholders }
+export { fillTemplate, buildReviewEntry, normalizeKbFile, stripPlaceholders }

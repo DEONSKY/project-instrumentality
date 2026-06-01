@@ -1,4 +1,53 @@
-const { globMatch } = require('./patterns')
+import { globMatch } from './patterns'
+import type { Graph } from '../src/types/graph'
+import type { Rules } from '../src/types/rules'
+
+// Standards shapes are graph/YAML-derived and looser than the strict types in
+// @instrumentality/shared (which model the published sync surface). These local
+// interfaces describe what the matcher/validator actually read.
+type AppScope = string | string[]
+
+interface StandardRule {
+  id?: string
+  title?: string
+  severity?: string
+  description?: string
+  applies_to?: { paths?: string[] }
+  detect?: { kind?: string; pre_filter?: string }
+  exceptions?: Array<{ paths?: string[]; reason?: string }>
+  [key: string]: unknown
+}
+
+interface StandardParty {
+  app_scope?: AppScope
+  applies_to?: { paths?: string[] }
+  detect?: { kind?: string }
+  [key: string]: unknown
+}
+
+interface StandardIndexEntry {
+  path: string
+  id?: string
+  kind: string
+  app_scope: AppScope
+  topic: string | null
+  parties: Record<string, StandardParty> | null
+  rules: StandardRule[]
+  tags: string[]
+}
+
+interface StandardMatch {
+  standard: StandardIndexEntry
+  rule: StandardRule
+  party: string | null
+  matchStrength: number
+  severityRank: number
+}
+
+interface ValidationResult {
+  valid: boolean
+  errors: string[]
+}
 
 const VALID_KINDS = new Set(['stack-local', 'contract', 'process', 'knowledge'])
 const VALID_SEVERITIES = new Set(['info', 'warn', 'error'])
@@ -9,23 +58,22 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/
  * Filter graph entries down to those representing standards. Standards entries
  * carry kind/topic/parties/rules in addition to the base graph fields.
  *
- * @param {object} graph - result of loadGraph()
- * @returns {Array<{path: string, id: string, kind: string, app_scope: string|string[], topic?: string, parties?: object, rules: Array}>}
+ * @param graph - result of loadGraph()
  */
-function loadStandardsIndex(graph) {
-  const out = []
+function loadStandardsIndex(graph: Graph): StandardIndexEntry[] {
+  const out: StandardIndexEntry[] = []
   const files = (graph && graph.files) || {}
   for (const [filePath, entry] of Object.entries(files)) {
     if (entry.type !== 'standard') continue
     out.push({
       path: filePath,
       id: entry.id,
-      kind: entry.kind || 'stack-local',
-      app_scope: entry.app_scope || 'all',
-      topic: entry.topic || null,
-      parties: entry.parties || null,
-      rules: Array.isArray(entry.rules) ? entry.rules : [],
-      tags: entry.tags || []
+      kind: (entry.kind as string) || 'stack-local',
+      app_scope: (entry.app_scope as AppScope) || 'all',
+      topic: (entry.topic as string) || null,
+      parties: (entry.parties as Record<string, StandardParty>) || null,
+      rules: Array.isArray(entry.rules) ? (entry.rules as StandardRule[]) : [],
+      tags: (entry.tags as string[]) || []
     })
   }
   return out
@@ -35,7 +83,7 @@ function loadStandardsIndex(graph) {
  * Match a single rule against a file. Returns the match strength so callers
  * can rank: 3 = exact path match, 2 = glob match, 1 = contract-party match, 0 = no match.
  */
-function ruleMatchesPath(rule, filePath) {
+function ruleMatchesPath(rule: StandardRule, filePath: string): number {
   const paths = (rule.applies_to && rule.applies_to.paths) || []
   for (const p of paths) {
     if (p === filePath) return 3
@@ -44,7 +92,7 @@ function ruleMatchesPath(rule, filePath) {
   return 0
 }
 
-function partyMatchesPath(party, filePath) {
+function partyMatchesPath(party: StandardParty, filePath: string): number {
   const paths = (party.applies_to && party.applies_to.paths) || []
   for (const p of paths) {
     if (p === filePath) return 3
@@ -53,7 +101,7 @@ function partyMatchesPath(party, filePath) {
   return 0
 }
 
-function appScopeMatches(scope, appScope) {
+function appScopeMatches(scope: AppScope | undefined, appScope: string | null): boolean {
   // When inference returns null (no app_root_patterns configured + no explicit
   // app_scope passed), only universally-scoped standards match. This is the
   // conservative default — without app context, surface only rules that apply
@@ -64,7 +112,7 @@ function appScopeMatches(scope, appScope) {
   return false
 }
 
-const SEVERITY_RANK = { error: 3, warn: 2, info: 1 }
+const SEVERITY_RANK: Record<string, number> = { error: 3, warn: 2, info: 1 }
 
 /**
  * Find rules applicable to a file, ranked by match strength then severity.
@@ -73,15 +121,19 @@ const SEVERITY_RANK = { error: 3, warn: 2, info: 1 }
  *   1. exact-path-match > glob-match > contract-party-match
  *   2. severity error > warn > info
  *
- * @param {Array} index - from loadStandardsIndex
- * @param {string} filePath - project-relative path being edited
- * @param {string|null} appScope - resolved app for the file (or null)
- * @param {{cap?: number}} opts
- * @returns {Array<{standard, rule, party?, matchStrength}>}
+ * @param index - from loadStandardsIndex
+ * @param filePath - project-relative path being edited
+ * @param appScope - resolved app for the file (or null)
+ * @param opts
  */
-function findStandardsForPath(index, filePath, appScope, opts = {}) {
+function findStandardsForPath(
+  index: StandardIndexEntry[],
+  filePath: string,
+  appScope: string | null,
+  opts: { cap?: number } = {}
+): StandardMatch[] {
   const cap = typeof opts.cap === 'number' ? opts.cap : 10
-  const candidates = []
+  const candidates: StandardMatch[] = []
 
   for (const std of index) {
     if (!appScopeMatches(std.app_scope, appScope)) continue
@@ -105,7 +157,7 @@ function findStandardsForPath(index, filePath, appScope, opts = {}) {
             rule,
             party: partyName,
             matchStrength: 1, // contract-party matches rank below stack-local rules
-            severityRank: SEVERITY_RANK[rule.severity] || 0
+            severityRank: SEVERITY_RANK[rule.severity || ''] || 0
           })
         }
       }
@@ -118,7 +170,7 @@ function findStandardsForPath(index, filePath, appScope, opts = {}) {
           rule,
           party: null,
           matchStrength: m,
-          severityRank: SEVERITY_RANK[rule.severity] || 0
+          severityRank: SEVERITY_RANK[rule.severity || ''] || 0
         })
       }
     }
@@ -138,13 +190,13 @@ function findStandardsForPath(index, filePath, appScope, opts = {}) {
  * Returns null silently if app_root_patterns is unset or no pattern matches —
  * caller falls back to "no inference" (only app_scope: all standards match).
  */
-function inferAppScope(filePath, rules) {
+function inferAppScope(filePath: string, rules: Rules | null): string | null {
   if (!rules) return null
   const raw = typeof rules.getRaw === 'function' ? rules.getRaw() : rules
-  const patterns = raw && raw.app_root_patterns
+  const patterns = (raw as { app_root_patterns?: Record<string, unknown> }).app_root_patterns
   if (!patterns || typeof patterns !== 'object') return null
   for (const [globPattern, appScope] of Object.entries(patterns)) {
-    if (globMatch(filePath, globPattern)) return appScope
+    if (globMatch(filePath, globPattern)) return appScope as string
   }
   return null
 }
@@ -152,7 +204,11 @@ function inferAppScope(filePath, rules) {
 /**
  * Look up a rule by composite key. Returns null if standard or rule not found.
  */
-function getRule(index, standardId, ruleId) {
+function getRule(
+  index: StandardIndexEntry[],
+  standardId: string,
+  ruleId: string
+): { standard: StandardIndexEntry; rule: StandardRule } | null {
   for (const std of index) {
     if (std.id !== standardId) continue
     for (const rule of std.rules) {
@@ -167,11 +223,11 @@ function getRule(index, standardId, ruleId) {
  * Validate a single rule object. Returns { valid, errors[] }. Used by lint and
  * by reindex (best-effort warn rather than block on bad rules).
  *
- * @param {object} rule
- * @param {{kind?: string}} ctx - parent standard's kind (affects requirement of applies_to.paths)
+ * @param rule
+ * @param ctx - parent standard's kind (affects requirement of applies_to.paths)
  */
-function validateRule(rule, ctx = {}) {
-  const errors = []
+function validateRule(rule: StandardRule, ctx: { kind?: string } = {}): ValidationResult {
+  const errors: string[] = []
   if (!rule || typeof rule !== 'object') {
     return { valid: false, errors: ['rule is not an object'] }
   }
@@ -190,7 +246,7 @@ function validateRule(rule, ctx = {}) {
         errors.push('rule.detect.pre_filter must be a non-empty regex string')
       } else {
         try { new RegExp(rule.detect.pre_filter) } catch (e) {
-          errors.push(`rule.detect.pre_filter is not a valid regex: ${e.message}`)
+          errors.push(`rule.detect.pre_filter is not a valid regex: ${(e as Error).message}`)
         }
       }
       if (rule.detect.kind && rule.detect.kind !== 'llm') {
@@ -230,23 +286,26 @@ function validateRule(rule, ctx = {}) {
  * Validate a whole standard's frontmatter. Returns flat errors[] with rule-id
  * prefixes so lint can surface specific failures without re-walking.
  */
-function validateStandard(data) {
-  const errors = []
+function validateStandard(data: Record<string, unknown> | null | undefined): ValidationResult {
+  const errors: string[] = []
   if (!data) return { valid: false, errors: ['empty frontmatter'] }
-  if (!data.id || !SLUG_RE.test(data.id)) errors.push('standard.id missing or not a kebab-case slug')
-  if (!data.kind) errors.push('standard.kind missing')
-  else if (!VALID_KINDS.has(data.kind)) errors.push(`standard.kind "${data.kind}" not in stack-local|contract|process|knowledge`)
+  const id = data.id as string | undefined
+  const kind = data.kind as string | undefined
+  if (!id || !SLUG_RE.test(id)) errors.push('standard.id missing or not a kebab-case slug')
+  if (!kind) errors.push('standard.kind missing')
+  else if (!VALID_KINDS.has(kind)) errors.push(`standard.kind "${kind}" not in stack-local|contract|process|knowledge`)
 
   // app_scope shape vs kind
-  if (data.kind === 'contract') {
+  if (kind === 'contract') {
     if (!Array.isArray(data.app_scope)) errors.push('contract standards require app_scope as an array')
     if (!data.parties || typeof data.parties !== 'object') {
       errors.push('contract standards require parties object')
     } else {
-      const partyNames = Object.keys(data.parties)
+      const parties = data.parties as Record<string, StandardParty>
+      const partyNames = Object.keys(parties)
       if (partyNames.length === 0) errors.push('contract standards require at least one party')
-      const allScopes = []
-      for (const [name, party] of Object.entries(data.parties)) {
+      const allScopes: Array<{ name: string; scopes: string[] }> = []
+      for (const [name, party] of Object.entries(parties)) {
         if (!party || typeof party !== 'object') {
           errors.push(`parties.${name} must be an object`)
           continue
@@ -260,7 +319,7 @@ function validateStandard(data) {
         if (!party.detect || !party.detect.kind) errors.push(`parties.${name}.detect.kind required`)
         else if (!VALID_DETECT_KINDS.has(party.detect.kind)) errors.push(`parties.${name}.detect.kind "${party.detect.kind}" not in llm|regex|ast-grep`)
 
-        const scopeArr = Array.isArray(party.app_scope) ? party.app_scope : [party.app_scope]
+        const scopeArr = (Array.isArray(party.app_scope) ? party.app_scope : [party.app_scope]) as string[]
         allScopes.push({ name, scopes: scopeArr })
       }
       // Detect overlapping party app_scopes
@@ -278,9 +337,9 @@ function validateStandard(data) {
   if (!Array.isArray(data.rules) || data.rules.length === 0) {
     errors.push('standard.rules must be a non-empty array')
   } else {
-    const seenIds = new Set()
-    data.rules.forEach((rule, idx) => {
-      const r = validateRule(rule, { kind: data.kind })
+    const seenIds = new Set<string>()
+    ;(data.rules as StandardRule[]).forEach((rule, idx) => {
+      const r = validateRule(rule, { kind })
       if (!r.valid) {
         for (const e of r.errors) errors.push(`rules[${idx}]${rule && rule.id ? ` (${rule.id})` : ''}: ${e}`)
       }
@@ -293,7 +352,7 @@ function validateStandard(data) {
   return { valid: errors.length === 0, errors }
 }
 
-module.exports = {
+export {
   loadStandardsIndex,
   findStandardsForPath,
   inferAppScope,
