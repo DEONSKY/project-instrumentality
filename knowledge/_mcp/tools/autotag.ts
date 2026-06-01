@@ -1,13 +1,26 @@
-const fs = require('fs')
-const path = require('path')
-const matter = require('gray-matter')
-const { matterStringify } = require('../lib/matter-utils')
-const { runTool: reindex } = require('./reindex')
-const { extractTagsFromText, extractCandidatesFromText, extractBodyWordsFromContent } = require('../lib/tag-extract')
-const { collectMdFiles } = require('../lib/fs-walk')
-const { KB_ROOT } = require('../lib/kb-constants')
+import * as fs from 'fs'
+import * as path from 'path'
+import matter from 'gray-matter'
+import { matterStringify } from '../lib/matter-utils'
+import { runTool as reindex } from './reindex'
+import { extractTagsFromText, extractCandidatesFromText, extractBodyWordsFromContent } from '../lib/tag-extract'
+import { collectMdFiles } from '../lib/fs-walk'
+import { KB_ROOT } from '../lib/kb-constants'
+import type { ToolDefinition } from '../src/types/tool'
 
-async function runTool({ file_path, mode, tags, skipReindex } = {}) {
+interface CorpusFilter {
+  blockedWords: Set<string>
+  knownCompounds: Set<string>
+}
+
+async function runTool(
+  { file_path, mode, tags, skipReindex }: {
+    file_path?: string
+    mode?: string
+    tags?: Record<string, unknown>
+    skipReindex?: boolean
+  } = {}
+): Promise<Record<string, unknown>> {
   const effectiveMode = mode || 'fast'
 
   // Mode: apply — write LLM-reviewed tags directly
@@ -16,7 +29,7 @@ async function runTool({ file_path, mode, tags, skipReindex } = {}) {
   }
 
   const files = resolveFiles(file_path)
-  if (files.error) return files
+  if (!Array.isArray(files)) return files
 
   // Mode: review — return candidates for LLM validation, don't write
   if (effectiveMode === 'review') {
@@ -38,26 +51,26 @@ async function runTool({ file_path, mode, tags, skipReindex } = {}) {
  *   16–50 files → >50%
  *   50+ files   → >40%
  */
-function buildCorpusFilter() {
+function buildCorpusFilter(): CorpusFilter {
   const allFiles = collectMdFiles(KB_ROOT)
   const totalFiles = allFiles.length
-  if (totalFiles < 6) return { blockedWords: new Set(), knownCompounds: new Set() }
+  if (totalFiles < 6) return { blockedWords: new Set<string>(), knownCompounds: new Set<string>() }
 
   // Body-word IDF: a term appearing in too many files as body text is generic.
   // More aggressive than before (was 0.70/0.50/0.40).
   const bodyRatio = totalFiles <= 15 ? 0.60 : totalFiles <= 50 ? 0.40 : 0.30
 
-  const wordFileCount = new Map()
+  const wordFileCount = new Map<string, number>()
   // Tracks tokens that appear as *parts* of distinct compound tags across the KB.
   // If `line` is a component of line-code, line-definitions, buffer-line, is-f2-line,
   // it's a category label, not a meaningful standalone tag.
-  const tagPartDocs = new Map() // token -> Set of distinct compound tags it appears in
-  const knownCompounds = new Set() // compound tags seen anywhere in the corpus
+  const tagPartDocs = new Map<string, Set<string>>() // token -> Set of distinct compound tags it appears in
+  const knownCompounds = new Set<string>() // compound tags seen anywhere in the corpus
 
   for (const fp of allFiles) {
-    let content
+    let content: string
     try { content = fs.readFileSync(fp, 'utf8') } catch { continue }
-    let parsed
+    let parsed: matter.GrayMatterFile<string>
     try { parsed = matter(content) } catch { continue }
 
     const words = extractBodyWordsFromContent(parsed.content)
@@ -69,17 +82,17 @@ function buildCorpusFilter() {
     for (const tag of existingTags) {
       if (typeof tag !== 'string') continue
       const lower = tag.toLowerCase()
-      const parts = lower.split('-').filter(p => p.length > 2)
+      const parts = lower.split('-').filter((p: string) => p.length > 2)
       if (parts.length < 2) continue // only compounds tell us a token is a category label
       knownCompounds.add(lower)
       for (const p of parts) {
         if (!tagPartDocs.has(p)) tagPartDocs.set(p, new Set())
-        tagPartDocs.get(p).add(lower)
+        tagPartDocs.get(p)!.add(lower)
       }
     }
   }
 
-  const blocked = new Set()
+  const blocked = new Set<string>()
   for (const [word, count] of wordFileCount) {
     if (count / totalFiles > bodyRatio) blocked.add(word)
   }
@@ -94,13 +107,13 @@ function buildCorpusFilter() {
 /**
  * Fast mode: regex-extract tags and overwrite frontmatter.
  */
-async function fastTag(files, skipReindex) {
+async function fastTag(files: string[], skipReindex?: boolean): Promise<Record<string, unknown>> {
   const { blockedWords, knownCompounds } = buildCorpusFilter()
 
   let tagged = 0
   let unchanged = 0
-  const failures = []
-  const sample = {}
+  const failures: Array<{ file: string; reason: string }> = []
+  const sample: Record<string, string[]> = {}
 
   for (const fp of files) {
     const rel = fp.replace(/^knowledge\//, '')
@@ -116,7 +129,7 @@ async function fastTag(files, skipReindex) {
     if (result.changed) {
       tagged++
       if (Object.keys(sample).length < 5) {
-        sample[rel] = result.tags
+        sample[rel] = result.tags || []
       }
     } else {
       unchanged++
@@ -143,26 +156,26 @@ async function fastTag(files, skipReindex) {
  * Shows preserved (existing with content support), new candidates, and possibly stale tags.
  * Does NOT write any tags.
  */
-function buildReview(files) {
+function buildReview(files: string[]): Record<string, unknown> {
   const { blockedWords, knownCompounds } = buildCorpusFilter()
-  const review = {}
-  const failures = []
+  const review: Record<string, unknown> = {}
+  const failures: Array<{ file: string; reason: string }> = []
 
   for (const fp of files) {
     const rel = fp.replace(/^knowledge\//, '')
-    let content
+    let content: string
     try {
       content = fs.readFileSync(fp, 'utf8')
     } catch (err) {
-      failures.push({ file: rel, reason: `read failed: ${err.message}` })
+      failures.push({ file: rel, reason: `read failed: ${(err as Error).message}` })
       continue
     }
 
-    let parsed
+    let parsed: matter.GrayMatterFile<string>
     try {
       parsed = matter(content)
     } catch (err) {
-      failures.push({ file: rel, reason: `yaml parse failed: ${err.message}` })
+      failures.push({ file: rel, reason: `yaml parse failed: ${(err as Error).message}` })
       continue
     }
     if (!parsed.data || typeof parsed.data !== 'object') {
@@ -177,9 +190,9 @@ function buildReview(files) {
     const maxScoreAll = candidatesResult.maxScore
 
     // Categorize candidates
-    const preserved = []      // existing tags with content support
-    const possiblyStale = []  // existing tags with zero/very low regex score
-    const newCandidates = { high: [], medium: [], low: [] }
+    const preserved: string[] = []      // existing tags with content support
+    const possiblyStale: string[] = []  // existing tags with zero/very low regex score
+    const newCandidates: { high: string[]; medium: string[]; low: string[] } = { high: [], medium: [], low: [] }
 
     // Phase 2 #6: weak-support threshold for stale detection. An existing tag
     // with regex_score below 10% of the overall max is effectively unsupported
@@ -227,14 +240,14 @@ function buildReview(files) {
 /**
  * Apply mode: write LLM-reviewed tags directly to frontmatter.
  */
-async function applyReviewedTags(tagsMap, skipReindex) {
+async function applyReviewedTags(tagsMap?: Record<string, unknown>, skipReindex?: boolean): Promise<Record<string, unknown>> {
   if (!tagsMap || typeof tagsMap !== 'object') {
     return { error: 'tags parameter is required for apply mode. Provide a map of file_path -> tag array.' }
   }
 
   let applied = 0
   let errors = 0
-  const results = {}
+  const results: Record<string, unknown> = {}
 
   for (const [filePath, tagList] of Object.entries(tagsMap)) {
     if (!Array.isArray(tagList)) {
@@ -255,8 +268,8 @@ async function applyReviewedTags(tagsMap, skipReindex) {
       const parsed = matter(content)
 
       // Normalize and validate tags
-      const cleanTags = tagList
-        .filter(t => typeof t === 'string' && t.length > 0)
+      const cleanTags = (tagList as unknown[])
+        .filter((t): t is string => typeof t === 'string' && t.length > 0)
         .map(t => t.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, ''))
         .filter(t => t.length > 0)
 
@@ -269,7 +282,7 @@ async function applyReviewedTags(tagsMap, skipReindex) {
       results[filePath] = { tags: uniqueTags, count: uniqueTags.length }
       applied++
     } catch (err) {
-      results[filePath] = { error: err.message }
+      results[filePath] = { error: (err as Error).message }
       errors++
     }
   }
@@ -286,7 +299,7 @@ async function applyReviewedTags(tagsMap, skipReindex) {
   }
 }
 
-function resolveFiles(filePath) {
+function resolveFiles(filePath?: string): string[] | { error: string } {
   if (!filePath || filePath === 'all') {
     return collectMdFiles(KB_ROOT)
   }
@@ -302,19 +315,23 @@ function resolveFiles(filePath) {
  * Process a single file: extract tags and overwrite frontmatter.
  * Tags are system-owned — full replacement, no merge.
  */
-function processFile(filePath, blockedWords, knownCompounds) {
-  let content
+function processFile(
+  filePath: string,
+  blockedWords: Set<string>,
+  knownCompounds: Set<string>
+): { error?: string; changed?: boolean; tags?: string[] } {
+  let content: string
   try {
     content = fs.readFileSync(filePath, 'utf8')
   } catch (err) {
-    return { error: `read failed: ${err.message}` }
+    return { error: `read failed: ${(err as Error).message}` }
   }
 
-  let parsed
+  let parsed: matter.GrayMatterFile<string>
   try {
     parsed = matter(content)
   } catch (err) {
-    return { error: `yaml parse failed: ${err.message}` }
+    return { error: `yaml parse failed: ${(err as Error).message}` }
   }
   if (!parsed.data || typeof parsed.data !== 'object') {
     return { error: 'missing or invalid frontmatter' }
@@ -344,18 +361,17 @@ function processFile(filePath, blockedWords, knownCompounds) {
   return { changed: true, tags: extractedTags }
 }
 
-module.exports = {
-  runTool,
-  definition: {
-    name: 'kb_autotag',
-    description: 'Auto-extract and manage tags for KB files. Tags are system-owned and overwritten on each run. Modes: "fast" (regex extraction, auto-applied), "review" (returns scored candidates for LLM validation), "apply" (writes LLM-reviewed tags to frontmatter).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        file_path: { type: 'string', description: 'Path to a single KB file (e.g. knowledge/specs/features/auth.md), or "all" to tag the entire KB. Default: all. Used by fast and review modes.' },
-        mode: { type: 'string', enum: ['fast', 'review', 'apply'], description: 'fast: regex-extract and overwrite tags (default). review: return scored candidates grouped by confidence for LLM validation. apply: write LLM-reviewed tags from the tags parameter.' },
-        tags: { type: 'object', description: 'For mode=apply only. Map of file_path to tag array, e.g. { "specs/features/auth.md": ["auth", "session", "jwt"] }.' }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_autotag',
+  description: 'Auto-extract and manage tags for KB files. Tags are system-owned and overwritten on each run. Modes: "fast" (regex extraction, auto-applied), "review" (returns scored candidates for LLM validation), "apply" (writes LLM-reviewed tags to frontmatter).',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      file_path: { type: 'string', description: 'Path to a single KB file (e.g. knowledge/specs/features/auth.md), or "all" to tag the entire KB. Default: all. Used by fast and review modes.' },
+      mode: { type: 'string', enum: ['fast', 'review', 'apply'], description: 'fast: regex-extract and overwrite tags (default). review: return scored candidates grouped by confidence for LLM validation. apply: write LLM-reviewed tags from the tags parameter.' },
+      tags: { type: 'object', description: 'For mode=apply only. Map of file_path to tag array, e.g. { "specs/features/auth.md": ["auth", "session", "jwt"] }.' }
     }
   }
 }
+
+export { runTool, definition }

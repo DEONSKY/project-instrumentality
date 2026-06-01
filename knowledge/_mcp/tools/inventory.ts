@@ -1,11 +1,16 @@
-const fs = require('fs')
-const path = require('path')
-const { loadGraph } = require('../lib/graph')
-const { loadStandardsIndex } = require('../lib/standards')
-const { globMatch, maxGlobDepth } = require('../lib/patterns')
-const { readLedger } = require('../lib/promotion-ledger')
+import * as fs from 'fs'
+import * as path from 'path'
+import { loadGraph } from '../lib/graph'
+import { loadStandardsIndex } from '../lib/standards'
+import { globMatch, maxGlobDepth } from '../lib/patterns'
+import { readLedger } from '../lib/promotion-ledger'
+import type { ToolDefinition } from '../src/types/tool'
 
 const KB_ROOT = 'knowledge'
+
+// The standards index this tool iterates — inferred from loadStandardsIndex so
+// it stays in lockstep with lib/standards.
+type StandardIndex = ReturnType<typeof loadStandardsIndex>
 
 // Mirrors analyze.js's directory skip set so we don't wander into build
 // output, deps, or KB internals when scanning for source files.
@@ -40,7 +45,7 @@ const DEFAULT_DEPTH = 6
  * @param {number} opts.depth — directory depth for source-file walk (default 6)
  * @param {string} opts.scope — optional glob to restrict the source-file walk
  */
-async function runTool({ depth = DEFAULT_DEPTH, scope } = {}) {
+async function runTool({ depth = DEFAULT_DEPTH, scope }: { depth?: number; scope?: string } = {}): Promise<Record<string, unknown>> {
   const graph = loadGraph(KB_ROOT)
   const index = loadStandardsIndex(graph)
 
@@ -69,12 +74,12 @@ async function runTool({ depth = DEFAULT_DEPTH, scope } = {}) {
  * Likely causes: rule was written for a directory that no longer exists, glob
  * was typo'd, or the codebase moved to a different layout.
  */
-function findStaleRules(index, sourceFiles) {
-  const stale = []
+function findStaleRules(index: StandardIndex, sourceFiles: string[]): Array<Record<string, unknown>> {
+  const stale: Array<Record<string, unknown>> = []
   for (const std of index) {
     if (std.kind === 'contract') {
       // Contracts: a contract is stale only when ALL party paths match nothing
-      const partyPaths = []
+      const partyPaths: string[] = []
       for (const party of Object.values(std.parties || {})) {
         for (const p of (party.applies_to && party.applies_to.paths) || []) {
           partyPaths.push(p)
@@ -118,8 +123,8 @@ function findStaleRules(index, sourceFiles) {
  * every contract party. Shared by findUncoveredFiles (matching) and runTool
  * (computing walk depth via maxGlobDepth).
  */
-function collectAllGlobs(index) {
-  const globs = []
+function collectAllGlobs(index: StandardIndex): string[] {
+  const globs: string[] = []
   for (const std of index) {
     if (std.kind === 'contract') {
       for (const party of Object.values(std.parties || {})) {
@@ -148,10 +153,10 @@ function collectAllGlobs(index) {
  *
  * Bounded by `cap` (default 50) so a fresh project doesn't dump every file.
  */
-function findUncoveredFiles(index, sourceFiles, cap = 50) {
+function findUncoveredFiles(index: StandardIndex, sourceFiles: string[], cap = 50): { files: string[]; count: number; truncated: boolean } {
   const allGlobs = collectAllGlobs(index)
 
-  const uncovered = []
+  const uncovered: string[] = []
   for (const f of sourceFiles) {
     if (uncovered.length >= cap) break
     if (!allGlobs.some(g => globMatch(f, g))) {
@@ -175,9 +180,9 @@ function findUncoveredFiles(index, sourceFiles, cap = 50) {
  * One ledger entry produces one report row per (queue_key, file) pair so the
  * senior dev sees granularity matching what's actually suppressed.
  */
-function collectPendingPromotions() {
+function collectPendingPromotions(): Array<Record<string, unknown>> {
   const { entries } = readLedger()
-  const promotions = []
+  const promotions: Array<Record<string, unknown>> = []
   for (const entry of entries) {
     for (const f of entry.files) {
       promotions.push({
@@ -190,17 +195,17 @@ function collectPendingPromotions() {
       })
     }
   }
-  promotions.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+  promotions.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
   return promotions
 }
 
 // ── Source-file walk ─────────────────────────────────────────────────────────
 
-function collectSourceFiles(rootDir, maxDepth) {
-  const files = []
-  function walk(dir, currentDepth) {
+function collectSourceFiles(rootDir: string, maxDepth: number): string[] {
+  const files: string[] = []
+  function walk(dir: string, currentDepth: number): void {
     if (currentDepth > maxDepth) return
-    let entries
+    let entries: fs.Dirent[]
     try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
     for (const entry of entries) {
       if (entry.name.startsWith('.') && entry.name !== '.') continue
@@ -217,21 +222,17 @@ function collectSourceFiles(rootDir, maxDepth) {
   return files
 }
 
-module.exports = {
-  runTool,
-  // Exposed for tests
-  findStaleRules,
-  findUncoveredFiles,
-  collectPendingPromotions,
-  definition: {
-    name: 'kb_inventory',
-    description: 'Read-only signal report for senior devs. Surfaces stale_rules (standards rules matching no source files), uncovered_files (source files matching no rule), and pending_promotions (open entries from the suppression ledger awaiting senior review). Never writes. Use to inform manual kb_extract / kb_write decisions, or to close promotions via kb_conform.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        depth: { type: 'number', description: 'Directory depth for source-file walk (default 6)' },
-        scope: { type: 'string', description: 'Optional glob to restrict the source-file walk (e.g. "ms-fe-web/**")' }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_inventory',
+  description: 'Read-only signal report for senior devs. Surfaces stale_rules (standards rules matching no source files), uncovered_files (source files matching no rule), and pending_promotions (open entries from the suppression ledger awaiting senior review). Never writes. Use to inform manual kb_extract / kb_write decisions, or to close promotions via kb_conform.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      depth: { type: 'number', description: 'Directory depth for source-file walk (default 6)' },
+      scope: { type: 'string', description: 'Optional glob to restrict the source-file walk (e.g. "ms-fe-web/**")' }
     }
   }
 }
+
+// findStaleRules/findUncoveredFiles/collectPendingPromotions exposed for tests.
+export { runTool, findStaleRules, findUncoveredFiles, collectPendingPromotions, definition }
