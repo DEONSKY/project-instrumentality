@@ -1,11 +1,15 @@
 'use strict'
 
 const path = require('path')
+const pkgPaths = require('../lib/pkg-paths')
 
 // Resolve to the built shared package. The MCP runs with cwd = repo root,
-// and packages/shared is a sibling of knowledge/.
+// and packages/shared is a sibling of knowledge/. repoRoot() is resolved via
+// pkg-paths so it stays correct whether this file runs from source (tools/)
+// or compiled (dist/tools/) — a raw __dirname walk would land one level deep
+// under dist/.
 function loadShared() {
-  const repoRoot = path.resolve(__dirname, '..', '..', '..')
+  const repoRoot = pkgPaths.repoRoot()
   const sharedDist = path.join(repoRoot, 'packages', 'shared', 'dist', 'status.js')
   try {
     return require(sharedDist)
@@ -29,9 +33,9 @@ async function runTool(args) {
   // the runLint default-resolution path is empty and lint.ran stays false.
   // Point at kb-mcp's own bundled lint-standalone.js so a direct kb_status
   // call from the agent populates Lint section in consumer repos.
-  // __dirname here = .../knowledge/_mcp/tools, so ../scripts/lint-standalone.js
-  // is always next to the MCP server source.
-  const bundledLintScriptPath = path.join(__dirname, '..', 'scripts', 'lint-standalone.js')
+  // Resolved via pkg-paths so it points at the real scripts/ dir whether
+  // running from source or compiled dist/.
+  const bundledLintScriptPath = path.join(pkgPaths.packageRoot(), 'scripts', 'lint-standalone.js')
   const summary = await getStatus(kbRoot, { skipLint, bundledLintScriptPath })
 
   // The full driftLogEvents array (the whole month-over-month event log) was

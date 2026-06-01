@@ -2,12 +2,15 @@ const fs = require('fs')
 const path = require('path')
 const matter = require('gray-matter')
 const { loadRules } = require('./rules')
+const pkgPaths = require('./pkg-paths')
 
 // Fallback values used when prompt_overrides config can't be resolved (e.g.
 // _rules.md missing). Match getDefaultRules().prompt_overrides.
 const DEFAULT_BASE_DIR = 'knowledge/_templates/prompts'
 const DEFAULT_OVERRIDE_DIR = 'knowledge/_prompt-overrides'
-const BUNDLED_PROMPTS_DIR = path.join(__dirname, '../../_templates/prompts')
+// Resolved via pkg-paths so it points at the real knowledge/_templates/prompts
+// whether running from source (lib/) or compiled (dist/lib/).
+const BUNDLED_PROMPTS_DIR = path.join(pkgPaths.bundledTemplatesDir(), 'prompts')
 const DEFAULT_VALID_TYPES = ['replace', 'extend-before', 'extend-after', 'suppress', 'section-replace']
 const DEFAULT_PROTECTED = ['drift-summary', 'ask-sync', 'conform-check', 'conform-resolve']
 

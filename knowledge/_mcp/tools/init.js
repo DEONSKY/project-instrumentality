@@ -7,6 +7,7 @@ const { matterStringify } = require('../lib/matter-utils')
 const { runTool: reindex } = require('./reindex')
 const { runTool: scaffold } = require('./scaffold')
 const { resolveFilePath } = require('../lib/kb-paths')
+const pkgPaths = require('../lib/pkg-paths')
 
 const KB_ROOT = 'knowledge'
 
@@ -557,7 +558,7 @@ function detectStackHints() {
 
 
 function loadPresetFull(stackName) {
-  const presetPath = path.join(__dirname, '../presets', `${stackName}.yaml`)
+  const presetPath = path.join(pkgPaths.presetsDir(), `${stackName}.yaml`)
   if (!fs.existsSync(presetPath)) return null
   try {
     return yaml.load(fs.readFileSync(presetPath, 'utf8'))
@@ -660,7 +661,7 @@ function generateCodePathPatterns(hints = {}) {
 
 function copyTemplates(filesCreated) {
   // Templates are bundled with the MCP server — copy from server location into the new project.
-  const mcpTemplatesDir = path.join(__dirname, '../../_templates')
+  const mcpTemplatesDir = pkgPaths.bundledTemplatesDir()
   const kbTemplatesDir = path.join(KB_ROOT, '_templates')
 
   if (fs.existsSync(mcpTemplatesDir)) {
@@ -668,7 +669,7 @@ function copyTemplates(filesCreated) {
 
     // Write manifest so kb_upgrade can track what was installed
     const { writeManifest, buildTemplateHashes } = require('../lib/manifest')
-    const pkg = require('../package.json')
+    const pkg = require(pkgPaths.packageJsonPath())
     writeManifest(kbTemplatesDir, pkg.version, buildTemplateHashes(kbTemplatesDir))
   }
 }

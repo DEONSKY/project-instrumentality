@@ -1,9 +1,12 @@
 const path = require('path')
 const fs = require('fs')
+const pkgPaths = require('./pkg-paths')
 
 const KB_ROOT = 'knowledge'
 const PROJECT_TEMPLATES_DIR = path.join(KB_ROOT, '_templates')
-const BUNDLED_TEMPLATES_DIR = path.join(__dirname, '../../_templates')
+// Resolved via pkg-paths so the bundled fallback points at the real
+// knowledge/_templates whether running from source (lib/) or compiled (dist/lib/).
+const BUNDLED_TEMPLATES_DIR = pkgPaths.bundledTemplatesDir()
 
 function getTemplatesDir() {
   return fs.existsSync(PROJECT_TEMPLATES_DIR) ? PROJECT_TEMPLATES_DIR : BUNDLED_TEMPLATES_DIR

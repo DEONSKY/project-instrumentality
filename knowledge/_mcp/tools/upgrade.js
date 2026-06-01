@@ -5,10 +5,13 @@ const { matterStringify } = require('../lib/matter-utils')
 const { resolvePrompt } = require('../lib/prompts')
 const { getDefaultRules } = require('../lib/rules')
 const { loadManifest, writeManifest, walkTemplateFiles, hashFileContent, buildTemplateHashes } = require('../lib/manifest')
+const pkgPaths = require('../lib/pkg-paths')
 
 const KB_ROOT = 'knowledge'
 const PROJECT_TEMPLATES_DIR = path.join(KB_ROOT, '_templates')
-const BUNDLED_TEMPLATES_DIR = path.join(__dirname, '../../_templates')
+// Resolved via pkg-paths so the bundled fallback points at the real
+// knowledge/_templates whether running from source or compiled dist/.
+const BUNDLED_TEMPLATES_DIR = pkgPaths.bundledTemplatesDir()
 
 /**
  * kb_upgrade — Upgrades project KB templates and config after MCP server update.
@@ -26,7 +29,7 @@ async function runTool({ dry_run = false, force = false } = {}) {
     return { error: 'knowledge/_rules.md not found. Run kb_init first.' }
   }
 
-  const pkg = require('../package.json')
+  const pkg = require(pkgPaths.packageJsonPath())
   const bundledVersion = pkg.version
   const manifest = loadManifest(PROJECT_TEMPLATES_DIR)
   const manifestVersion = manifest ? manifest.mcp_version : '0.0.0'
