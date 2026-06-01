@@ -32,7 +32,7 @@ tags: []
 
 | state | description | terminal |
 | ----- | ----------- | -------- |
-| {{state}} | {{what this state means}} | {{yes|no}} |
+| {{state}} | {{what this state means}} | {{yes\|no}} |
 
 > [!important] Guards
 > Conditions that must be true before this flow can proceed.

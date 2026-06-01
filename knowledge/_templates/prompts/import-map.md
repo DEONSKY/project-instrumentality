@@ -9,15 +9,19 @@
 #   {{chunk_id}}        — position identifier
 #   {{source_file}}     — original document filename
 #   {{kb_type}}         — classified type from import-classify
-#   {{template}}        — raw template content for that type
+#   {{template}}        — the BASELINE file already built by the importer
+#                         (frontmatter + ## Imported Content + tags + depends_on)
 #   {{suggested_id}}    — suggested KB file id
 #   {{kb_context}}      — standards files for naming/convention reference
 
 ---
 
-You are mapping legacy documentation into a structured knowledge
-base file. Fill the template using only information present in
-the source chunk. Do not invent content.
+You are enriching a knowledge base file that the importer has already
+scaffolded. The baseline below already has correct frontmatter and the raw
+source prose under `## Imported Content`. Your job is to LIFT that prose into
+the empty structured sections (e.g. `## Rules`, `## Business rules`, DBML
+tables) using only information present in the source chunk. Do not invent
+content.
 
 ## Source chunk
 
@@ -31,7 +35,7 @@ From: {{source_file}} — {{chunk_id}}
 
 {{kb_context}}
 
-## Template to fill
+## Baseline file to enrich
 
 Type: {{kb_type}}
 Suggested id: {{suggested_id}}
@@ -42,17 +46,19 @@ Suggested id: {{suggested_id}}
 
 ## Rules
 
-- Fill only what the source text clearly states
-- Leave {{placeholder}} for anything not mentioned in the source
+- Fill only what the source text clearly states; leave a section empty if the
+  source does not cover it
+- **Do NOT remove or rewrite the `## Imported Content` block** — it is the
+  provenance record. Add structure in the OTHER sections; leave it intact.
+- **Do NOT drop or alter** the `tags`, `depends_on`, `import_source`, or
+  `import_chunk` frontmatter the baseline already set
 - Do NOT add a `status` field (workflow state does not belong in KB files)
-- Set import_source: {{source_file}} in front-matter
-- Set import_chunk: {{chunk_id}} in front-matter
 - For a feature/integration owned by a single module, set app_scope to that
   module's name (otherwise leave app_scope: all)
 - Keep body text in its original language; ids/headings should be English kebab-case
-- For ## Fields tables: include only explicitly named fields
+- For validation `## Rules` / schema DBML tables: extract every field/constraint
+  the prose names (e.g. "Properties of the Input Fields:" bullet lists)
 - For ## Edge cases: extract only conditions explicitly stated
 - For ## Open questions: add one entry if the source is ambiguous
   on a point that will need clarification
-- Preserve all template sections even if empty
-- Write only the filled template. No explanation before or after.
+- Write only the enriched file (frontmatter + body). No explanation before or after.

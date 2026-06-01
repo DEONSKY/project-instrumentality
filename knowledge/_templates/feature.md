@@ -11,24 +11,18 @@ tags: []
 ---
 
 <!--
-  FEATURE FILES = business rules, field definitions, and requirements.
-  Write in plain language for anyone on the team — not code, not class names,
-  not endpoint paths. Technical implementation belongs in standards/code/.
-  Architectural decisions belong in decisions/.
+  FEATURE FILES = business rules and requirements, in plain language for anyone
+  on the team — not code, not class names, not endpoint paths. Field-level data
+  (types, defaults) lives in the schema file and input constraints in the
+  validation file — LINK to them, do not restate. Technical implementation
+  belongs in standards/code/. Architectural decisions belong in decisions/.
 -->
 
 ## Description
 
 {{One paragraph describing what this feature does from a business perspective, its purpose, and who uses it.}}
 
-## Fields
-
-| field | label | type | required | default | validation | notes |
-| ----- | ----- | ---- | -------- | ------- | ---------- | ----- |
-| {{field}} | {{Human-readable label}} | {{type}} | {{yes\|no}} | {{default}} | `[[data/validation/<rule-file>]]` | {{notes}} |
-
-<!-- In the validation column, replace the example with a real link to the
-     matching rule file, e.g. a wikilink to data/validation/user-management-rules. -->
+Schema: `[[data/schema/<entity>]]` · Rules: `[[data/validation/<rule-file>]]`
 
 ## Business rules
 

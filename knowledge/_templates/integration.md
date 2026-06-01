@@ -29,7 +29,7 @@ Base URL: {{base_url_or_env_var_reference}}
 
 | method | path | purpose | request | response |
 | ------ | ---- | ------- | ------- | -------- |
-| {{GET|POST}} | {{/path}} | {{purpose}} | {{shape}} | {{shape}} |
+| {{GET\|POST}} | {{/path}} | {{purpose}} | {{shape}} | {{shape}} |
 
 ## Events emitted
 
@@ -51,7 +51,7 @@ Inbound events from the external service.
 
 | external error | our error code | handling |
 | -------------- | -------------- | -------- |
-| {{ext_code}} | {{OUR_CODE}} | {{retry|surface|ignore}} |
+| {{ext_code}} | {{OUR_CODE}} | {{retry\|surface\|ignore}} |
 
 > [!caution] Rate limits
 > Requests per second: {{n}}

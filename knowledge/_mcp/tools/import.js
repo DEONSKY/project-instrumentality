@@ -4,14 +4,20 @@ const crypto = require('crypto')
 const matter = require('gray-matter')
 const { resolvePrompt } = require('../lib/prompts')
 const { runTool: reindex } = require('./reindex')
-const { CLASSIFY_TYPE_TO_SCAFFOLD, resolveFilePath, getTemplatesDir, TYPE_TO_TEMPLATE } = require('../lib/kb-paths')
+const { CLASSIFY_TYPE_TO_SCAFFOLD, resolveFilePath } = require('../lib/kb-paths')
 const { fillTemplate, buildReviewEntry, normalizeKbFile } = require('../lib/template-filler')
 const { matterStringify } = require('../lib/matter-utils')
 const { createSessionCache } = require('../lib/session-cache')
 const { extractText, chunkDocument } = require('./import/extract')
 const { embedsIn, stripEmbeds, obsidianEmbed, relocateImages, removeStagingDir, stagingDirFor } = require('./import/images')
 
+// Types at/above CONFIDENCE_THRESHOLD are accepted outright. Types in the
+// mid-band [ACCEPT_THRESHOLD, CONFIDENCE_THRESHOLD) still produce a proposed
+// file but are flagged `low_confidence` so the agent/human can confirm rather
+// than the content being silently dropped to the review queue. Below
+// ACCEPT_THRESHOLD (or `unclassified`) → review queue.
 const CONFIDENCE_THRESHOLD = 0.6
+const ACCEPT_THRESHOLD = 0.5
 const IMPORT_REVIEW_PATH = 'knowledge/sync/import-review.md'
 const BATCH_SIZE = 15
 const SESSION_TTL_MS = 45 * 60 * 1000 // 45 min idle — re-stamped on every set
@@ -66,7 +72,11 @@ function hashFile(source) {
  *   4. Agent calls with approve: true to write files.
  *   Combine with dry_run: true to preview proposed mappings.
  */
-async function runTool({ source, dry_run = false, auto_classify = false, approve = false, classifications, cursor, files_to_write, restart = false, fill = false } = {}) {
+async function runTool({ source, dry_run = false, auto_classify = false, approve = false, classifications, cursor, files_to_write, restart = false, fill = true, no_fill = false } = {}) {
+  // Structural fill is ON by default — the importer surfaces per-file import-map
+  // prompts so prose gets lifted into Fields/Rules tables. `no_fill: true` (or
+  // fill: false) opts into the cheap deterministic baseline-only run.
+  const fillEnabled = fill && !no_fill
   // ── Classic Phase 2: write agent-generated files ───────────────────────────
   if (files_to_write && Array.isArray(files_to_write)) {
     return applyImportFiles(files_to_write, dry_run)
@@ -112,7 +122,7 @@ async function runTool({ source, dry_run = false, auto_classify = false, approve
     if (chunks.length === 0) {
       return { error: 'No content chunks extracted from document.' }
     }
-    return autoClassifyStart(source, chunks, extracted.images, dry_run, fileFingerprint, fill)
+    return autoClassifyStart(source, chunks, extracted.images, dry_run, fileFingerprint, fillEnabled)
   }
 
   // ── Classic Phase 1: extract + return all chunks + classify prompts ────────
@@ -306,18 +316,21 @@ function buildImportPlan(source, session) {
       continue
     }
 
-    // Filter to confident types
-    const confidentTypes = (cls.types || []).filter(t => t.confidence >= CONFIDENCE_THRESHOLD && t.type !== 'unclassified')
-    const lowTypes = (cls.types || []).filter(t => t.confidence < CONFIDENCE_THRESHOLD || t.type === 'unclassified')
+    // Accept any type at/above ACCEPT_THRESHOLD; below that (or unclassified)
+    // → review. Accepted types in [ACCEPT_THRESHOLD, CONFIDENCE_THRESHOLD) are
+    // flagged low_confidence so they surface for confirmation but are NOT
+    // dropped (the original >=0.6 cutoff stranded real content in review).
+    const acceptedTypes = (cls.types || []).filter(t => t.confidence >= ACCEPT_THRESHOLD && t.type !== 'unclassified')
+    const lowTypes = (cls.types || []).filter(t => t.confidence < ACCEPT_THRESHOLD || t.type === 'unclassified')
 
-    if (confidentTypes.length === 0) {
+    if (acceptedTypes.length === 0) {
       const best = (cls.types || [])[0] || { type: 'unclassified', confidence: 0 }
       needsReview.push({ chunk, classification: { ...best, reason: best.reason || 'Low confidence' } })
       continue
     }
 
-    // Each confident type produces a separate file
-    for (const typeEntry of confidentTypes) {
+    // Each accepted type produces a separate file
+    for (const typeEntry of acceptedTypes) {
       const scaffoldType = CLASSIFY_TYPE_TO_SCAFFOLD[typeEntry.type]
       if (!scaffoldType) {
         needsReview.push({ chunk, classification: { ...typeEntry, reason: `Unknown type: ${typeEntry.type}` } })
@@ -335,13 +348,14 @@ function buildImportPlan(source, session) {
         heading: chunk.heading,
         type: typeEntry.type,
         confidence: typeEntry.confidence,
+        low_confidence: typeEntry.confidence < CONFIDENCE_THRESHOLD,
         suggested_id: typeEntry.suggested_id,
         suggested_group: cls.suggested_group,
         target_path: targetPath
       })
     }
 
-    // Low-confidence types from same chunk go to review
+    // Types below the accept floor (or unclassified) go to review
     for (const t of lowTypes) {
       needsReview.push({ chunk, classification: t })
     }
@@ -388,7 +402,10 @@ function buildImportPlan(source, session) {
     // the merged chunk text. Filled files are written via files_to_write and
     // normalized by applyImportFiles (same post-process as the baseline).
     if (session.fill) {
-      const prompt = buildFillPrompt(scaffoldType, mergedChunk, entries[0], sourceFile)
+      // Feed the BASELINE content (frontmatter + ## Imported Content + tags +
+      // depends_on) into the fill prompt, not the raw template — so the agent
+      // enriches the baseline in place and can't drop provenance/tags/links.
+      const prompt = buildFillPrompt(scaffoldType, content, mergedChunk, entries[0], sourceFile)
       if (prompt) fillPrompts.push({ path: targetPath, type: entries[0].type, suggested_id: entries[0].suggested_id, prompt })
     }
   }
@@ -474,6 +491,7 @@ function planResponse(source, session, { dry_run = false, resumed = false } = {}
         heading: p.heading,
         type: p.type,
         confidence: p.confidence,
+        low_confidence: p.low_confidence || false,
         suggested_id: p.suggested_id
       })),
       cross_references: crossReferences,
@@ -604,21 +622,21 @@ function mergeChunks(chunks, entries) {
   }
 }
 
-// Build an import-map (LLM fill) prompt for one target file: the raw template
-// plus the merged source text. The agent returns filled content, written via
-// files_to_write and normalized by applyImportFiles.
-function buildFillPrompt(scaffoldType, mergedChunk, entry, sourceFile) {
-  const templateFile = TYPE_TO_TEMPLATE[scaffoldType]
-  if (!templateFile) return null
-  const templatePath = path.join(getTemplatesDir(), templateFile)
-  if (!fs.existsSync(templatePath)) return null
-  const template = fs.readFileSync(templatePath, 'utf8')
+// Build an import-map (LLM fill) prompt for one target file: the already-built
+// BASELINE content (frontmatter + ## Imported Content + tags + depends_on) plus
+// the merged source text. The agent enriches the baseline in place — filling
+// the empty Fields/Rules tables from the prose — and returns the result, which
+// is written via files_to_write and normalized by applyImportFiles. Passing the
+// baseline (not the raw template) guarantees provenance, tags, and cross-refs
+// survive the fill.
+function buildFillPrompt(scaffoldType, baselineContent, mergedChunk, entry, sourceFile) {
+  if (!baselineContent) return null
   return resolvePrompt('import-map', {
     chunk_text: mergedChunk.text,
     chunk_id: mergedChunk.id,
     source_file: sourceFile,
     kb_type: scaffoldType,
-    template,
+    template: baselineContent,
     suggested_id: entry.suggested_id || '',
     kb_context: ''
   })
@@ -788,7 +806,7 @@ module.exports = {
   runTool,
   definition: {
     name: 'kb_import',
-    description: 'Import a document (PDF/DOCX/HTML/MD/TXT) into the KB. Auto-classify mode (recommended): Phase 1 extracts and classifies in batches (multi-label). Phase 2 returns an import plan with proposed files and cross-references. Phase 3 (approve: true) writes files. Images are extracted to per-document asset folders and embedded as Obsidian ![[...]] links — auto_classify mode only. Classic mode: Phase 1 returns chunks, Phase 2 writes agent-generated files.',
+    description: 'Import a document (PDF/DOCX/HTML/MD/TXT) into the KB. Auto-classify mode (recommended): Phase 1 extracts and classifies in batches (multi-label). Phase 2 returns an import plan with proposed files and cross-references, plus per-file fill prompts (structural fill is ON by default — lifts prose into Fields/Rules tables; pass no_fill: true for the cheap baseline-only run). Phase 3 (approve: true) writes files. Images are extracted to per-document asset folders and embedded as Obsidian ![[...]] links — auto_classify mode only. Classic mode: Phase 1 returns chunks, Phase 2 writes agent-generated files.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -799,6 +817,7 @@ module.exports = {
         classifications: { type: 'array', description: 'Agent multi-label classification results from previous batch', items: { type: 'object', properties: { chunk_id: { type: 'string' }, types: { type: 'array', items: { type: 'object', properties: { type: { type: 'string' }, confidence: { type: 'number' }, suggested_id: { type: 'string' }, reason: { type: 'string' } }, required: ['type', 'confidence', 'suggested_id'] } }, suggested_group: { type: 'string' }, duplicate_of: { type: 'string' } }, required: ['chunk_id', 'types'] } },
         cursor: { type: 'number', description: 'Current position in chunk list (returned by previous auto_classify call)' },
         restart: { type: 'boolean', description: 'Discard any saved progress for this source and re-import from scratch (auto_classify)', default: false },
+        no_fill: { type: 'boolean', description: 'Opt out of structural fill (default ON). With no_fill, the plan writes the deterministic baseline only — prose stays under ## Imported Content and is NOT lifted into Fields/Rules tables.', default: false },
         files_to_write: { type: 'array', description: 'Classic Phase 2: agent-generated files to write', items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } }
       }
     }

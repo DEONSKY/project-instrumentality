@@ -35,7 +35,9 @@ Change required: {{change_summary}}
   Treat every entry in `rules_in_scope` as a constraint on the change.
 - Items with `advisory: true` are aspirational backlog — fix opportunistically if
   the change naturally touches them.
-- Validation rules must match the ## Fields section of the feature exactly
+- Validation rules must match the feature's linked validation file
+  (`[[data/validation/...]]`) exactly; field types/defaults come from the
+  linked schema file (`[[data/schema/...]]`)
 - Edge cases in ## Edge cases must be handled
 - Do not add fields, endpoints, or logic not in the KB
 - If a required KB section is missing, ask before generating

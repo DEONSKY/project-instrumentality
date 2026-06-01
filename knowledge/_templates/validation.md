@@ -22,7 +22,7 @@ tags: []
 
 | rule_id | field | type | constraint | error_message |
 | ------- | ----- | ---- | ---------- | ------------- |
-| {{id}} | {{field}} | {{format|length|range|regex|business}} | {{constraint}} | {{message}} |
+| {{id}} | {{field}} | {{format\|length\|range\|regex\|business}} | {{constraint}} | {{message}} |
 
 ## Shared patterns
 
