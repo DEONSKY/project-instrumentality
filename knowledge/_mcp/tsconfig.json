@@ -21,7 +21,8 @@
     "lib/**/*",
     "tools/**/*",
     "drivers/**/*",
-    "scripts/**/*"
+    "scripts/**/*",
+    "src/**/*"
   ],
   "exclude": [
     "node_modules",

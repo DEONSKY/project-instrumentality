@@ -1,10 +1,29 @@
-const fs = require('fs')
-const path = require('path')
-const matter = require('gray-matter')
-const { resolvePrompt } = require('../lib/prompts')
-const { runTool: get } = require('./get')
-const { stripInlineMarkdown, parseInlineFormatting } = require('../lib/md-to-runs')
-const { createSessionCache } = require('../lib/session-cache')
+import * as fs from 'fs'
+import * as path from 'path'
+import matter from 'gray-matter'
+import { resolvePrompt } from '../lib/prompts'
+import { stripInlineMarkdown, parseInlineFormatting } from '../lib/md-to-runs'
+import { createSessionCache } from '../lib/session-cache'
+import type { ToolDefinition } from '../src/types/tool'
+
+// get is still CJS (converts later this phase); typed result slice for the read.
+interface KbFile { path: string; id?: string; type?: string; app_scope?: unknown; content: string }
+const { runTool: get } = require('./get') as {
+  runTool: (args: Record<string, unknown>) => Promise<{ files?: KbFile[] }>
+}
+
+type Scope = string | string[]
+
+interface ExportSession {
+  pages: string[][]
+  scope: Scope
+  scopeLabel: string
+  format: string
+  purpose: string
+  projectName: string
+  exportDate: string
+  outputPath: string
+}
 
 const SUPPORTED_FORMATS = ['pdf', 'docx', 'markdown', 'confluence', 'notion', 'html', 'json']
 const OUTPUT_DIR = 'knowledge/exports'
@@ -12,11 +31,11 @@ const MAX_EXPORT_CHARS = 80000
 const SESSION_TTL_MS = 10 * 60 * 1000
 
 // ── Session cache for paginated exports ──────────────────────────────────────
-const exportSessions = createSessionCache(SESSION_TTL_MS)
-const getSession = (key) => exportSessions.get(key)
-const clearSession = (key) => exportSessions.clear(key)
+const exportSessions = createSessionCache<ExportSession>(SESSION_TTL_MS)
+const getSession = (key: string) => exportSessions.get(key)
+const clearSession = (key: string) => exportSessions.clear(key)
 
-function sessionKey(scope, format, type) {
+function sessionKey(scope: Scope, format: string, type?: string | null): string {
   const s = Array.isArray(scope) ? scope.join('+') : (scope || 'all')
   return `${s}:${format}:${type || 'any'}`
 }
@@ -40,7 +59,16 @@ async function runTool({
   page = null,
   dry_run = false,
   rendered_content
-} = {}) {
+}: {
+  scope?: Scope
+  format?: string
+  type?: string | null
+  purpose?: string | null
+  app_scope?: string | null
+  page?: number | null
+  dry_run?: boolean
+  rendered_content?: string
+} = {}): Promise<Record<string, unknown>> {
   if (!SUPPORTED_FORMATS.includes(format)) {
     return { error: `Unsupported format: ${format}. Supported: ${SUPPORTED_FORMATS.join(', ')}` }
   }
@@ -134,9 +162,13 @@ async function runTool({
 
 // ── Pagination ──────────────────────────────────────────────────────────────
 
-function startPaginatedExport(files, sKey, ctx) {
-  const pages = []
-  let currentPage = []
+function startPaginatedExport(
+  files: KbFile[],
+  sKey: string,
+  ctx: Omit<ExportSession, 'pages'> & { dry_run: boolean }
+): Record<string, unknown> {
+  const pages: string[][] = []
+  let currentPage: string[] = []
   let currentSize = 0
 
   for (const file of files) {
@@ -166,7 +198,7 @@ function startPaginatedExport(files, sKey, ctx) {
   return buildPageResponse(session, 1)
 }
 
-function buildPageResponse(session, pageNum) {
+function buildPageResponse(session: ExportSession, pageNum: number): Record<string, unknown> {
   const { pages, scopeLabel, format, purpose, projectName, exportDate, scope } = session
   const totalPages = pages.length
 
@@ -202,7 +234,7 @@ function buildPageResponse(session, pageNum) {
 
 // ── Content gathering ───────────────────────────────────────────────────────
 
-async function gatherContent(scope, app_scope_filter, typeFilter) {
+async function gatherContent(scope: Scope, app_scope_filter: string | null, typeFilter: string | null): Promise<KbFile[]> {
   const result = await get({ task_type: 'export', scope, app_scope: app_scope_filter, type: typeFilter })
   if (!result.files) return []
   return result.files.map(file => ({
@@ -214,30 +246,30 @@ async function gatherContent(scope, app_scope_filter, typeFilter) {
   })).filter(f => f.content.length > 20)
 }
 
-function stripInternalContent(content) {
+function stripInternalContent(content: string): string {
   let cleaned = content
   cleaned = cleaned.replace(/^## Open questions[\s\S]*?(?=\n## |\n---|\n$)/gim, '')
   cleaned = cleaned.replace(/^## Changelog[\s\S]*?(?=\n## |\n---|\n$)/gim, '')
-  cleaned = cleaned.replace(/\[\[([^\]|#]+?)(?:#[^\]|]+?)?(?:\|([^\]]+?))?\]\]/g, (_, path, display) => display || path)
+  cleaned = cleaned.replace(/\[\[([^\]|#]+?)(?:#[^\]|]+?)?(?:\|([^\]]+?))?\]\]/g, (_m: string, p: string, display: string) => display || p)
   return cleaned.trim()
 }
 
-function stripFrontMatter(content) {
+function stripFrontMatter(content: string): string {
   return matter(content).content.trim()
 }
 
-function getProjectName() {
+function getProjectName(): string {
   const rulesPath = 'knowledge/_rules.md'
   if (fs.existsSync(rulesPath)) {
     try {
       const parsed = matter(fs.readFileSync(rulesPath, 'utf8'))
-      if (parsed.data.project_name) return parsed.data.project_name
+      if (parsed.data.project_name) return parsed.data.project_name as string
     } catch { /* fall through */ }
   }
   return 'Project'
 }
 
-function buildOutputPath(format, scope, exportDate) {
+function buildOutputPath(format: string, scope: Scope, exportDate: string): string {
   if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true })
   const raw = Array.isArray(scope) ? scope.join('-') : scope
   const slug = raw.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
@@ -247,14 +279,14 @@ function buildOutputPath(format, scope, exportDate) {
 
 // ── Writers ─────────────────────────────────────────────────────────────────
 
-async function writeOutput(content, format, outputPath) {
+async function writeOutput(content: string, format: string, outputPath: string): Promise<void> {
   if (format === 'pdf') return writePdf(content, outputPath)
   if (format === 'docx') return writeDocx(content, outputPath)
   fs.writeFileSync(outputPath, content, 'utf8')
 }
 
-async function writePdf(content, outputPath) {
-  const PDFDocument = require('pdfkit')
+async function writePdf(content: string, outputPath: string): Promise<void> {
+  const PDFDocument = require('pdfkit') as typeof import('pdfkit')
   const doc = new PDFDocument({ margin: 60 })
   const stream = fs.createWriteStream(outputPath)
   doc.pipe(stream)
@@ -287,14 +319,14 @@ async function writePdf(content, outputPath) {
   }
 
   doc.end()
-  return new Promise(resolve => stream.on('finish', resolve))
+  return new Promise(resolve => stream.on('finish', () => resolve()))
 }
 
-async function writeDocx(content, outputPath) {
-  const { Document, Packer, Paragraph, HeadingLevel } = require('docx')
+async function writeDocx(content: string, outputPath: string): Promise<void> {
+  const { Document, Packer, Paragraph, HeadingLevel } = require('docx') as typeof import('docx')
 
   const lines = content.split('\n')
-  const children = []
+  const children: InstanceType<typeof Paragraph>[] = []
 
   for (const line of lines) {
     if (line.startsWith('# ')) {
@@ -335,23 +367,22 @@ async function writeDocx(content, outputPath) {
   fs.writeFileSync(outputPath, buffer)
 }
 
-module.exports = {
-  runTool,
-  definition: {
-    name: 'kb_export',
-    description: 'Export KB content. Supports optional purpose to guide tone/structure, type filter (e.g. "flow"), and multi-scope (array of ids/domains). Phase 1: Gathers KB content and returns an export prompt for the agent (or writes json directly). Large KBs are paginated automatically. Phase 2: Call with rendered_content to write agent-rendered output to disk.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        scope: { description: 'Domain name, feature/flow id, or "all". Accepts an array for multi-scope export.', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], default: 'all' },
-        format: { type: 'string', description: 'Output format: pdf|docx|markdown|confluence|notion|html|json', default: 'markdown' },
-        type: { type: 'string', description: 'Filter by KB type: feature, flow, policy, schema, validation, integration, decision, reference, technical, component' },
-        purpose: { type: 'string', description: 'Optional: describe the purpose and desired style of the export (e.g. "client-facing API overview", "onboarding guide for new backend engineers")' },
-        app_scope: { type: 'string', description: 'Filter by app scope' },
-        page: { type: 'number', description: 'Page number for paginated exports of large KBs (returned by previous call)' },
-        dry_run: { type: 'boolean', description: 'Preview without writing', default: false },
-        rendered_content: { type: 'string', description: 'Phase 2: agent-rendered content to write to disk' }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_export',
+  description: 'Export KB content. Supports optional purpose to guide tone/structure, type filter (e.g. "flow"), and multi-scope (array of ids/domains). Phase 1: Gathers KB content and returns an export prompt for the agent (or writes json directly). Large KBs are paginated automatically. Phase 2: Call with rendered_content to write agent-rendered output to disk.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      scope: { description: 'Domain name, feature/flow id, or "all". Accepts an array for multi-scope export.', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], default: 'all' },
+      format: { type: 'string', description: 'Output format: pdf|docx|markdown|confluence|notion|html|json', default: 'markdown' },
+      type: { type: 'string', description: 'Filter by KB type: feature, flow, policy, schema, validation, integration, decision, reference, technical, component' },
+      purpose: { type: 'string', description: 'Optional: describe the purpose and desired style of the export (e.g. "client-facing API overview", "onboarding guide for new backend engineers")' },
+      app_scope: { type: 'string', description: 'Filter by app scope' },
+      page: { type: 'number', description: 'Page number for paginated exports of large KBs (returned by previous call)' },
+      dry_run: { type: 'boolean', description: 'Preview without writing', default: false },
+      rendered_content: { type: 'string', description: 'Phase 2: agent-rendered content to write to disk' }
     }
   }
 }
+
+export { runTool, definition }

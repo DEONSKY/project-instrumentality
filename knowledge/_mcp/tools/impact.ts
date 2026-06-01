@@ -1,29 +1,35 @@
-const fs = require('fs')
-const path = require('path')
-const { loadGraph, getDependents } = require('../lib/graph')
-const { resolvePrompt } = require('../lib/prompts')
+import * as fs from 'fs'
+import * as path from 'path'
+import { loadGraph, getDependents } from '../lib/graph'
+import { resolvePrompt } from '../lib/prompts'
+import type { ToolDefinition } from '../src/types/tool'
+import type { GraphEntry } from '../src/types/graph'
 
 const KB_ROOT = 'knowledge'
+
+interface AffectedMeta { entry: GraphEntry; score: number; via?: string }
 
 /**
  * kb_impact — Finds KB files affected by a change and returns impact prompts.
  * The calling agent processes each prompt and proposes updates.
  * Does NOT write anything — agent calls kb_write per file after reviewing proposals.
  */
-async function runTool({ change_description, include_prompts = false } = {}) {
+async function runTool(
+  { change_description, include_prompts = false }: { change_description?: string; include_prompts?: boolean } = {}
+): Promise<Record<string, unknown>> {
   if (!change_description) return { error: 'change_description is required' }
   const includePrompts = include_prompts === true
 
   const graph = loadGraph(KB_ROOT)
   const keywords = extractKeywords(change_description)
-  const affectedEntries = new Map()
+  const affectedEntries = new Map<string, AffectedMeta>()
   // F14: cache file body reads so the metadata+body scoring loop here and the
   // top-N prompt-building loop below don't re-read the same file twice.
-  const bodyCache = new Map()
-  function readBody(fp) {
-    if (bodyCache.has(fp)) return bodyCache.get(fp)
+  const bodyCache = new Map<string, string | null>()
+  function readBody(fp: string): string | null {
+    if (bodyCache.has(fp)) return bodyCache.get(fp) as string | null
     const fullPath = path.join(KB_ROOT, fp)
-    let content = null
+    let content: string | null = null
     try {
       if (fs.existsSync(fullPath)) content = fs.readFileSync(fullPath, 'utf8')
     } catch { /* unreadable — treat as empty */ }
@@ -46,7 +52,7 @@ async function runTool({ change_description, include_prompts = false } = {}) {
       entry.type || '',
       (entry.depends_on || []).join(' '),
       (entry.affects_flows || []).join(' '),
-      (entry.tags || []).join(' ')
+      ((entry.tags as string[]) || []).join(' ')
     ].join(' ').toLowerCase()
     const metaScore = keywords.reduce((s, kw) => s + (metaText.includes(kw) ? 1 : 0), 0)
 
@@ -73,6 +79,7 @@ async function runTool({ change_description, include_prompts = false } = {}) {
     }
   }
 
+
   if (affectedEntries.size === 0) {
     return { affected_files: [], message: 'No KB files matched the change description.', note: 'impact does not write — agent reviews and calls kb_write per file.' }
   }
@@ -81,13 +88,13 @@ async function runTool({ change_description, include_prompts = false } = {}) {
     .sort(([, a], [, b]) => b.score - a.score)
     .slice(0, 10)
 
-  const affected_files = []
+  const affected_files: Array<Record<string, unknown>> = []
 
   for (const [fp, meta] of sorted) {
     const fileContent = readBody(fp)
     if (fileContent === null) continue
 
-    const entry = {
+    const entry: Record<string, unknown> = {
       path: fp,
       score: Math.round(meta.score * 10) / 10,
       why: meta.via || 'keyword match',
@@ -142,9 +149,9 @@ const SHORT_KEEP = new Set([
 ])
 const STOP_WORDS = new Set(['the', 'and', 'for', 'that', 'this', 'with', 'from', 'when', 'will', 'should'])
 
-function extractKeywords(text) {
+function extractKeywords(text: string): string[] {
   const rawTokens = String(text).split(/[\s,;.]+/)
-  const out = []
+  const out: string[] = []
   for (const raw of rawTokens) {
     if (!raw) continue
     // Always include the lowercased original so existing matches keep working.
@@ -166,20 +173,18 @@ function extractKeywords(text) {
     .filter(w => !STOP_WORDS.has(w))
 }
 
-module.exports = {
-  runTool,
-  // Exposed for tests; not part of the MCP surface.
-  extractKeywords,
-  definition: {
-    name: 'kb_impact',
-    description: 'Traverse the depends_on graph from a proposed change to surface downstream KB files that may need review. Returns affected_files (path, score, why, short snippet) plus a single proposal_instruction — review each path and call kb_write; the agent Reads the file for full content. Does not write. Effective only when the KB depends_on graph is maintained (frontmatter edges + [[wikilinks]]). If you suspect graph staleness, run kb_status first. For changes that touch standards-governed code, run kb_conform afterwards. Pass include_prompts:true only if you want a fully-instantiated per-file proposal prompt (heavier).',
-    inputSchema: {
-      type: 'object',
-      required: ['change_description'],
-      properties: {
-        change_description: { type: 'string', description: 'Description of the change to analyze' },
-        include_prompts: { type: 'boolean', description: 'Default false. When true, attach a per-file impact-proposal prompt to each affected file (larger payload). Otherwise use the single top-level proposal_instruction.' }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_impact',
+  description: 'Traverse the depends_on graph from a proposed change to surface downstream KB files that may need review. Returns affected_files (path, score, why, short snippet) plus a single proposal_instruction — review each path and call kb_write; the agent Reads the file for full content. Does not write. Effective only when the KB depends_on graph is maintained (frontmatter edges + [[wikilinks]]). If you suspect graph staleness, run kb_status first. For changes that touch standards-governed code, run kb_conform afterwards. Pass include_prompts:true only if you want a fully-instantiated per-file proposal prompt (heavier).',
+  inputSchema: {
+    type: 'object',
+    required: ['change_description'],
+    properties: {
+      change_description: { type: 'string', description: 'Description of the change to analyze' },
+      include_prompts: { type: 'boolean', description: 'Default false. When true, attach a per-file impact-proposal prompt to each affected file (larger payload). Otherwise use the single top-level proposal_instruction.' }
     }
   }
 }
+
+// extractKeywords is exposed for tests; not part of the MCP surface.
+export { runTool, extractKeywords, definition }
