@@ -8,7 +8,7 @@
 // Constants and helpers live in lib/tag-model.js. STOPWORDS / SHORT_KEEP are
 // re-exported here to preserve the previously-documented public surface.
 
-const {
+import {
   STOPWORDS,
   ACTION_VERBS,
   SHORT_KEEP,
@@ -23,18 +23,37 @@ const {
   computeTargetCount,
   findKnownCompounds,
   findLowercaseBigrams
-} = require('./tag-model')
+} from './tag-model'
+
+interface ExtractOpts {
+  id?: string
+  filePath?: string
+  existingTags?: string[]
+  blockedWords?: Set<string>
+  knownCompounds?: Set<string>
+}
+
+type Confidence = 'high' | 'medium' | 'low'
+
+interface TagCandidate {
+  tag: string
+  score: number
+  regex_score: number
+  confidence: Confidence
+  source: 'existing' | 'new'
+  sources: string[]
+}
 
 /**
  * Extract tags from markdown text content.
  * Pure string operations — no LLM, no disk I/O.
  *
- * @param {string} markdownContent - raw markdown body (no frontmatter)
- * @param {object} [opts] - { id, filePath, existingTags, blockedWords, knownCompounds }
- * @param {number} [maxTags=20] - max tags to return
- * @returns {string[]} sorted by relevance score
+ * @param markdownContent - raw markdown body (no frontmatter)
+ * @param opts - { id, filePath, existingTags, blockedWords, knownCompounds }
+ * @param maxTags - max tags to return
+ * @returns sorted by relevance score
  */
-function extractTagsFromText(markdownContent, opts = {}, maxTags = 20) {
+function extractTagsFromText(markdownContent: string, opts: ExtractOpts = {}, maxTags = 20): string[] {
   // Fix 2: Strip fenced code blocks entirely
   let cleaned = (markdownContent || '').replace(/```[\s\S]*?```/g, '')
 
@@ -45,13 +64,13 @@ function extractTagsFromText(markdownContent, opts = {}, maxTags = 20) {
   // Fix 4: Strip markdown table data rows (keep header row)
   cleaned = stripTableDataRows(cleaned)
 
-  const scores = new Map()
+  const scores = new Map<string, number>()
   const blockedWords = opts.blockedWords instanceof Set ? opts.blockedWords : null
   const knownCompounds = opts.knownCompounds instanceof Set ? opts.knownCompounds : null
 
   // Phase 2 #3: Phrase-first pass — seed compound hits and mask them out of `cleaned`
   // so the single-word passes don't double-count the parts.
-  const compoundResult = findKnownCompounds(cleaned, knownCompounds)
+  const compoundResult = findKnownCompounds(cleaned, knownCompounds || new Set())
   cleaned = compoundResult.cleaned
   for (const [compound, count] of compoundResult.hits) {
     // Weight 2.5: between bold (2) and heading (3). Multiplied by occurrence count
@@ -59,7 +78,7 @@ function extractTagsFromText(markdownContent, opts = {}, maxTags = 20) {
     scores.set(compound, (scores.get(compound) || 0) + 2.5 * Math.min(count, 3))
   }
 
-  function addTerm(term, weight) {
+  function addTerm(term: string, weight: number) {
     const normalized = normalize(term)
     if (!normalized) return
     if (ACTION_VERBS.has(normalized)) return
@@ -128,7 +147,7 @@ function extractTagsFromText(markdownContent, opts = {}, maxTags = 20) {
   // File path and id (weight 2). Phase 2 #3: if the segment/id is itself a
   // compound tag we already know about, add only the compound — don't split it
   // into constituent tokens. Otherwise, fall back to split-for-topic behavior.
-  const addSegment = (seg) => {
+  const addSegment = (seg: string) => {
     if (!seg) return
     if (seg.includes('-') && knownCompounds && knownCompounds.has(seg)) {
       addTerm(seg, 2)
@@ -177,7 +196,7 @@ function extractTagsFromText(markdownContent, opts = {}, maxTags = 20) {
 
   // Phase 2 #3: Lowercase bigram pass — catches emerging compounds that aren't
   // yet known and aren't Title Case (e.g. "data fetching", "soft delete").
-  const lcBigrams = findLowercaseBigrams(bodyOnly, blockedWords)
+  const lcBigrams = findLowercaseBigrams(bodyOnly, blockedWords || undefined)
   for (const [compound] of lcBigrams) {
     addTerm(compound, 1.5)
   }
@@ -253,7 +272,7 @@ function extractTagsFromText(markdownContent, opts = {}, maxTags = 20) {
   // Outlier filter still applies so backfill can't drag in unrelated noise.
   const targetCount = computeTargetCount(markdownContent)
 
-  const passesOutlier = (tag, score) => {
+  const passesOutlier = (tag: string, score: number): boolean => {
     if (score >= maxScore * 0.15) return true
     const parts = tag.split('-')
     const relatedToTop = parts.some(p => topParts.has(p))
@@ -284,40 +303,43 @@ function extractTagsFromText(markdownContent, opts = {}, maxTags = 20) {
  * Extract tag candidates with scores and confidence levels.
  * Used by review mode to present candidates to LLM for validation.
  *
- * @param {string} markdownContent
- * @param {object} [opts] - { id, filePath, existingTags }
- * @param {number} [maxCandidates=30]
- * @returns {{ tag: string, score: number, confidence: 'high'|'medium'|'low', source: 'existing'|'new' }[]}
+ * @param markdownContent
+ * @param opts - { id, filePath, existingTags }
+ * @param maxCandidates
  */
-function extractCandidatesFromText(markdownContent, opts = {}, maxCandidates = 30) {
+function extractCandidatesFromText(
+  markdownContent: string,
+  opts: ExtractOpts = {},
+  maxCandidates = 30
+): { candidates: TagCandidate[]; maxScore: number; maxScoreNew: number } {
   // Reuse the same extraction pipeline but capture scores before filtering
   let cleaned = (markdownContent || '').replace(/```[\s\S]*?```/g, '')
   cleaned = cleaned.replace(/https?:\/\/[^\s)]+/g, '')
   cleaned = cleaned.replace(/[a-zA-Z0-9._-]+\.(svc|cluster|local|corp|internal)\b[^\s]*/g, '')
   cleaned = stripTableDataRows(cleaned)
 
-  const scores = new Map()
-  const weightFlags = new Map() // tag -> Set<'heading'|'bold'|'code'|'path'|'body'|'compound'>
-  const compoundCounts = new Map() // compound -> occurrence count from findKnownCompounds
+  const scores = new Map<string, number>()
+  const weightFlags = new Map<string, Set<string>>() // tag -> Set<'heading'|'bold'|'code'|'path'|'body'|'compound'>
+  const compoundCounts = new Map<string, number>() // compound -> occurrence count from findKnownCompounds
   const blockedWords = opts.blockedWords instanceof Set ? opts.blockedWords : null
   const knownCompounds = opts.knownCompounds instanceof Set ? opts.knownCompounds : null
 
   // Phase 2 #3: Phrase-first pass
-  const compoundResult = findKnownCompounds(cleaned, knownCompounds)
+  const compoundResult = findKnownCompounds(cleaned, knownCompounds || new Set())
   cleaned = compoundResult.cleaned
   for (const [compound, count] of compoundResult.hits) {
     scores.set(compound, (scores.get(compound) || 0) + 2.5 * Math.min(count, 3))
     if (!weightFlags.has(compound)) weightFlags.set(compound, new Set())
-    weightFlags.get(compound).add('compound')
+    weightFlags.get(compound)!.add('compound')
     compoundCounts.set(compound, count)
   }
 
-  function flag(tag, source) {
+  function flag(tag: string, source: string) {
     if (!weightFlags.has(tag)) weightFlags.set(tag, new Set())
-    weightFlags.get(tag).add(source)
+    weightFlags.get(tag)!.add(source)
   }
 
-  function addTerm(term, weight, source) {
+  function addTerm(term: string, weight: number, source?: string) {
     const normalized = normalize(term)
     if (!normalized) return
     if (ACTION_VERBS.has(normalized)) return
@@ -368,7 +390,7 @@ function extractCandidatesFromText(markdownContent, opts = {}, maxCandidates = 3
     if (!isUrlOrPath(text)) addTerm(text, 2, 'code')
   }
 
-  const addSegment = (seg) => {
+  const addSegment = (seg: string) => {
     if (!seg) return
     if (seg.includes('-') && knownCompounds && knownCompounds.has(seg)) {
       addTerm(seg, 2, 'path')
@@ -405,7 +427,7 @@ function extractCandidatesFromText(markdownContent, opts = {}, maxCandidates = 3
   }
 
   // Phase 2 #3: Lowercase bigram pass
-  const lcBigrams = findLowercaseBigrams(bodyOnly, blockedWords)
+  const lcBigrams = findLowercaseBigrams(bodyOnly, blockedWords || undefined)
   for (const [compound] of lcBigrams) {
     addTerm(compound, 1.5, 'body')
   }
@@ -465,14 +487,14 @@ function extractCandidatesFromText(markdownContent, opts = {}, maxCandidates = 3
 
   const topicWords = extractTopicWords(opts)
 
-  const candidates = sorted.map(([tag, score]) => {
+  const candidates: TagCandidate[] = sorted.map(([tag, score]): TagCandidate => {
     const isExisting = existingTagSet.has(tag)
     // For confidence, use score minus trust bonus to reflect true content support
     const regexScore = isExisting ? Math.max(0, score - maxScoreAll * 0.25) : score
     const flags = weightFlags.get(tag) || new Set()
     const strongSource = flags.has('heading') || flags.has('code') || flags.has('path') || flags.has('compound')
 
-    let confidence
+    let confidence: Confidence
     if (isExisting) {
       // Existing tags: measure against maxScoreAll as before
       confidence = regexScore >= maxScoreAll * 0.6 ? 'high'
@@ -547,7 +569,7 @@ function extractCandidatesFromText(markdownContent, opts = {}, maxCandidates = 3
  * Mirrors the body-text processing in extractTagsFromText so the corpus filter
  * matches exactly what the extractor would emit from body text.
  */
-function extractBodyWordsFromContent(markdownContent) {
+function extractBodyWordsFromContent(markdownContent: string): Set<string> {
   let cleaned = (markdownContent || '').replace(/```[\s\S]*?```/g, '')
   cleaned = cleaned.replace(/https?:\/\/[^\s)]+/g, '')
   cleaned = cleaned.replace(/[a-zA-Z0-9._-]+\.(svc|cluster|local|corp|internal)\b[^\s]*/g, '')
@@ -558,7 +580,7 @@ function extractBodyWordsFromContent(markdownContent) {
     .replace(/\*\*[^*]+\*\*/g, '')
     .replace(/`[^`]+`/g, '')
 
-  const words = new Set()
+  const words = new Set<string>()
   for (const w of splitWords(bodyOnly)) {
     const n = normalize(w)
     if (n && isValidTag(n)) words.add(n)
@@ -566,7 +588,7 @@ function extractBodyWordsFromContent(markdownContent) {
   return words
 }
 
-module.exports = {
+export {
   extractTagsFromText,
   extractCandidatesFromText,
   extractBodyWordsFromContent,

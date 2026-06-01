@@ -1,6 +1,6 @@
-const fs = require('fs')
-const path = require('path')
-const { getTemplatesDir } = require('./kb-paths')
+import * as fs from 'fs'
+import * as path from 'path'
+import { getTemplatesDir } from './kb-paths'
 
 const AGENT_RULE_FILES = ['CLAUDE.md', '.cursorrules', '.windsurfrules', '.github/copilot-instructions.md']
 
@@ -11,14 +11,14 @@ const AGENT_RULE_FILES = ['CLAUDE.md', '.cursorrules', '.windsurfrules', '.githu
  * Skips files that already exist with non-empty content to preserve customizations.
  * Returns list of filenames that were written.
  */
-function generateAgentRules(filesCreated = []) {
+function generateAgentRules(filesCreated: string[] = []): string[] {
   const templatePath = path.join(getTemplatesDir(), 'agent-rules.md')
   if (!fs.existsSync(templatePath)) {
     return []
   }
 
   const content = fs.readFileSync(templatePath, 'utf8')
-  const written = []
+  const written: string[] = []
 
   for (const filename of AGENT_RULE_FILES) {
     const targetPath = filename // project root (cwd)
@@ -39,4 +39,4 @@ function generateAgentRules(filesCreated = []) {
   return written
 }
 
-module.exports = { generateAgentRules, AGENT_RULE_FILES }
+export { generateAgentRules, AGENT_RULE_FILES }

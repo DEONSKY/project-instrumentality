@@ -1,6 +1,31 @@
-const fs = require('fs')
-const { execSync } = require('child_process')
-const { globMatch } = require('./patterns')
+import * as fs from 'fs'
+import { execSync } from 'child_process'
+import { globMatch } from './patterns'
+
+// The rule shape these mechanical detectors read. Mirrors the relevant subset
+// of a standards rule; the full standards types arrive when standards.js
+// converts (Phase 2). Loose by design — rules come from user YAML.
+interface DetectRule {
+  applies_to?: {
+    paths?: string[]
+    min_lines?: number
+  }
+  exceptions?: Array<{ paths?: string[]; reason?: string; [key: string]: unknown }>
+  detect?: {
+    kind?: string
+    pattern?: string
+    pre_filter?: string
+  }
+}
+
+interface DetectorResult {
+  kind: string
+  verdict: string
+  error?: string
+  matchCount?: number
+}
+
+type ExceptionEntry = { paths?: string[]; reason?: string; [key: string]: unknown }
 
 /**
  * Cheap mechanical detectors used by kb_conform Phase 1 to filter out files
@@ -15,7 +40,7 @@ const { globMatch } = require('./patterns')
  * Path filter — checks file against the rule's applies_to.paths globs.
  * Returns { matches: boolean }. If matches is false, the rule is n/a for this file.
  */
-function applyPathFilter(rule, filePath) {
+function applyPathFilter(rule: DetectRule, filePath: string): { matches: boolean } {
   const paths = (rule.applies_to && rule.applies_to.paths) || []
   if (paths.length === 0) return { matches: true } // no filter = applies to all
   for (const p of paths) {
@@ -32,7 +57,7 @@ function applyPathFilter(rule, filePath) {
  * Phase 2 `exempted` adds an entry here, so subsequent runs short-circuit
  * without ever invoking the LLM judge — that's the whole point of exempted.
  */
-function applyExceptions(rule, filePath) {
+function applyExceptions(rule: DetectRule, filePath: string): { excluded: boolean; exceptionEntry?: ExceptionEntry } {
   const exceptions = Array.isArray(rule.exceptions) ? rule.exceptions : []
   for (const ex of exceptions) {
     const paths = Array.isArray(ex.paths) ? ex.paths : []
@@ -50,10 +75,11 @@ function applyExceptions(rule, filePath) {
  * routing" → fire only on files >200 lines). Reads the file lazily — caller
  * passes already-read content when available to avoid double-read.
  */
-function applyMinLines(rule, fileContentOrPath) {
+function applyMinLines(rule: DetectRule, fileContentOrPath: string): { passes: boolean; lineCount?: number } {
   const min = rule.applies_to && rule.applies_to.min_lines
-  if (!Number.isInteger(min) || min <= 0) return { passes: true }
-  let content
+  if (!Number.isInteger(min) || (min as number) <= 0) return { passes: true }
+  const minLines = min as number
+  let content: string | undefined
   if (typeof fileContentOrPath === 'string' && fileContentOrPath.includes('\n')) {
     content = fileContentOrPath
   } else if (typeof fileContentOrPath === 'string') {
@@ -61,7 +87,7 @@ function applyMinLines(rule, fileContentOrPath) {
   }
   if (!content) return { passes: false }
   const lineCount = content.split('\n').length
-  return { passes: lineCount >= min, lineCount }
+  return { passes: lineCount >= minLines, lineCount }
 }
 
 /**
@@ -72,12 +98,12 @@ function applyMinLines(rule, fileContentOrPath) {
  *
  * Returns { kind: 'regex', verdict: 'fail'|'pass'|'error', error?, matchCount? }.
  */
-function runRegex(rule, fileContent) {
+function runRegex(rule: DetectRule, fileContent: string): DetectorResult {
   const pattern = rule.detect && rule.detect.pattern
   if (!pattern) return { kind: 'regex', verdict: 'error', error: 'detect.pattern missing for kind: regex' }
-  let re
+  let re: RegExp
   try { re = new RegExp(pattern, 'gm') } catch (e) {
-    return { kind: 'regex', verdict: 'error', error: `invalid regex: ${e.message}` }
+    return { kind: 'regex', verdict: 'error', error: `invalid regex: ${(e as Error).message}` }
   }
   const matches = fileContent.match(re)
   return matches && matches.length > 0
@@ -93,8 +119,8 @@ function runRegex(rule, fileContent) {
  *
  * Returns { kind: 'ast-grep', verdict: 'fail'|'pass'|'error'|'unavailable', error? }.
  */
-let _astGrepAvailable = null
-function isAstGrepAvailable() {
+let _astGrepAvailable: boolean | null = null
+function isAstGrepAvailable(): boolean {
   if (_astGrepAvailable !== null) return _astGrepAvailable
   try {
     execSync('ast-grep --version', { stdio: 'ignore' })
@@ -105,7 +131,7 @@ function isAstGrepAvailable() {
   return _astGrepAvailable
 }
 
-function runAstGrep(rule, filePath) {
+function runAstGrep(rule: DetectRule, filePath: string): DetectorResult {
   const pattern = rule.detect && rule.detect.pattern
   if (!pattern) return { kind: 'ast-grep', verdict: 'error', error: 'detect.pattern missing for kind: ast-grep' }
   if (!isAstGrepAvailable()) {
@@ -117,7 +143,7 @@ function runAstGrep(rule, filePath) {
     }).toString().trim()
     return out ? { kind: 'ast-grep', verdict: 'fail' } : { kind: 'ast-grep', verdict: 'pass' }
   } catch (e) {
-    return { kind: 'ast-grep', verdict: 'error', error: e.message }
+    return { kind: 'ast-grep', verdict: 'error', error: (e as Error).message }
   }
 }
 
@@ -130,12 +156,12 @@ function runAstGrep(rule, filePath) {
  *
  * Returns { kind: 'pre_filter', verdict: 'match'|'no-match'|'error', error? }.
  */
-function runLlmPreFilter(rule, fileContent) {
+function runLlmPreFilter(rule: DetectRule, fileContent: string): DetectorResult {
   const pattern = rule.detect && rule.detect.pre_filter
   if (!pattern) return { kind: 'pre_filter', verdict: 'absent' }
-  let re
+  let re: RegExp
   try { re = new RegExp(pattern, 'm') } catch (e) {
-    return { kind: 'pre_filter', verdict: 'error', error: `invalid pre_filter regex: ${e.message}` }
+    return { kind: 'pre_filter', verdict: 'error', error: `invalid pre_filter regex: ${(e as Error).message}` }
   }
   return re.test(fileContent || '')
     ? { kind: 'pre_filter', verdict: 'match' }
@@ -155,7 +181,13 @@ function runLlmPreFilter(rule, fileContent) {
  * `verdict` carries the underlying detector result so the caller can surface
  * errors (e.g. ast-grep unavailable) in the audit log.
  */
-function preFilter(rule, filePath, fileContent) {
+interface PreFilterResult {
+  decision: 'na' | 'fail' | 'pass' | 'llm'
+  reason?: string
+  verdict?: DetectorResult
+}
+
+function preFilter(rule: DetectRule, filePath: string, fileContent?: string): PreFilterResult {
   const path = applyPathFilter(rule, filePath)
   if (!path.matches) return { decision: 'na', reason: 'applies_to.paths did not match' }
 
@@ -169,7 +201,7 @@ function preFilter(rule, filePath, fileContent) {
 
   const lines = applyMinLines(rule, fileContent || filePath)
   if (!lines.passes) {
-    return { decision: 'na', reason: `applies_to.min_lines (${rule.applies_to.min_lines}) not met (${lines.lineCount || 'unknown'} lines)` }
+    return { decision: 'na', reason: `applies_to.min_lines (${rule.applies_to?.min_lines}) not met (${lines.lineCount || 'unknown'} lines)` }
   }
 
   const detectKind = rule.detect && rule.detect.kind
@@ -198,7 +230,7 @@ function preFilter(rule, filePath, fileContent) {
   return { decision: 'llm', ...(pf.verdict !== 'absent' && { verdict: pf }) }
 }
 
-module.exports = {
+export {
   applyPathFilter,
   applyExceptions,
   applyMinLines,
