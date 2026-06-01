@@ -1,10 +1,17 @@
-const fs = require('fs')
-const path = require('path')
-const matter = require('gray-matter')
-const simpleGit = require('simple-git')
-const { resolvePrompt } = require('../lib/prompts')
+import * as fs from 'fs'
+import * as path from 'path'
+import matter from 'gray-matter'
+import simpleGit, { type SimpleGit } from 'simple-git'
+import { resolvePrompt } from '../lib/prompts'
+import type { ToolDefinition } from '../src/types/tool'
 
 const KB_ROOT = 'knowledge'
+
+interface MigrateFile {
+  file_path: string
+  current_content: string
+  prompt: string
+}
 
 /**
  * kb_migrate — Prepares migration prompts for KB files after _rules.md changes.
@@ -14,7 +21,7 @@ const KB_ROOT = 'knowledge'
  * Signal: if the agent determines a file is already compliant, skip it.
  * Otherwise, generate updated content and call kb_write.
  */
-async function runTool({ since } = {}) {
+async function runTool({ since }: { since?: string } = {}): Promise<Record<string, unknown>> {
   const git = simpleGit(process.cwd())
   const rulesPath = path.join(KB_ROOT, '_rules.md')
 
@@ -36,7 +43,7 @@ async function runTool({ since } = {}) {
   }
 
   const allKbFiles = collectKBFiles()
-  const files = []
+  const files: MigrateFile[] = []
 
   for (const filePath of allKbFiles) {
     try {
@@ -58,7 +65,7 @@ async function runTool({ since } = {}) {
         prompt
       })
     } catch (e) {
-      console.error(`[migrate] Error processing ${filePath}:`, e.message)
+      console.error(`[migrate] Error processing ${filePath}:`, (e as Error).message)
     }
   }
 
@@ -73,7 +80,7 @@ async function runTool({ since } = {}) {
 // _rules.md and return its parent SHA — diffing parent..HEAD then captures
 // all rules changes since the last edit. Returns null if no such commit
 // exists (e.g. _rules.md was just added in HEAD, or repo has no history).
-async function findLastRulesChange(git, rulesPath) {
+async function findLastRulesChange(git: SimpleGit, rulesPath: string): Promise<string | null> {
   try {
     const log = await git.log({ file: rulesPath, maxCount: 2 })
     const commits = log.all || []
@@ -93,8 +100,8 @@ async function findLastRulesChange(git, rulesPath) {
   }
 }
 
-function collectKBFiles() {
-  const files = []
+function collectKBFiles(): string[] {
+  const files: string[] = []
   // F48: explicit exclusion list — avoid blanket startsWith('.') because some
   // projects host docs under .github/, .cursor/, etc. and want them indexed.
   // .obsidian holds vault plugin distributions (README.md noise) and .git
@@ -104,7 +111,7 @@ function collectKBFiles() {
     '.obsidian', '.git'
   ])
 
-  function walk(dir) {
+  function walk(dir: string): void {
     if (!fs.existsSync(dir)) return
     const entries = fs.readdirSync(dir, { withFileTypes: true })
     entries.forEach(entry => {
@@ -121,16 +128,15 @@ function collectKBFiles() {
   return files
 }
 
-module.exports = {
-  runTool,
-  definition: {
-    name: 'kb_migrate',
-    description: 'Migrate KB files after _rules.md changes. Returns one prompt per KB file for the calling agent to review; the agent calls kb_write per file if an update is needed. Does not write directly.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        since: { type: 'string', description: 'Commit SHA to diff _rules.md from. Auto-detected by walking git log for the last commit that touched _rules.md and diffing its parent..HEAD.' }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_migrate',
+  description: 'Migrate KB files after _rules.md changes. Returns one prompt per KB file for the calling agent to review; the agent calls kb_write per file if an update is needed. Does not write directly.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      since: { type: 'string', description: 'Commit SHA to diff _rules.md from. Auto-detected by walking git log for the last commit that touched _rules.md and diffing its parent..HEAD.' }
     }
   }
 }
+
+export { runTool, definition }
