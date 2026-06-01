@@ -1,8 +1,31 @@
-const fs = require('fs')
-const path = require('path')
-const { execSync } = require('child_process')
+import * as fs from 'fs'
+import * as path from 'path'
+import { execSync } from 'child_process'
+import type { ToolDefinition } from '../src/types/tool'
 
-async function runTool({ command, dry_run = false, target_branch = 'main' } = {}) {
+interface Submodule {
+  name: string
+  path: string
+  fullPath: string
+  isShared: boolean
+}
+
+interface PushPlanEntry {
+  order: number
+  path: string
+  type: string
+  branch: string | null
+  action?: string
+  fullPath?: string
+}
+
+async function runTool(
+  { command, dry_run = false, target_branch = 'main' }: {
+    command?: string
+    dry_run?: boolean
+    target_branch?: string
+  } = {}
+): Promise<Record<string, unknown>> {
   if (!command) return { error: 'command is required. Valid: status, push, merge_plan' }
 
   switch (command) {
@@ -15,21 +38,22 @@ async function runTool({ command, dry_run = false, target_branch = 'main' } = {}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function gitExec(cmd, cwd = process.cwd()) {
+function gitExec(cmd: string, cwd = process.cwd()): string {
   try {
     return execSync(cmd, { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
   } catch (e) {
-    const stderr = e.stderr ? e.stderr.trim() : e.message
+    const err = e as { stderr?: string; message: string }
+    const stderr = err.stderr ? err.stderr.trim() : err.message
     throw new Error(stderr)
   }
 }
 
-function detectSubmodules() {
+function detectSubmodules(): Submodule[] {
   const gitmodulesPath = path.join(process.cwd(), '.gitmodules')
   if (!fs.existsSync(gitmodulesPath)) return []
 
   const content = fs.readFileSync(gitmodulesPath, 'utf8')
-  const submodules = []
+  const submodules: Submodule[] = []
   const blocks = content.split(/(?=\[submodule\s+"[^"]+"\])/).filter(b => b.trim())
 
   for (const block of blocks) {
@@ -49,7 +73,7 @@ function detectSubmodules() {
   return submodules
 }
 
-function getParentBranch() {
+function getParentBranch(): { branch: string | null; detached: boolean } {
   try {
     const branch = gitExec('git symbolic-ref --short HEAD')
     return { branch, detached: false }
@@ -58,7 +82,7 @@ function getParentBranch() {
   }
 }
 
-function getSubmoduleBranch(fullPath) {
+function getSubmoduleBranch(fullPath: string): string | null {
   try {
     return gitExec('git symbolic-ref --short HEAD', fullPath)
   } catch {
@@ -66,7 +90,7 @@ function getSubmoduleBranch(fullPath) {
   }
 }
 
-function pointerChanged(subPath) {
+function pointerChanged(subPath: string): boolean {
   try {
     const upstreamRef = gitExec('git rev-parse @{upstream}')
     const localSha = gitExec(`git ls-tree HEAD "${subPath}"`)
@@ -82,7 +106,7 @@ function pointerChanged(subPath) {
 
 // ── Commands ─────────────────────────────────────────────────────────────────
 
-function handleStatus() {
+function handleStatus(): Record<string, unknown> {
   const parent = getParentBranch()
   const submodules = detectSubmodules()
 
@@ -101,15 +125,15 @@ function handleStatus() {
   return { parent, submodules: entries }
 }
 
-function handlePush(dryRun) {
+function handlePush(dryRun: boolean): Record<string, unknown> {
   const parent = getParentBranch()
   if (parent.detached) {
     return { error: 'HEAD is detached — cannot determine branch for push' }
   }
 
   const submodules = detectSubmodules()
-  const pushPlan = []
-  const skipped = []
+  const pushPlan: PushPlanEntry[] = []
+  const skipped: Array<{ path: string; reason: string }> = []
   let order = 1
 
   // Owned submodules first, then shared
@@ -153,7 +177,7 @@ function handlePush(dryRun) {
   }
 
   // Execute pushes
-  const results = []
+  const results: Array<Record<string, unknown>> = []
   let allSuccess = true
 
   for (const entry of pushPlan) {
@@ -166,7 +190,7 @@ function handlePush(dryRun) {
         gitExec('git push')
         results.push({ order: entry.order, path: '.', type: 'parent', success: true })
       } catch (e) {
-        results.push({ order: entry.order, path: '.', type: 'parent', success: false, error: e.message })
+        results.push({ order: entry.order, path: '.', type: 'parent', success: false, error: (e as Error).message })
         allSuccess = false
       }
     } else {
@@ -174,7 +198,7 @@ function handlePush(dryRun) {
         gitExec(`git push -u origin ${entry.branch}`, entry.fullPath)
         results.push({ order: entry.order, path: entry.path, type: entry.type, branch: entry.branch, success: true })
       } catch (e) {
-        results.push({ order: entry.order, path: entry.path, type: entry.type, branch: entry.branch, success: false, error: e.message })
+        results.push({ order: entry.order, path: entry.path, type: entry.type, branch: entry.branch, success: false, error: (e as Error).message })
         allSuccess = false
       }
     }
@@ -183,7 +207,7 @@ function handlePush(dryRun) {
   return { results, all_success: allSuccess }
 }
 
-function handleMergePlan(targetBranch) {
+function handleMergePlan(targetBranch: string): Record<string, unknown> {
   const parent = getParentBranch()
   if (parent.detached) {
     return { error: 'HEAD is detached — cannot determine current branch' }
@@ -193,9 +217,9 @@ function handleMergePlan(targetBranch) {
   }
 
   const submodules = detectSubmodules()
-  const steps = []
+  const steps: Array<Record<string, unknown>> = []
   let order = 1
-  const sharedNames = []
+  const sharedNames: string[] = []
 
   for (const sub of submodules) {
     if (!pointerChanged(sub.path)) continue
@@ -221,7 +245,7 @@ function handleMergePlan(targetBranch) {
   steps.push({ order: order++, action: 'merge', where: 'parent', from: parent.branch, to: targetBranch })
   steps.push({ order: order++, action: 'push', where: 'parent' })
 
-  const result = {
+  const result: Record<string, unknown> = {
     current_branch: parent.branch,
     target_branch: targetBranch,
     steps
@@ -234,19 +258,18 @@ function handleMergePlan(targetBranch) {
   return result
 }
 
-module.exports = {
-  runTool,
-  definition: {
-    name: 'kb_sub',
-    description: 'Submodule coordination. status: shows parent + submodule branches, pointer changes, owned/shared types. push: pushes submodules first (correct order), then parent. merge_plan: returns correct merge sequence for feature-to-main.',
-    inputSchema: {
-      type: 'object',
-      required: ['command'],
-      properties: {
-        command: { type: 'string', enum: ['status', 'push', 'merge_plan'], description: 'Command to run' },
-        dry_run: { type: 'boolean', description: 'For push: show plan without executing', default: false },
-        target_branch: { type: 'string', description: 'For merge_plan: target branch name', default: 'main' }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_sub',
+  description: 'Submodule coordination. status: shows parent + submodule branches, pointer changes, owned/shared types. push: pushes submodules first (correct order), then parent. merge_plan: returns correct merge sequence for feature-to-main.',
+  inputSchema: {
+    type: 'object',
+    required: ['command'],
+    properties: {
+      command: { type: 'string', enum: ['status', 'push', 'merge_plan'], description: 'Command to run' },
+      dry_run: { type: 'boolean', description: 'For push: show plan without executing', default: false },
+      target_branch: { type: 'string', description: 'For merge_plan: target branch name', default: 'main' }
     }
   }
 }
+
+export { runTool, definition }

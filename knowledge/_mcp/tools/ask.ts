@@ -1,11 +1,22 @@
-const { resolvePrompt } = require('../lib/prompts')
-const { runTool: get } = require('./get')
+import { resolvePrompt } from '../lib/prompts'
+import type { ToolDefinition } from '../src/types/tool'
+
+interface ContextFile {
+  path: string
+  content?: string
+}
+
+// get is still CommonJS (converts in Phase 4); pull it in via runtime require
+// and type the slice of its result we read.
+const { runTool: get } = require('./get') as {
+  runTool: (args: { keywords?: string[] }) => Promise<{ files?: ContextFile[] }>
+}
 
 /**
  * kb_ask — Returns a resolved prompt + KB context for the calling agent to answer.
  * The agent (Claude Code, Cursor, etc.) IS the LLM — no separate API call needed.
  */
-async function runTool({ question } = {}) {
+async function runTool({ question }: { question?: string } = {}): Promise<Record<string, unknown>> {
   if (!question) return { error: 'question is required' }
 
   const intent = classifyIntent(question)
@@ -28,11 +39,11 @@ async function runTool({ question } = {}) {
   const promptVars = buildPromptVars(question, intent, context)
   const promptName = intentToPrompt(intent)
 
-  let prompt
+  let prompt: string | null
   try {
     prompt = resolvePrompt(promptName, promptVars)
   } catch (e) {
-    return { error: e.message, intent, context_files: context.map(f => f.path) }
+    return { error: (e as Error).message, intent, context_files: context.map(f => f.path) }
   }
 
   if (prompt === null) {
@@ -47,7 +58,7 @@ async function runTool({ question } = {}) {
   }
 }
 
-function classifyIntent(question) {
+function classifyIntent(question: string): string {
   const q = question.toLowerCase()
   if (/sync\s+\S+/.test(q)) return 'sync'
   if (/walk me through|explain|onboard|tour|new to|getting started/.test(q)) return 'onboard'
@@ -57,8 +68,8 @@ function classifyIntent(question) {
   return 'query'
 }
 
-function intentToPrompt(intent) {
-  const map = {
+function intentToPrompt(intent: string): string {
+  const map: Record<string, string> = {
     query: 'ask-query',
     brainstorm: 'ask-brainstorm',
     challenge: 'ask-challenge',
@@ -125,14 +136,14 @@ const TIGHT_INTENTS = new Set(['challenge', 'generate'])
  *
  * Exported so it can be unit-tested independently of the file-loading layer.
  */
-function extractKeywords(question) {
+function extractKeywords(question: string): string[] {
   const rawWords = question
     .toLowerCase()
     .replace(/[^a-z0-9\- ]/g, ' ')
     .split(/\s+/)
     .filter(w => (w.length > 3 || SHORT_KEEP.has(w)) && !STOPWORDS.has(w))
 
-  const out = new Set(rawWords)
+  const out = new Set<string>(rawWords)
 
   for (const w of rawWords) {
     const sing = singularize(w)
@@ -156,7 +167,7 @@ function extractKeywords(question) {
  * Conservative — only handles -ies, -es, -s. Won't touch already-hyphenated
  * compounds (the bigram pass handles those).
  */
-function singularize(w) {
+function singularize(w: string): string | null {
   if (!w || w.length <= 3 || w.includes('-')) return null
   if (w.endsWith('ies') && w.length > 4) return w.slice(0, -3) + 'y'
   // -es family: words ending in -s, -x, -z, -ch, -sh take "es" to pluralize,
@@ -167,13 +178,13 @@ function singularize(w) {
   return null
 }
 
-async function loadContext(question) {
+async function loadContext(question: string): Promise<ContextFile[]> {
   const keywords = extractKeywords(question)
   const result = await get({ keywords })
   return result.files || []
 }
 
-function buildKbContext(files, intent) {
+function buildKbContext(files: ContextFile[], intent: string): string {
   // F13: per-file truncate then accumulate against a total cap so the prompt
   // can't blow past the MCP response budget when kb_get returns many large
   // files. Surface truncation in the inline comment so the agent knows to
@@ -181,7 +192,7 @@ function buildKbContext(files, intent) {
   const tight = TIGHT_INTENTS.has(intent)
   const totalCap = tight ? ASK_TIGHT_TOTAL_CHAR_CAP : ASK_TOTAL_CHAR_CAP
   const perFileCap = tight ? ASK_TIGHT_PER_FILE_CHAR_CAP : ASK_PER_FILE_CHAR_CAP
-  const parts = []
+  const parts: string[] = []
   let total = 0
   for (const f of files) {
     if (total >= totalCap) {
@@ -201,8 +212,8 @@ function buildKbContext(files, intent) {
   return parts.join('\n\n---\n\n')
 }
 
-function buildPromptVars(question, intent, context) {
-  const base = { question, kb_context: buildKbContext(context, intent) }
+function buildPromptVars(question: string, intent: string, context: ContextFile[]): Record<string, string> {
+  const base: Record<string, string> = { question, kb_context: buildKbContext(context, intent) }
 
   if (intent === 'sync' || intent === 'generate') {
     // Extract the first path/identifier after the intent keyword
@@ -213,19 +224,16 @@ function buildPromptVars(question, intent, context) {
   return base
 }
 
-module.exports = {
-  runTool,
-  extractKeywords,
-  singularize,
-  definition: {
-    name: 'kb_ask',
-    description: 'Returns a synthesized KB context + structured prompt for a question. Use only when (a) the question requires cross-file synthesis the depends_on graph provides, (b) the intent template (query/brainstorm/challenge/sync/onboard/generate) adds value, or (c) grep keywords aren\'t finding the right files due to vocabulary mismatch with KB tags. For straightforward content lookups, grep / find / Read are faster and more reliable — kb_ask\'s file selection is over KB metadata only, not file body, so it cannot find content that isn\'t reflected in tags or depends_on.',
-    inputSchema: {
-      type: 'object',
-      required: ['question'],
-      properties: {
-        question: { type: 'string', description: 'Your question. Prefix with "sync [feature] [note-id]" to resolve a sync note.' }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_ask',
+  description: 'Returns a synthesized KB context + structured prompt for a question. Use only when (a) the question requires cross-file synthesis the depends_on graph provides, (b) the intent template (query/brainstorm/challenge/sync/onboard/generate) adds value, or (c) grep keywords aren\'t finding the right files due to vocabulary mismatch with KB tags. For straightforward content lookups, grep / find / Read are faster and more reliable — kb_ask\'s file selection is over KB metadata only, not file body, so it cannot find content that isn\'t reflected in tags or depends_on.',
+  inputSchema: {
+    type: 'object',
+    required: ['question'],
+    properties: {
+      question: { type: 'string', description: 'Your question. Prefix with "sync [feature] [note-id]" to resolve a sync note.' }
     }
   }
 }
+
+export { runTool, extractKeywords, singularize, definition }
