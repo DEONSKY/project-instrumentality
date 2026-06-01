@@ -1,6 +1,27 @@
-const fs = require('fs')
-const path = require('path')
-const { KB_ROOT } = require('./kb-constants')
+import * as fs from 'fs'
+import * as path from 'path'
+import { KB_ROOT } from './kb-constants'
+
+// A code-path pattern entry from knowledge/_rules.md code_path_patterns. Loose
+// by design — entries are author-written YAML. Fields the matcher reads:
+interface NameExtraction {
+  name_regex?: string
+  strip_suffix?: string[]
+  case?: string
+}
+
+interface PathPattern {
+  paths?: string[]
+  kb_target?: string | string[]
+  name_extraction?: NameExtraction
+  [key: string]: unknown
+}
+
+interface GlobExpansion {
+  files: string[]
+  matchedCount: number
+  truncated: boolean
+}
 
 // Directories pruned during disk walks. Cheap guards against wandering into
 // build output, dependency caches, or test artifacts that would inflate the
@@ -21,7 +42,7 @@ const GLOB_SKIP_DIRS = new Set([
  * to non-slash chars (e.g. `**.go`) falls through to `.*` for backwards-compat
  * with non-standard patterns already in the wild.
  */
-function globMatch(filePath, pattern) {
+function globMatch(filePath: string, pattern: string): boolean {
   // Stage every glob token behind sentinels before doing any regex emission.
   // Otherwise: step 4 (`**` → `.*`) would inject a `*` that step 5 then
   // (incorrectly) re-rewrites as `[^/]*`, and step 6 (`?` → `[^/]`) would
@@ -45,8 +66,8 @@ function globMatch(filePath, pattern) {
 }
 
 /** Returns ALL matching patterns for a file (many-to-many support) */
-function matchAllPatterns(codeFile, patterns) {
-  const matches = []
+function matchAllPatterns(codeFile: string, patterns: PathPattern[]): PathPattern[] {
+  const matches: PathPattern[] = []
   for (const pattern of patterns) {
     for (const p of (pattern.paths || [])) {
       if (globMatch(codeFile, p)) {
@@ -70,7 +91,7 @@ function matchAllPatterns(codeFile, patterns) {
  * and free of filesystem I/O — declaration order in `_rules.md` is the
  * tiebreaker for cases the score can't disambiguate.
  */
-function globSpecificity(globPath) {
+function globSpecificity(globPath: string): number {
   let n = 0
   for (const ch of globPath) {
     if (ch !== '*' && ch !== '?') n++
@@ -86,8 +107,8 @@ function globSpecificity(globPath) {
  *
  * Returns `null` when no pattern matches.
  */
-function pickBestMatch(codeFile, patterns) {
-  let best = null
+function pickBestMatch(codeFile: string, patterns: PathPattern[]): PathPattern | null {
+  let best: PathPattern | null = null
   let bestScore = -1
   for (const pattern of patterns) {
     let patternBest = -1
@@ -118,9 +139,9 @@ function pickBestMatch(codeFile, patterns) {
  * authors express aliases (plural vs singular) and depth alternatives
  * (depth-1 literal vs recursive glob form) without engine magic.
  */
-function resolveKbTarget(pattern, codeFile) {
+function resolveKbTarget(pattern: PathPattern, codeFile: string): string {
   const raw = pattern.kb_target
-  const templates = Array.isArray(raw) ? raw : [raw]
+  const templates: string[] = Array.isArray(raw) ? raw : [raw as string]
   const name = extractName(codeFile, pattern.name_extraction || {})
   const candidates = templates.map(t => t.includes('{name}') ? t.replace('{name}', name) : t)
   for (const c of candidates) {
@@ -153,7 +174,7 @@ function resolveKbTarget(pattern, codeFile) {
  *
  * Order: name_regex → strip_suffix → case. Composable.
  */
-function extractName(filePath, nameExtraction) {
+function extractName(filePath: string, nameExtraction: NameExtraction): string {
   let name = path.basename(filePath, path.extname(filePath))
   if (nameExtraction.name_regex) {
     try {
@@ -180,11 +201,10 @@ function extractName(filePath, nameExtraction) {
  * same convention the rest of drift.js uses when comparing to parent-repo
  * paths. Symlinked directories are NOT followed (avoids cycles).
  *
- * @param {string} pattern - glob pattern (e.g. "src/**\/*.js")
- * @param {{ rootDir?: string, fileCap?: number }} opts
- * @returns {{ files: string[], matchedCount: number, truncated: boolean }}
+ * @param pattern - glob pattern (e.g. "src/**\/*.js")
+ * @param opts
  */
-function expandGlob(pattern, opts = {}) {
+function expandGlob(pattern: string, opts: { rootDir?: string; fileCap?: number } = {}): GlobExpansion {
   const rootDir = opts.rootDir || process.cwd()
   const fileCap = typeof opts.fileCap === 'number' ? opts.fileCap : 25
 
@@ -210,12 +230,12 @@ function expandGlob(pattern, opts = {}) {
   try { exists = fs.statSync(startAbs).isDirectory() } catch {}
   if (!exists) return { files: [], matchedCount: 0, truncated: false }
 
-  const files = []
+  const files: string[] = []
   let truncated = false
-  const stack = [startAbs]
+  const stack: string[] = [startAbs]
   while (stack.length > 0) {
-    const dir = stack.pop()
-    let entries
+    const dir = stack.pop() as string
+    let entries: fs.Dirent[]
     try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { continue }
     for (const ent of entries) {
       const abs = path.join(dir, ent.name)
@@ -247,7 +267,7 @@ function expandGlob(pattern, opts = {}) {
  * as a minimum. Used by source-file walkers (kb_inventory, kb_analyze) to honor
  * the glob's stated reach instead of capping the walk at a fixed default.
  */
-function maxGlobDepth(globs, floor = 0) {
+function maxGlobDepth(globs: string[], floor = 0): number {
   let max = floor
   for (const g of globs) {
     if (g.includes('**')) return Infinity
@@ -257,4 +277,4 @@ function maxGlobDepth(globs, floor = 0) {
   return max
 }
 
-module.exports = { globMatch, matchAllPatterns, pickBestMatch, globSpecificity, resolveKbTarget, extractName, expandGlob, maxGlobDepth }
+export { globMatch, matchAllPatterns, pickBestMatch, globSpecificity, resolveKbTarget, extractName, expandGlob, maxGlobDepth }

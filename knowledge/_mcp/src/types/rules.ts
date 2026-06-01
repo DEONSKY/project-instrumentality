@@ -11,8 +11,37 @@ export interface DepthPolicy {
   never_group?: string[]
 }
 
-// The rules accessor object returned by loadRules(). Only the getters consumed
-// by already-converted modules are declared; extend as more callers convert.
+export interface PromptOverrides {
+  base_dir?: string
+  override_dir?: string
+  valid_override_types?: string[]
+  suppress_requires_reason?: boolean
+  protected?: string[]
+  [key: string]: unknown
+}
+
+// The raw parsed _rules.md frontmatter. Loose — author-written YAML with more
+// optional keys than enumerated here.
+export interface RawRules {
+  version?: string
+  depth_policy?: DepthPolicy
+  secret_patterns?: string[]
+  code_path_patterns?: Array<Record<string, unknown>>
+  prompt_overrides?: PromptOverrides
+  working_paths_cap?: number
+  standards_threshold?: number
+  app_root_patterns?: Record<string, unknown>
+  [key: string]: unknown
+}
+
+// The rules accessor object returned by loadRules().
 export interface Rules {
   getDepthPolicy: () => DepthPolicy
+  getSecretPatterns: () => string[]
+  getCodePathPatterns: () => Array<Record<string, unknown>>
+  getPromptOverrides: () => PromptOverrides
+  getWorkingPathsCap: () => number
+  getStandardsThreshold: () => number
+  getAppRootPatterns: () => Record<string, unknown>
+  getRaw: () => RawRules
 }

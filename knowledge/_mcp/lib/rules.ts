@@ -1,20 +1,26 @@
-const fs = require('fs')
-const path = require('path')
-const matter = require('gray-matter')
-const yaml = require('js-yaml')
+import * as fs from 'fs'
+import * as path from 'path'
+import matter from 'gray-matter'
+import type { Rules, RawRules } from '../src/types/rules'
 
 const DEFAULT_RULES_PATH = 'knowledge/_rules.md'
 
-function loadRulesRaw(kbRoot = 'knowledge') {
+function loadRulesRaw(kbRoot = 'knowledge'): RawRules {
   const rulesPath = path.join(kbRoot, '_rules.md')
   if (!fs.existsSync(rulesPath)) {
     return getDefaultRules()
   }
   const parsed = matter(fs.readFileSync(rulesPath, 'utf8'))
-  return parsed.data || getDefaultRules()
+  return (parsed.data as RawRules) || getDefaultRules()
 }
 
-function getDefaultRules() {
+// The defaults always populate the core fields, so the return type asserts
+// them as required — callers use `raw.x || getDefaultRules().x` and rely on the
+// fallback being non-undefined.
+type DefaultRules = RawRules &
+  Required<Pick<RawRules, 'depth_policy' | 'secret_patterns' | 'code_path_patterns' | 'prompt_overrides'>>
+
+function getDefaultRules(): DefaultRules {
   return {
     version: '1.0',
     depth_policy: {
@@ -86,12 +92,13 @@ function getDefaultRules() {
   }
 }
 
-function loadRules(kbRoot = 'knowledge') {
+function loadRules(kbRoot = 'knowledge'): Rules {
   const raw = loadRulesRaw(kbRoot)
 
   // Validate code_path_patterns at load time. Errors propagate as warnings,
   // not throws — loading must succeed even with malformed entries (matches
-  // how validateRule is consumed by lint).
+  // how validateRule is consumed by lint). Lazy require avoids a load-time
+  // cycle and defers pattern-audit until rules are actually validated.
   if (Array.isArray(raw.code_path_patterns)) {
     const { validateCodePathPattern } = require('./pattern-audit')
     for (let i = 0; i < raw.code_path_patterns.length; i++) {
@@ -109,11 +116,11 @@ function loadRules(kbRoot = 'knowledge') {
     getSecretPatterns: () => raw.secret_patterns || getDefaultRules().secret_patterns,
     getCodePathPatterns: () => raw.code_path_patterns || getDefaultRules().code_path_patterns,
     getPromptOverrides: () => raw.prompt_overrides || getDefaultRules().prompt_overrides,
-    getWorkingPathsCap: () => Number.isInteger(raw.working_paths_cap) ? raw.working_paths_cap : 10,
-    getStandardsThreshold: () => Number.isInteger(raw.standards_threshold) ? raw.standards_threshold : 40,
+    getWorkingPathsCap: () => Number.isInteger(raw.working_paths_cap) ? (raw.working_paths_cap as number) : 10,
+    getStandardsThreshold: () => Number.isInteger(raw.standards_threshold) ? (raw.standards_threshold as number) : 40,
     getAppRootPatterns: () => (raw.app_root_patterns && typeof raw.app_root_patterns === 'object') ? raw.app_root_patterns : {},
     getRaw: () => raw
   }
 }
 
-module.exports = { loadRules, getDefaultRules }
+export { loadRules, getDefaultRules }

@@ -1,22 +1,46 @@
-const fs = require('fs')
-const path = require('path')
-const crypto = require('crypto')
-const { globMatch } = require('./patterns')
-const { canonicalize } = require('./promotion-ledger')
+import * as fs from 'fs'
+import * as path from 'path'
+import * as crypto from 'crypto'
+import { globMatch } from './patterns'
+import { canonicalize } from './promotion-ledger'
+
+// A code_path_patterns entry (author-written YAML). Loose by design — the audit
+// reads a known subset and tolerates extra keys.
+interface AuditPattern {
+  intent?: string
+  kb_target?: string | string[]
+  paths?: string[]
+  name_extraction?: {
+    strip_suffix?: string[]
+    case?: string
+    name_regex?: string
+  }
+  [key: string]: unknown
+}
+
+// Findings are heterogeneous (one shape per `type`); a discriminant plus an
+// open map keeps each emit site readable without a giant union.
+interface Finding {
+  type: string
+  source?: string
+  [key: string]: unknown
+}
+
+type KbTarget = string | string[] | undefined
 
 // Helpers for `kb_target` being either a string or an array of fallback
 // alternatives (the resolver in patterns.js prefers the first existing one).
 // Audit logic operates over the full candidate list so a single bad entry in
 // an otherwise-valid array doesn't slip through.
-function targetCandidates(target) {
+function targetCandidates(target: KbTarget): string[] {
   if (!target) return []
   return Array.isArray(target) ? target : [target]
 }
-function isHardcoded(target) {
+function isHardcoded(target: KbTarget): boolean {
   const cs = targetCandidates(target)
   return cs.length > 0 && cs.every(c => !c.includes('{name}'))
 }
-function kbFileMatchesTarget(target, kbPath) {
+function kbFileMatchesTarget(target: KbTarget, kbPath: string): boolean {
   for (const c of targetCandidates(target)) {
     if (c.includes('{name}') || c.includes('*')) {
       const re = new RegExp('^' + c
@@ -41,7 +65,7 @@ function kbFileMatchesTarget(target, kbPath) {
 // Patterns without `intent` skip the convention check. Folders are
 // prefix-matched, so kb_target "specs/features/auth.md" satisfies
 // expected_folder "specs/features/".
-const INTENT_FOLDER_CONVENTIONS = {
+const INTENT_FOLDER_CONVENTIONS: Record<string, string> = {
   form: 'specs/features/',
   'api-contract': 'specs/features/',
   feature: 'specs/features/',
@@ -82,15 +106,15 @@ const CONFIG_FILES = new Set([
   'checkstyle.xml', '.editorconfig',
 ])
 
-function isSourceFile(filename) {
+function isSourceFile(filename: string): boolean {
   return SOURCE_EXTENSIONS.has(path.extname(filename).toLowerCase()) || CONFIG_FILES.has(filename)
 }
 
-function collectSourceFiles(rootDir, maxDepth = 15) {
-  const files = []
-  function walk(dir, depth) {
+function collectSourceFiles(rootDir: string, maxDepth = 15): string[] {
+  const files: string[] = []
+  function walk(dir: string, depth: number) {
     if (depth > maxDepth) return
-    let entries
+    let entries: fs.Dirent[]
     try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
     for (const ent of entries) {
       if (ent.name.startsWith('.') && ent.name !== '.') continue
@@ -106,10 +130,10 @@ function collectSourceFiles(rootDir, maxDepth = 15) {
   return files
 }
 
-function collectKbContentFiles(kbRoot) {
-  const files = []
-  function walk(dir, rel) {
-    let entries
+function collectKbContentFiles(kbRoot: string): string[] {
+  const files: string[] = []
+  function walk(dir: string, rel: string) {
+    let entries: fs.Dirent[]
     try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
     for (const ent of entries) {
       if (ent.name.startsWith('_') || ent.name === 'sync' || ent.name === 'exports' || ent.name === 'assets') continue
@@ -125,16 +149,16 @@ function collectKbContentFiles(kbRoot) {
 
 // Read .gitmodules and return the list of submodule paths. Used to mark
 // orphan_pattern findings as submodule-vs-main-repo for clearer messaging.
-function collectSubmodulePaths(cwd) {
+function collectSubmodulePaths(cwd: string): string[] {
   const p = path.join(cwd, '.gitmodules')
   if (!fs.existsSync(p)) return []
   const content = fs.readFileSync(p, 'utf8')
-  const paths = []
+  const paths: string[] = []
   for (const m of content.matchAll(/path\s*=\s*(.+)/g)) paths.push(m[1].trim())
   return paths
 }
 
-function isSubmodulePattern(pattern, submodulePaths) {
+function isSubmodulePattern(pattern: AuditPattern, submodulePaths: string[]): boolean {
   if (submodulePaths.length === 0) return false
   for (const p of (pattern.paths || [])) {
     for (const sub of submodulePaths) {
@@ -152,8 +176,8 @@ const VALID_CASE = new Set(['kebab', 'camel', 'pascal', 'snake'])
  * Mirrors validateRule in standards.js. Returns { valid, errors } so callers
  * can warn without throwing — loading must still succeed for malformed entries.
  */
-function validateCodePathPattern(p) {
-  const errors = []
+function validateCodePathPattern(p: AuditPattern): { valid: boolean; errors: string[] } {
+  const errors: string[] = []
   if (!p || typeof p !== 'object') return { valid: false, errors: ['pattern is not an object'] }
   if (!p.kb_target) {
     errors.push('missing kb_target')
@@ -190,15 +214,20 @@ function validateCodePathPattern(p) {
 /**
  * Mechanical pattern audit. Pure function over rules + filesystem state.
  *
- * @param {object} opts
- * @param {Array} opts.patterns       - code_path_patterns from _rules.md
- * @param {Array<string>} opts.sourceFiles - repo-relative source file paths
- * @param {Array<string>} opts.kbFiles     - kb-root-relative KB content paths (no "knowledge/" prefix)
- * @param {Array<string>} opts.submodulePaths - paths from .gitmodules
- * @returns {{ findings: Array }}
+ * @param opts.patterns       - code_path_patterns from _rules.md
+ * @param opts.sourceFiles - repo-relative source file paths
+ * @param opts.kbFiles     - kb-root-relative KB content paths (no "knowledge/" prefix)
+ * @param opts.submodulePaths - paths from .gitmodules
  */
-function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodulePaths = [] } = {}) {
-  const findings = []
+function auditPatterns(
+  { patterns = [], sourceFiles = [], kbFiles = [], submodulePaths = [] }: {
+    patterns?: AuditPattern[]
+    sourceFiles?: string[]
+    kbFiles?: string[]
+    submodulePaths?: string[]
+  } = {}
+): { findings: Finding[] } {
+  const findings: Finding[] = []
   const kbFileSet = new Set(kbFiles)
 
   // 1. Orphan patterns: paths globs match zero source files. F57 — distinguish
@@ -271,14 +300,14 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
   const conventionFolders = Object.values(INTENT_FOLDER_CONVENTIONS)
     .slice()
     .sort((a, b) => b.length - a.length)
-  const unmappedByFolder = new Map()
+  const unmappedByFolder = new Map<string, string[]>()
   for (const kb of kbFiles) {
     const targeted = patterns.some(p => kbFileMatchesTarget(p.kb_target, kb))
     if (!targeted) {
       const matched = conventionFolders.find(f => kb.startsWith(f))
       const folder = matched || (kb.split('/')[0] + '/')
       if (!unmappedByFolder.has(folder)) unmappedByFolder.set(folder, [])
-      unmappedByFolder.get(folder).push(kb)
+      unmappedByFolder.get(folder)!.push(kb)
     }
   }
   for (const [folder, files] of unmappedByFolder) {
@@ -322,15 +351,18 @@ function auditPatterns({ patterns = [], sourceFiles = [], kbFiles = [], submodul
  * knowledge/), return whether any pattern targets it and, if not, a suggested
  * pattern shape the agent can edit into _rules.md.
  */
-function checkSingleKbFile(kbRelPath, patterns) {
+function checkSingleKbFile(kbRelPath: string, patterns: AuditPattern[]): {
+  unmapped: boolean
+  suggested_pattern?: { intent: string | null; kb_target: string; paths: string[] }
+} {
   const targeted = patterns.some(p => kbFileMatchesTarget(p.kb_target, kbRelPath))
   if (targeted) return { unmapped: false }
 
   // Reverse the convention table: folder prefix → most-natural intent (first match).
   // Iterate by descending prefix length so e.g. "specs/features/" wins over a
   // hypothetical "specs/" entry.
-  let suggestedIntent = null
-  let matchedFolder = null
+  let suggestedIntent: string | null = null
+  let matchedFolder: string | null = null
   const entries = Object.entries(INTENT_FOLDER_CONVENTIONS)
     .sort((a, b) => b[1].length - a[1].length)
   for (const [intent, expectedFolder] of entries) {
@@ -368,7 +400,7 @@ function checkSingleKbFile(kbRelPath, patterns) {
  * Returns "sha256:<16-hex>" — same shape as ruleFingerprint so the audit-log
  * formatting stays uniform.
  */
-function computePatternFingerprint(pattern) {
+function computePatternFingerprint(pattern: AuditPattern): string {
   // Sort and dedup paths before canonicalize — `canonicalize` only sorts object
   // keys (array order is semantically meaningful in standards detect lists, so
   // we can't rely on it for paths). Same trick for strip_suffix.
@@ -397,14 +429,14 @@ function computePatternFingerprint(pattern) {
  * For template patterns (kb_target contains `{name}`), this builds a regex
  * from the template and tests whether the queue key fits the shape.
  */
-function findPatternForKbTarget(queueKbTarget, patterns) {
+function findPatternForKbTarget(queueKbTarget: string, patterns: AuditPattern[]): AuditPattern | null {
   for (const p of patterns) {
     if (kbFileMatchesTarget(p.kb_target, queueKbTarget)) return p
   }
   return null
 }
 
-module.exports = {
+export {
   auditPatterns,
   validateCodePathPattern,
   checkSingleKbFile,
