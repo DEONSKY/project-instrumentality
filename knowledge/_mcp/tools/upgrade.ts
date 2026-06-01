@@ -1,11 +1,12 @@
-const fs = require('fs')
-const path = require('path')
-const matter = require('gray-matter')
-const { matterStringify } = require('../lib/matter-utils')
-const { resolvePrompt } = require('../lib/prompts')
-const { getDefaultRules } = require('../lib/rules')
-const { loadManifest, writeManifest, walkTemplateFiles, hashFileContent, buildTemplateHashes } = require('../lib/manifest')
-const pkgPaths = require('../lib/pkg-paths')
+import * as fs from 'fs'
+import * as path from 'path'
+import matter from 'gray-matter'
+import { matterStringify } from '../lib/matter-utils'
+import { resolvePrompt } from '../lib/prompts'
+import { getDefaultRules } from '../lib/rules'
+import { loadManifest, writeManifest, walkTemplateFiles, hashFileContent, buildTemplateHashes } from '../lib/manifest'
+import * as pkgPaths from '../lib/pkg-paths'
+import type { ToolDefinition } from '../src/types/tool'
 
 const KB_ROOT = 'knowledge'
 const PROJECT_TEMPLATES_DIR = path.join(KB_ROOT, '_templates')
@@ -19,7 +20,7 @@ const BUNDLED_TEMPLATES_DIR = pkgPaths.bundledTemplatesDir()
  * Auto-updates unmodified templates, returns merge prompts for customized ones,
  * patches _rules.md with new config keys, and re-runs infrastructure setup.
  */
-async function runTool({ dry_run = false, force = false } = {}) {
+async function runTool({ dry_run = false, force = false }: { dry_run?: boolean; force?: boolean } = {}): Promise<Record<string, unknown>> {
   // Guard: project must be initialized
   if (!fs.existsSync(PROJECT_TEMPLATES_DIR)) {
     return { error: 'knowledge/_templates/ not found. Run kb_init first.' }
@@ -29,7 +30,7 @@ async function runTool({ dry_run = false, force = false } = {}) {
     return { error: 'knowledge/_rules.md not found. Run kb_init first.' }
   }
 
-  const pkg = require(pkgPaths.packageJsonPath())
+  const pkg = require(pkgPaths.packageJsonPath()) as { version: string }
   const bundledVersion = pkg.version
   const manifest = loadManifest(PROJECT_TEMPLATES_DIR)
   const manifestVersion = manifest ? manifest.mcp_version : '0.0.0'
@@ -44,10 +45,10 @@ async function runTool({ dry_run = false, force = false } = {}) {
   const projectMap = new Map(projectFiles.map(f => [f.relPath, f.absPath]))
   const manifestHashes = (manifest && manifest.templates) || {}
 
-  const added = []
-  const autoUpdated = []
-  const conflicted = []
-  const unchanged = []
+  const added: string[] = []
+  const autoUpdated: string[] = []
+  const conflicted: Array<{ file: string; prompt: string | null }> = []
+  const unchanged: string[] = []
 
   for (const { relPath, absPath: bundledPath } of bundledFiles) {
     const projectPath = projectMap.get(relPath)
@@ -110,13 +111,15 @@ async function runTool({ dry_run = false, force = false } = {}) {
   const rulesPatched = dry_run ? previewRulesPatch(rulesPath) : patchRules(rulesPath)
 
   // Re-run kb_init for infrastructure (hooks, merge drivers, folders, agent rules)
-  let infraResult = null
+  let infraResult: unknown = null
   if (!dry_run) {
     try {
-      const { runTool: initTool } = require('./init')
+      const { runTool: initTool } = require('./init') as {
+        runTool: (args: { interactive: boolean }) => Promise<unknown>
+      }
       infraResult = await initTool({ interactive: false })
     } catch (e) {
-      infraResult = { error: e.message }
+      infraResult = { error: (e as Error).message }
     }
   }
 
@@ -146,13 +149,13 @@ async function runTool({ dry_run = false, force = false } = {}) {
  * Deep-merge missing keys from defaults into _rules.md frontmatter.
  * Never overwrites existing values. Returns list of patched key paths.
  */
-function patchRules(rulesPath) {
+function patchRules(rulesPath: string): string[] {
   const raw = fs.readFileSync(rulesPath, 'utf8')
   const parsed = matter(raw)
   const defaults = getDefaultRules()
-  const patched = []
+  const patched: string[] = []
 
-  deepMerge(parsed.data, defaults, '', patched)
+  deepMerge(parsed.data as Record<string, unknown>, defaults as Record<string, unknown>, '', patched)
 
   if (patched.length > 0) {
     const updated = matterStringify(parsed.content, parsed.data)
@@ -165,15 +168,15 @@ function patchRules(rulesPath) {
 /**
  * Preview which keys would be patched without writing.
  */
-function previewRulesPatch(rulesPath) {
+function previewRulesPatch(rulesPath: string): string[] {
   const raw = fs.readFileSync(rulesPath, 'utf8')
   const parsed = matter(raw)
   const defaults = getDefaultRules()
-  const patched = []
+  const patched: string[] = []
 
   // Work on a copy to avoid mutating
   const copy = JSON.parse(JSON.stringify(parsed.data))
-  deepMerge(copy, defaults, '', patched)
+  deepMerge(copy, defaults as Record<string, unknown>, '', patched)
 
   return patched
 }
@@ -182,7 +185,7 @@ function previewRulesPatch(rulesPath) {
  * Recursively merge missing keys from source into target.
  * Tracks patched key paths for reporting.
  */
-function deepMerge(target, source, prefix, patched) {
+function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>, prefix: string, patched: string[]): void {
   for (const key of Object.keys(source)) {
     const keyPath = prefix ? `${prefix}.${key}` : key
     if (!(key in target)) {
@@ -194,23 +197,22 @@ function deepMerge(target, source, prefix, patched) {
       typeof target[key] === 'object' && target[key] !== null &&
       !Array.isArray(target[key])
     ) {
-      deepMerge(target[key], source[key], keyPath, patched)
+      deepMerge(target[key] as Record<string, unknown>, source[key] as Record<string, unknown>, keyPath, patched)
     }
     // Arrays and scalars: if key exists in target, keep target value
   }
 }
 
-module.exports = {
-  runTool,
-  definition: {
-    name: 'kb_upgrade',
-    description: 'Upgrade project KB templates and config after MCP server update. Auto-updates unmodified templates, returns merge prompts for customized ones, patches _rules.md with new keys.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        dry_run: { type: 'boolean', description: 'Preview changes without writing', default: false },
-        force: { type: 'boolean', description: 'Overwrite all templates including customized ones', default: false }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_upgrade',
+  description: 'Upgrade project KB templates and config after MCP server update. Auto-updates unmodified templates, returns merge prompts for customized ones, patches _rules.md with new keys.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      dry_run: { type: 'boolean', description: 'Preview changes without writing', default: false },
+      force: { type: 'boolean', description: 'Overwrite all templates including customized ones', default: false }
     }
   }
 }
+
+export { runTool, definition }

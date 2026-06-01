@@ -1,18 +1,30 @@
-const fs = require('fs')
-const path = require('path')
-const matter = require('gray-matter')
-const { matterStringify } = require('../lib/matter-utils')
-const { loadGraph } = require('../lib/graph')
-const { runTool: reindex } = require('./reindex')
-const { inferType } = require('../lib/types')
+import * as fs from 'fs'
+import * as path from 'path'
+import matter from 'gray-matter'
+import { matterStringify } from '../lib/matter-utils'
+import { loadGraph } from '../lib/graph'
+import { runTool as reindex } from './reindex'
+import { inferType } from '../lib/types'
+import type { ToolDefinition } from '../src/types/tool'
+import type { Graph } from '../src/types/graph'
 
 const KB_ROOT = 'knowledge'
+
+type TermVectors = Map<string, Set<string>>
+type Adjacency = Map<string, string[]>
+
+interface Proposal {
+  source: string
+  target: string
+  score: number
+  shared_terms: string[]
+}
 const SKIP_DIRS = new Set(['_mcp', 'exports', 'assets', 'node_modules', 'drift-log', '_templates', 'sync'])
 const SKIP_FILES = new Set(['_index.yaml', '_rules.md'])
 const DEFAULT_THRESHOLD = 0.25
 
 // Lower number = more "upstream" (depended upon by others)
-const TYPE_PRIORITY = {
+const TYPE_PRIORITY: Record<string, number> = {
   data: 1,
   schema: 1,
   validation: 2,
@@ -44,7 +56,13 @@ const STOPWORDS = new Set([
   'policy', 'policies', 'reference', 'technical'
 ])
 
-async function runTool({ file_path, dry_run = false, threshold } = {}) {
+async function runTool(
+  { file_path, dry_run = false, threshold }: {
+    file_path?: string
+    dry_run?: boolean
+    threshold?: number
+  } = {}
+): Promise<Record<string, unknown>> {
   const effectiveThreshold = threshold || DEFAULT_THRESHOLD
   const graph = loadGraph(KB_ROOT)
 
@@ -55,7 +73,7 @@ async function runTool({ file_path, dry_run = false, threshold } = {}) {
   }
 
   // Determine which files to analyze
-  let sourceFiles
+  let sourceFiles: string[]
   if (file_path) {
     const normalized = file_path.replace(/^knowledge\//, '')
     if (!termVectors.has(normalized)) {
@@ -70,8 +88,8 @@ async function runTool({ file_path, dry_run = false, threshold } = {}) {
   const adjacency = buildAdjacencyList(graph)
 
   // Find proposals
-  const proposals = []
-  const cyclesAvoided = []
+  const proposals: Proposal[] = []
+  const cyclesAvoided: Array<{ from: string; to: string; score: number }> = []
 
   for (const source of sourceFiles) {
     const sourceTerms = termVectors.get(source)
@@ -119,7 +137,7 @@ async function runTool({ file_path, dry_run = false, threshold } = {}) {
   }
 
   // Deduplicate (A->B and B->A resolved to same direction)
-  const seen = new Set()
+  const seen = new Set<string>()
   const uniqueProposals = proposals.filter(p => {
     const key = `${p.source}->${p.target}`
     if (seen.has(key)) return false
@@ -162,17 +180,17 @@ async function runTool({ file_path, dry_run = false, threshold } = {}) {
   }
 }
 
-function buildTermVectors(graph) {
-  const vectors = new Map()
+function buildTermVectors(graph: Graph): TermVectors {
+  const vectors: TermVectors = new Map()
 
   for (const [fp, entry] of Object.entries(graph.files || {})) {
     const fullPath = path.join(KB_ROOT, fp)
     if (!fs.existsSync(fullPath)) continue
 
-    const terms = new Set()
+    const terms = new Set<string>()
 
     // From tags
-    for (const tag of (entry.tags || [])) {
+    for (const tag of ((entry.tags as string[]) || [])) {
       for (const part of tag.split('-')) {
         if (part.length > 2 && !STOPWORDS.has(part)) terms.add(part)
       }
@@ -215,7 +233,7 @@ function buildTermVectors(graph) {
       }
 
       // Body words — only those appearing 2+ times
-      const wordCounts = new Map()
+      const wordCounts = new Map<string, number>()
       for (const w of extractWords(stripped)) {
         wordCounts.set(w, (wordCounts.get(w) || 0) + 1)
       }
@@ -230,7 +248,7 @@ function buildTermVectors(graph) {
   return vectors
 }
 
-function extractWords(text) {
+function extractWords(text: string): string[] {
   return camelToWords(text)
     .toLowerCase()
     .replace(/[^a-z0-9- ]/g, ' ')
@@ -238,18 +256,18 @@ function extractWords(text) {
     .filter(w => w.length > 2 && !STOPWORDS.has(w))
 }
 
-function camelToWords(text) {
+function camelToWords(text: string): string {
   return text
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
 }
 
-function resolveDirection(fileA, fileB, graph) {
+function resolveDirection(fileA: string, fileB: string, graph: Graph): { from: string; to: string } {
   const entryA = (graph.files || {})[fileA] || {}
   const entryB = (graph.files || {})[fileB] || {}
 
-  const typeA = entryA.type || inferType(fileA)
-  const typeB = entryB.type || inferType(fileB)
+  const typeA = (entryA.type as string) || inferType(fileA)
+  const typeB = (entryB.type as string) || inferType(fileB)
 
   const prioA = TYPE_PRIORITY[typeA] || TYPE_PRIORITY.unknown
   const prioB = TYPE_PRIORITY[typeB] || TYPE_PRIORITY.unknown
@@ -262,13 +280,13 @@ function resolveDirection(fileA, fileB, graph) {
   return fileA < fileB ? { from: fileA, to: fileB } : { from: fileB, to: fileA }
 }
 
-function getExistingDeps(graph, filePath) {
+function getExistingDeps(graph: Graph, filePath: string): string[] {
   const entry = (graph.files || {})[filePath]
   return entry ? (entry.depends_on || []) : []
 }
 
-function buildAdjacencyList(graph) {
-  const adj = new Map()
+function buildAdjacencyList(graph: Graph): Adjacency {
+  const adj: Adjacency = new Map()
   for (const [fp, entry] of Object.entries(graph.files || {})) {
     const deps = entry.depends_on || []
     adj.set(fp, deps)
@@ -276,13 +294,13 @@ function buildAdjacencyList(graph) {
   return adj
 }
 
-function wouldCreateCycle(adjacency, from, to) {
+function wouldCreateCycle(adjacency: Adjacency, from: string, to: string): boolean {
   // BFS from 'to' to see if we can reach 'from' via existing edges
-  const visited = new Set()
-  const queue = [to]
+  const visited = new Set<string>()
+  const queue: string[] = [to]
 
   while (queue.length > 0) {
-    const current = queue.shift()
+    const current = queue.shift() as string
     if (current === from) return true
     if (visited.has(current)) continue
     visited.add(current)
@@ -300,13 +318,13 @@ function wouldCreateCycle(adjacency, from, to) {
   return false
 }
 
-function resolveDepPath(dep, adjacency) {
+function resolveDepPath(dep: string, adjacency: Adjacency): string[] {
   // If exact match exists in adjacency keys, return it
   if (adjacency.has(dep)) return [dep]
   if (adjacency.has(dep + '.md')) return [dep + '.md']
 
   // Try to find a file that ends with this dep
-  const matches = []
+  const matches: string[] = []
   for (const key of adjacency.keys()) {
     if (key.endsWith('/' + dep) || key.endsWith('/' + dep + '.md') || key === dep + '.md') {
       matches.push(key)
@@ -315,7 +333,7 @@ function resolveDepPath(dep, adjacency) {
   return matches
 }
 
-function addDependsOn(sourceFile, targetFile) {
+function addDependsOn(sourceFile: string, targetFile: string): boolean {
   const fullPath = path.join(KB_ROOT, sourceFile)
   if (!fs.existsSync(fullPath)) return false
 
@@ -325,7 +343,7 @@ function addDependsOn(sourceFile, targetFile) {
 
     if (!parsed.data || typeof parsed.data !== 'object') return false
 
-    const deps = Array.isArray(parsed.data.depends_on) ? parsed.data.depends_on : []
+    const deps: string[] = Array.isArray(parsed.data.depends_on) ? parsed.data.depends_on : []
 
     // Add the target reference (use path without .md for cleaner wikilink style)
     const ref = targetFile.replace(/\.md$/, '')
@@ -342,18 +360,17 @@ function addDependsOn(sourceFile, targetFile) {
   }
 }
 
-module.exports = {
-  runTool,
-  definition: {
-    name: 'kb_autorelate',
-    description: 'Discover semantic relations between KB files using keyword overlap and propose depends_on links. Use dry_run: true to preview before writing.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        file_path: { type: 'string', description: 'Analyze relations for a single file, or omit for all files.' },
-        dry_run: { type: 'boolean', description: 'Preview proposed relations without writing.', default: false },
-        threshold: { type: 'number', description: 'Minimum overlap score to propose a relation (0–1). Default: 0.25' }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_autorelate',
+  description: 'Discover semantic relations between KB files using keyword overlap and propose depends_on links. Use dry_run: true to preview before writing.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      file_path: { type: 'string', description: 'Analyze relations for a single file, or omit for all files.' },
+      dry_run: { type: 'boolean', description: 'Preview proposed relations without writing.', default: false },
+      threshold: { type: 'number', description: 'Minimum overlap score to propose a relation (0–1). Default: 0.25' }
     }
   }
 }
+
+export { runTool, definition }
