@@ -149,24 +149,30 @@ copy it into `dist/scripts/` preserving the exec bit. tsconfig now excludes
 `**/*.cjs` so build scripts don't leak into dist. Data dirs (presets/schemas/
 _templates) still resolve from source via pkg-paths — not copied.
 
-## Phase 3 — tools/ simpler half
-- [ ] status  *(already routed; consider switching loadShared to `require('@instrumentality/shared')`)*
-- [ ] schema
-- [ ] history
-- [ ] ask
+## Phase 3 — tools/ simpler half  (8/15 done)
+- [x] status  *(imports getStatus type from @instrumentality/shared)*
+- [x] schema
+- [x] history
+- [x] ask  *(get still CJS → runtime require with typed result slice)*
 - [ ] inventory
-- [ ] sub
-- [ ] issue
+- [x] sub
+- [x] issue  *(get still CJS → runtime require with typed result slice)*
 - [ ] autotag
 - [ ] autorelate
-- [ ] upgrade  *(already routed)*
-- [ ] migrate
-- [ ] init  *(already routed; large file)*
+- [ ] upgrade  *(already routed via pkg-paths)*
+- [x] migrate
+- [ ] init  *(already routed; large file ~790 lines)*
 - [ ] scaffold
-- [ ] reindex  *(required by init + git-hooks reindex driver)*
-- [ ] lint  *(required by lint-standalone)*
+- [x] reindex  *(internal; consumes typed LintResult)*
+- [x] lint  *(internal; exports LintResult)*
 
-`any` count: ___
+Added `src/types/tool.ts` (ToolDefinition/JsonSchema/RunTool/ToolResult).
+Pattern for tools that call the not-yet-converted `get` (Phase 4): runtime
+`require('./get')` cast to a typed result slice — no `any`.
+
+`any` count: 0 (documented casts only at MCP-arg / dynamic boundaries)
+
+**Remaining P3 (next session):** inventory, autotag, autorelate, upgrade, init, scaffold.
 
 ## Phase 4 — tools/ complex half (+ subdirs)
 - [ ] get

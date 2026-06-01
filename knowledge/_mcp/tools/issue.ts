@@ -1,23 +1,47 @@
-const fs = require('fs')
-const path = require('path')
-const { resolvePrompt } = require('../lib/prompts')
-const { runTool: kbGet } = require('./get')
-const { extractKeywords } = require('../lib/issue-keywords')
+import * as fs from 'fs'
+import * as path from 'path'
+import { resolvePrompt } from '../lib/prompts'
+import { extractKeywords } from '../lib/issue-keywords'
+import type { ToolDefinition } from '../src/types/tool'
 
 const KB_ROOT = 'knowledge'
 
-async function runTool(args = {}) {
+// A KB file as returned by kb_get. get is still CommonJS (converts in Phase 4),
+// so it's pulled in via runtime require with the result slice we read typed.
+interface KbFile {
+  path: string
+  id?: string
+  type?: string
+  content?: string
+}
+
+const { runTool: kbGet } = require('./get') as {
+  runTool: (args: Record<string, unknown>) => Promise<{ files?: KbFile[] }>
+}
+
+async function runTool(args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
   const { command } = args
   if (!command) return { error: 'command is required (triage | plan | consult)' }
 
-  if (command === 'triage') return triage(args)
-  if (command === 'plan') return plan(args)
-  if (command === 'consult') return consult(args)
+  if (command === 'triage') return triage(args as Parameters<typeof triage>[0])
+  if (command === 'plan') return plan(args as Parameters<typeof plan>[0])
+  if (command === 'consult') return consult(args as Parameters<typeof consult>[0])
 
   return { error: `Unknown command: ${command}. Valid: triage, plan, consult` }
 }
 
-async function triage({ title, body, issue_id, source, labels, priority, app_scope, content } = {}) {
+async function triage(
+  { title, body, issue_id, source, labels, priority, app_scope, content }: {
+    title?: string
+    body?: string
+    issue_id?: string
+    source?: string
+    labels?: string[] | string
+    priority?: string
+    app_scope?: string
+    content?: string
+  } = {}
+): Promise<Record<string, unknown>> {
   if (!title) return { error: 'title is required' }
   if (!body) return { error: 'body is required' }
 
@@ -61,7 +85,17 @@ async function triage({ title, body, issue_id, source, labels, priority, app_sco
   }
 }
 
-async function plan({ scope, type, keywords, app_scope, target, project_key, content } = {}) {
+async function plan(
+  { scope, type, keywords, app_scope, target, project_key, content }: {
+    scope?: string
+    type?: string
+    keywords?: string[] | string
+    app_scope?: string
+    target?: string
+    project_key?: string
+    content?: string
+  } = {}
+): Promise<Record<string, unknown>> {
   if (content) {
     const today = new Date().toISOString().split('T')[0]
     // F49: sanitize path separators in scope. `scope: "specs/features"`
@@ -80,7 +114,7 @@ async function plan({ scope, type, keywords, app_scope, target, project_key, con
     return { error: 'At least one of scope, type, or keywords is required to find source KB documents' }
   }
 
-  const getArgs = { max_tokens: 20000 }
+  const getArgs: Record<string, unknown> = { max_tokens: 20000 }
   if (scope) getArgs.scope = scope
   if (type) getArgs.type = type
   if (keywords) getArgs.keywords = Array.isArray(keywords) ? keywords : [keywords]
@@ -109,7 +143,9 @@ async function plan({ scope, type, keywords, app_scope, target, project_key, con
   }
 }
 
-async function consult({ title, body, app_scope } = {}) {
+async function consult(
+  { title, body, app_scope }: { title?: string; body?: string; app_scope?: string } = {}
+): Promise<Record<string, unknown>> {
   if (!title) return { error: 'title is required' }
   if (!body) return { error: 'body is required' }
 
@@ -142,7 +178,7 @@ async function consult({ title, body, app_scope } = {}) {
 // related_docs/source_docs and can Read the full file when it needs more.
 const ISSUE_DOC_BODY_CHARS = 1500
 
-function buildDocsContent(files) {
+function buildDocsContent(files: KbFile[]): string {
   return files.map(f => {
     const raw = f.content || '(no content)'
     const body = raw.length > ISSUE_DOC_BODY_CHARS
@@ -152,37 +188,36 @@ function buildDocsContent(files) {
   }).join('\n\n---\n\n')
 }
 
-function slugify(text) {
+function slugify(text: string): string {
   return text.toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 60)
 }
 
-module.exports = {
-  runTool,
-  definition: {
-    name: 'kb_issue',
-    description: 'Issue ↔ KB bridge. command: "triage" (two-phase; writes to sync/inbound/), "plan" (two-phase; writes to sync/outbound/), "consult" (single-phase; no write).',
-    inputSchema: {
-      type: 'object',
-      required: ['command'],
-      properties: {
-        command: { type: 'string', enum: ['triage', 'plan', 'consult'], description: 'triage: analyze an existing issue against the KB. plan: generate work items from KB docs. consult: advise before filing an issue.' },
-        title: { type: 'string', description: 'Issue title (triage, consult)' },
-        body: { type: 'string', description: 'Issue description/body (triage, consult)' },
-        issue_id: { type: 'string', description: 'External issue ID, e.g. PROJ-123 (triage)' },
-        source: { type: 'string', description: 'PM tool name: jira, github, linear (triage)' },
-        labels: { type: 'array', items: { type: 'string' }, description: 'Issue labels/tags (triage)' },
-        priority: { type: 'string', description: 'Issue priority (triage)' },
-        scope: { type: 'string', description: 'Scope filter — folder name or "all" (plan)' },
-        type: { type: 'string', description: 'KB doc type filter: feature, flow, policy, decision (plan)' },
-        keywords: { description: 'Keyword filter (plan)', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
-        target: { type: 'string', description: 'Target PM tool: jira, github, linear (plan)' },
-        project_key: { type: 'string', description: 'PM tool project key, e.g. PROJ (plan)' },
-        app_scope: { type: 'string', description: 'Filter KB search to specific app scope' },
-        content: { type: 'string', description: 'Phase 2: filled triage report (triage) or task breakdown YAML (plan) to write' }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_issue',
+  description: 'Issue ↔ KB bridge. command: "triage" (two-phase; writes to sync/inbound/), "plan" (two-phase; writes to sync/outbound/), "consult" (single-phase; no write).',
+  inputSchema: {
+    type: 'object',
+    required: ['command'],
+    properties: {
+      command: { type: 'string', enum: ['triage', 'plan', 'consult'], description: 'triage: analyze an existing issue against the KB. plan: generate work items from KB docs. consult: advise before filing an issue.' },
+      title: { type: 'string', description: 'Issue title (triage, consult)' },
+      body: { type: 'string', description: 'Issue description/body (triage, consult)' },
+      issue_id: { type: 'string', description: 'External issue ID, e.g. PROJ-123 (triage)' },
+      source: { type: 'string', description: 'PM tool name: jira, github, linear (triage)' },
+      labels: { type: 'array', items: { type: 'string' }, description: 'Issue labels/tags (triage)' },
+      priority: { type: 'string', description: 'Issue priority (triage)' },
+      scope: { type: 'string', description: 'Scope filter — folder name or "all" (plan)' },
+      type: { type: 'string', description: 'KB doc type filter: feature, flow, policy, decision (plan)' },
+      keywords: { description: 'Keyword filter (plan)', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+      target: { type: 'string', description: 'Target PM tool: jira, github, linear (plan)' },
+      project_key: { type: 'string', description: 'PM tool project key, e.g. PROJ (plan)' },
+      app_scope: { type: 'string', description: 'Filter KB search to specific app scope' },
+      content: { type: 'string', description: 'Phase 2: filled triage report (triage) or task breakdown YAML (plan) to write' }
     }
   }
 }
+
+export { runTool, definition }
