@@ -232,9 +232,14 @@ Gate: full MCP smoke — ListTools=22 + live `kb_status` call returns content (n
 **Phase 6 COMPLETE.** `any` count: 0 (one `as <fn type>` dispatch cast, no `any`).
 
 ## Phase 7 — tests/
-- [ ] Rename `tests/*.test.js` → `*.test.ts` (runner already tsx) **and** update the
-      `test` script glob `tests/*.test.js` → `tests/*.test.ts` in the same commit.
-- [ ] Optional: `tsconfig.test.json` to type-check tests.
+- [x] Renamed all 26 `tests/*.test.js` → `*.test.ts` (no logic changes) and updated the
+      `test` script glob to `tests/*.test.ts` in the same commit. tsx runs them; tsconfig
+      still `exclude`s `tests`, so they execute untyped (no rewrite needed → 294 stay green).
+- [~] `tsconfig.test.json` to type-check tests: **skipped** — type-checking would surface
+      errors requiring test rewrites, violating the "tests pass unchanged" guarantee. The
+      tests are the behavior-preservation proof, not a typing target.
+
+**Phase 7 COMPLETE.** 294 tests green as `.ts` under tsx; `tsc --noEmit` clean.
 
 ## Phase 8 — tighten & optional quality
 - [ ] `allowJs: false`; final strict sweep; drive any residual `any`/escape hatches to 0.

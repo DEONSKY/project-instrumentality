@@ -6,7 +6,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc && node scripts/copy-assets.cjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --import tsx tests/*.test.js"
+    "test": "node --test --import tsx tests/*.test.ts"
   },
   "dependencies": {
     "@instrumentality/shared": "file:../../packages/shared",
