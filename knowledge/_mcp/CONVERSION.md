@@ -221,11 +221,15 @@ emits valid JSON; `node dist/scripts/drift-ci-check.js` runs; server boots 22 to
 playwright interface; kept-`.js` files are checkJs:false so untyped by design).
 
 ## Phase 6 — server.ts finalisation
-- [ ] Replace the 22 runtime `require('./tools/*')` with typed imports once tools
-      are `.ts`; drop the interim `ToolModule` shim if a shared type fits.
-Gate: full MCP smoke (ListTools + a read-only tool call).
+- [x] Replaced all 22 runtime `require('./tools/*')` with static typed `import * as`.
+      `ToolModule` retained but now backed by real types: `definition: ToolDefinition`
+      and `runTool: (args: never) => Promise<unknown>` — the `never` param lets every
+      tool's own arg type satisfy the uniform registry (contravariance); the dispatch
+      site re-applies `(args: Record<string,unknown>) => Promise<Record<string,unknown>>`
+      with a single documented cast. `server.js` stays the committed shim → `dist/server.js`.
+Gate: full MCP smoke — ListTools=22 + live `kb_status` call returns content (not isError). ✓
 
-`any` count: ___
+**Phase 6 COMPLETE.** `any` count: 0 (one `as <fn type>` dispatch cast, no `any`).
 
 ## Phase 7 — tests/
 - [ ] Rename `tests/*.test.js` → `*.test.ts` (runner already tsx) **and** update the

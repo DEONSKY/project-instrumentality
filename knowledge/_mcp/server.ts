@@ -2,41 +2,65 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import * as fsTracker from './lib/fs-tracker'
+import type { ToolDefinition } from './src/types/tool'
 
-// Shape every tool module is expected to export. The tool modules are still
-// CommonJS during the migration, so they're pulled in via runtime require()
-// below; this interface gives them a real type at the call sites without
-// forcing all 22 to be converted first (that happens in Phase 4/6).
+import * as get from './tools/get'
+import * as write from './tools/write'
+import * as drift from './tools/drift'
+import * as conform from './tools/conform'
+import * as inventory from './tools/inventory'
+import * as scaffold from './tools/scaffold'
+import * as impact from './tools/impact'
+import * as ask from './tools/ask'
+import * as init from './tools/init'
+import * as migrate from './tools/migrate'
+import * as kbImport from './tools/import'
+import * as kbExport from './tools/export'
+import * as analyze from './tools/analyze'
+import * as extract from './tools/extract'
+import * as issue from './tools/issue'
+import * as sub from './tools/sub'
+import * as autotag from './tools/autotag'
+import * as autorelate from './tools/autorelate'
+import * as schema from './tools/schema'
+import * as upgrade from './tools/upgrade'
+import * as history from './tools/history'
+import * as status from './tools/status'
+
+// Uniform registry shape. Each tool types its own `runTool` args; erasing the
+// parameter to `never` here lets every tool's signature satisfy the registry
+// (a `never` parameter is contravariantly assignable from any arg type). The
+// dispatch site below re-applies the real call shape with a single cast.
 interface ToolModule {
-  definition: { name: string; [key: string]: unknown }
-  runTool: (args: Record<string, unknown>) => Promise<{ filesChanged?: unknown; [key: string]: unknown }>
+  definition: ToolDefinition
+  runTool: (args: never) => Promise<unknown>
 }
 
 fsTracker.install()
 
 const tools: Record<string, ToolModule> = {
-  kb_get: require('./tools/get'),
-  kb_write: require('./tools/write'),
-  kb_drift: require('./tools/drift'),
-  kb_conform: require('./tools/conform'),
-  kb_inventory: require('./tools/inventory'),
-  kb_scaffold: require('./tools/scaffold'),
-  kb_impact: require('./tools/impact'),
-  kb_ask: require('./tools/ask'),
-  kb_init: require('./tools/init'),
-  kb_migrate: require('./tools/migrate'),
-  kb_import: require('./tools/import'),
-  kb_export: require('./tools/export'),
-  kb_analyze: require('./tools/analyze'),
-  kb_extract: require('./tools/extract'),
-  kb_issue: require('./tools/issue'),
-  kb_sub: require('./tools/sub'),
-  kb_autotag: require('./tools/autotag'),
-  kb_autorelate: require('./tools/autorelate'),
-  kb_schema: require('./tools/schema'),
-  kb_upgrade: require('./tools/upgrade'),
-  kb_history: require('./tools/history'),
-  kb_status: require('./tools/status')
+  kb_get: get,
+  kb_write: write,
+  kb_drift: drift,
+  kb_conform: conform,
+  kb_inventory: inventory,
+  kb_scaffold: scaffold,
+  kb_impact: impact,
+  kb_ask: ask,
+  kb_init: init,
+  kb_migrate: migrate,
+  kb_import: kbImport,
+  kb_export: kbExport,
+  kb_analyze: analyze,
+  kb_extract: extract,
+  kb_issue: issue,
+  kb_sub: sub,
+  kb_autotag: autotag,
+  kb_autorelate: autorelate,
+  kb_schema: schema,
+  kb_upgrade: upgrade,
+  kb_history: history,
+  kb_status: status
 }
 
 for (const [name, tool] of Object.entries(tools)) {
@@ -70,7 +94,10 @@ async function main() {
 
     fsTracker.beginCall()
     try {
-      const result = await tool.runTool(args || {})
+      // Re-apply the uniform call shape erased by ToolModule.runTool's `never`
+      // parameter — every tool accepts an args object and returns a JSON record.
+      const runTool = tool.runTool as (args: Record<string, unknown>) => Promise<Record<string, unknown>>
+      const result = await runTool(args || {})
       const auto = fsTracker.endCall()
       // Tool may set its own filesChanged to override (e.g. to hide temp files
       // or report logical writes that don't map 1:1 to fs writes). Otherwise
