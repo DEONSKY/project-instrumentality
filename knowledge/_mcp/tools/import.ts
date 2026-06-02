@@ -1,15 +1,75 @@
-const fs = require('fs')
-const path = require('path')
-const crypto = require('crypto')
-const matter = require('gray-matter')
-const { resolvePrompt } = require('../lib/prompts')
-const { runTool: reindex } = require('./reindex')
-const { CLASSIFY_TYPE_TO_SCAFFOLD, resolveFilePath } = require('../lib/kb-paths')
-const { fillTemplate, buildReviewEntry, normalizeKbFile } = require('../lib/template-filler')
-const { matterStringify } = require('../lib/matter-utils')
-const { createSessionCache } = require('../lib/session-cache')
-const { extractText, chunkDocument } = require('./import/extract')
-const { embedsIn, stripEmbeds, obsidianEmbed, relocateImages, removeStagingDir, stagingDirFor } = require('./import/images')
+import * as fs from 'fs'
+import * as path from 'path'
+import * as crypto from 'crypto'
+import matter from 'gray-matter'
+import { resolvePrompt } from '../lib/prompts'
+import { runTool as reindex } from './reindex'
+import { CLASSIFY_TYPE_TO_SCAFFOLD, resolveFilePath } from '../lib/kb-paths'
+import { fillTemplate, buildReviewEntry, normalizeKbFile } from '../lib/template-filler'
+import { matterStringify } from '../lib/matter-utils'
+import { createSessionCache } from '../lib/session-cache'
+import { extractText, chunkDocument } from './import/extract'
+import { embedsIn, stripEmbeds, obsidianEmbed, relocateImages, removeStagingDir, stagingDirFor } from './import/images'
+import type { ToolDefinition } from '../src/types/tool'
+
+interface Chunk {
+  id: string
+  heading?: string
+  parent_heading?: string
+  text: string
+  page_hint?: string
+}
+
+interface TypeEntry { type: string; confidence: number; suggested_id?: string; reason?: string }
+interface Classification {
+  chunk_id: string
+  types?: TypeEntry[]
+  suggested_group?: string | null
+  duplicate_of?: string | null
+  // tolerate old flat-format fields during normalize
+  type?: string
+  confidence?: number
+  suggested_id?: string
+  reason?: string
+}
+
+interface ProposedFile {
+  chunk_id: string
+  heading?: string
+  type: string
+  confidence: number
+  low_confidence: boolean
+  suggested_id?: string
+  suggested_group?: string | null
+  target_path: string
+}
+
+interface ReviewItem { chunk: Chunk; classification: Record<string, unknown> }
+interface CrossRef { from: string; to: string; relationship: string }
+interface FileToWrite { path: string; content: string }
+interface FillPrompt { path: string; type: string; suggested_id?: string; prompt: string }
+
+interface ImportPlan {
+  filesToWrite: FileToWrite[]
+  proposed: ProposedFile[]
+  needsReview: ReviewItem[]
+  crossReferences: CrossRef[]
+  fillPrompts: FillPrompt[]
+}
+
+interface ImportSession {
+  chunks: Chunk[]
+  toClassifyIds: string[]
+  autoReviewIds: string[]
+  classifications: Classification[]
+  dry_run: boolean
+  fill: boolean
+  fileFingerprint: string
+  images: Array<{ name: string; alt: string; page: number | null }>
+  stagingDir: string
+  phase: string
+  plan?: ImportPlan
+}
 
 // Types at/above CONFIDENCE_THRESHOLD are accepted outright. Types in the
 // mid-band [ACCEPT_THRESHOLD, CONFIDENCE_THRESHOLD) still produce a proposed
@@ -30,16 +90,16 @@ const LOW_SIGNAL_REASON = 'Image-only / insufficient text — skipped classifica
 // ── Session cache for paginated auto_classify ────────────────────────────────
 // Disk-backed so a multi-batch run survives an MCP-server restart; idle TTL is
 // refreshed on every set (callers persist after each batch).
-const sessions = createSessionCache(SESSION_TTL_MS, { persistDir: SESSION_PERSIST_DIR })
-const getSession = (source) => sessions.get(source)
-const clearSession = (source) => sessions.clear(source)
+const sessions = createSessionCache<ImportSession>(SESSION_TTL_MS, { persistDir: SESSION_PERSIST_DIR })
+const getSession = (source: string) => sessions.get(source)
+const clearSession = (source: string) => sessions.clear(source)
 // Drop a session AND its staged images (restart / stale source).
-const discardSession = (source) => { clearSession(source); removeStagingDir(source) }
+const discardSession = (source: string): void => { clearSession(source); removeStagingDir(source) }
 
 // Text the classifier can actually reason about, with image embeds / refs and
 // heading markers removed. Used to pre-filter low-signal (e.g. screenshot-only)
 // chunks — must strip `![[embeds]]` too, else an image-only chunk reads as text.
-function classifiableText(text) {
+function classifiableText(text: string): string {
   return (text || '')
     .replace(/!\[\[[^\]]*\]\]/g, '')      // obsidian embeds
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '') // markdown images
@@ -48,13 +108,13 @@ function classifiableText(text) {
     .trim()
 }
 
-function isLowSignal(chunk) {
+function isLowSignal(chunk: Chunk): boolean {
   return classifiableText(chunk.text).length < MIN_CLASSIFIABLE_CHARS
 }
 
 // Identity of the *source file* — lets a resume validate the doc is unchanged
 // without re-extracting (which would re-decode images on every poll).
-function hashFile(source) {
+function hashFile(source: string): string {
   return crypto.createHash('sha1').update(fs.readFileSync(source)).digest('hex')
 }
 
@@ -72,7 +132,20 @@ function hashFile(source) {
  *   4. Agent calls with approve: true to write files.
  *   Combine with dry_run: true to preview proposed mappings.
  */
-async function runTool({ source, dry_run = false, auto_classify = false, approve = false, classifications, cursor, files_to_write, restart = false, fill = true, no_fill = false } = {}) {
+async function runTool(
+  { source, dry_run = false, auto_classify = false, approve = false, classifications, cursor, files_to_write, restart = false, fill = true, no_fill = false }: {
+    source?: string
+    dry_run?: boolean
+    auto_classify?: boolean
+    approve?: boolean
+    classifications?: Classification[]
+    cursor?: number
+    files_to_write?: FileToWrite[]
+    restart?: boolean
+    fill?: boolean
+    no_fill?: boolean
+  } = {}
+): Promise<Record<string, unknown>> {
   // Structural fill is ON by default — the importer surfaces per-file import-map
   // prompts so prose gets lifted into Fields/Rules tables. `no_fill: true` (or
   // fill: false) opts into the cheap deterministic baseline-only run.
@@ -116,7 +189,7 @@ async function runTool({ source, dry_run = false, auto_classify = false, approve
     try {
       extracted = await extractText(source)
     } catch (e) {
-      return { error: e.message }
+      return { error: (e as Error).message }
     }
     const chunks = chunkDocument(extracted.text)
     if (chunks.length === 0) {
@@ -130,7 +203,7 @@ async function runTool({ source, dry_run = false, auto_classify = false, approve
   try {
     extracted = await extractText(source)
   } catch (e) {
-    return { error: e.message }
+    return { error: (e as Error).message }
   }
   const chunks = chunkDocument(extracted.text)
   if (chunks.length === 0) {
@@ -164,11 +237,18 @@ async function runTool({ source, dry_run = false, auto_classify = false, approve
 
 // ── Auto-classify flow ──────────────────────────────────────────────────────
 
-function autoClassifyStart(source, chunks, images, dry_run, fileFingerprint, fill = false) {
+function autoClassifyStart(
+  source: string,
+  chunks: Chunk[],
+  images: ImportSession['images'],
+  dry_run: boolean,
+  fileFingerprint: string,
+  fill = false
+): Record<string, unknown> {
   // Layer C: partition out low-signal chunks (screenshots, image refs) so the
   // agent never spends a round-trip "classifying" something it can't.
-  const toClassifyIds = []
-  const autoReviewIds = []
+  const toClassifyIds: string[] = []
+  const autoReviewIds: string[] = []
   for (const c of chunks) {
     (isLowSignal(c) ? autoReviewIds : toClassifyIds).push(c.id)
   }
@@ -185,7 +265,7 @@ function autoClassifyStart(source, chunks, images, dry_run, fileFingerprint, fil
     stagingDir: stagingDirFor(source),
     phase: 'classifying'
   })
-  const session = getSession(source)
+  const session = getSession(source)!
 
   if (toClassifyIds.length === 0) {
     // Nothing classifiable — go straight to a plan (all chunks → review).
@@ -195,7 +275,7 @@ function autoClassifyStart(source, chunks, images, dry_run, fileFingerprint, fil
 }
 
 // Re-enter an in-progress (or already-planned) session after a drop/restart.
-function resumeSession(source, session) {
+function resumeSession(source: string, session: ImportSession): Record<string, unknown> {
   if (session.phase === 'plan_ready') {
     // Plan already built before the drop — re-surface the approve step.
     return planResponse(source, session, { resumed: true })
@@ -216,9 +296,9 @@ function resumeSession(source, session) {
   return resp
 }
 
-function autoClassifyContinue(source, newClassifications, cursor) {
-  const session = getSession(source)
-  if (!session) {
+function autoClassifyContinue(source: string | undefined, newClassifications: Classification[], cursor: number): Record<string, unknown> {
+  const session = source ? getSession(source) : null
+  if (!session || !source) {
     return { error: `No active import session for "${source}". Start with auto_classify: true and a source path.` }
   }
 
@@ -239,30 +319,30 @@ function autoClassifyContinue(source, newClassifications, cursor) {
 }
 
 // Handle both old flat format and new multi-label format
-function normalizeClassification(cls) {
+function normalizeClassification(cls: Classification): Classification {
   if (cls.types && Array.isArray(cls.types)) {
     return cls // already multi-label
   }
   // Old flat format: { chunk_id, type, confidence, suggested_id }
   return {
     chunk_id: cls.chunk_id,
-    types: [{ type: cls.type, confidence: cls.confidence, suggested_id: cls.suggested_id, reason: cls.reason || '' }],
+    types: [{ type: cls.type || 'unclassified', confidence: cls.confidence ?? 0, suggested_id: cls.suggested_id, reason: cls.reason || '' }],
     suggested_group: cls.suggested_group || null,
     duplicate_of: cls.duplicate_of || null
   }
 }
 
-function buildBatchResponse(source, session, cursor) {
+function buildBatchResponse(source: string, session: ImportSession, cursor: number): Record<string, unknown> {
   const chunkById = new Map(session.chunks.map(c => [c.id, c]))
   const batchIds = session.toClassifyIds.slice(cursor, cursor + BATCH_SIZE)
-  const batch = batchIds.map(id => chunkById.get(id)).filter(Boolean)
+  const batch = batchIds.map(id => chunkById.get(id)).filter((c): c is Chunk => Boolean(c))
   const total = session.toClassifyIds.length
   const sourceFile = path.basename(source)
 
   const batchPrompts = batch.map(chunk => {
     const prompt = resolvePrompt('import-classify', {
       chunk_text: chunk.text.slice(0, 1500),
-      chunk_id: chunk.page_hint,
+      chunk_id: chunk.page_hint || '',
       parent_heading: chunk.parent_heading || chunk.heading || '',
       source_file: sourceFile,
       existing_kb: ''
@@ -293,20 +373,20 @@ function buildBatchResponse(source, session, cursor) {
 
 // ── Plan phase ──────────────────────────────────────────────────────────────
 
-function buildImportPlan(source, session) {
+function buildImportPlan(source: string, session: ImportSession): Record<string, unknown> {
   const { chunks, classifications, dry_run } = session
   const sourceFile = path.basename(source)
 
   // Build lookup: chunk_id → classification
-  const classMap = new Map()
+  const classMap = new Map<string, Classification>()
   for (const c of classifications) {
     classMap.set(c.chunk_id, c)
   }
 
   const autoReviewSet = new Set(session.autoReviewIds || [])
 
-  const proposed = []
-  const needsReview = []
+  const proposed: ProposedFile[] = []
+  const needsReview: ReviewItem[] = []
 
   for (const chunk of chunks) {
     const cls = classMap.get(chunk.id)
@@ -337,7 +417,7 @@ function buildImportPlan(source, session) {
         continue
       }
 
-      const targetPath = resolveFilePath(scaffoldType, typeEntry.suggested_id, cls.suggested_group)
+      const targetPath = resolveFilePath(scaffoldType, typeEntry.suggested_id, cls.suggested_group || undefined)
       if (!targetPath) {
         needsReview.push({ chunk, classification: { ...typeEntry, reason: 'Could not resolve file path' } })
         continue
@@ -357,7 +437,7 @@ function buildImportPlan(source, session) {
 
     // Types below the accept floor (or unclassified) go to review
     for (const t of lowTypes) {
-      needsReview.push({ chunk, classification: t })
+      needsReview.push({ chunk, classification: { ...t } })
     }
   }
 
@@ -370,16 +450,16 @@ function buildImportPlan(source, session) {
   // from all contributing chunks — otherwise the 2nd+ chunk for a path is
   // silently dropped by applyImportFiles' skip-if-exists guard.
   const chunkById = new Map(chunks.map(c => [c.id, c]))
-  const byPath = new Map()
+  const byPath = new Map<string, ProposedFile[]>()
   for (const entry of proposed) {
     if (!byPath.has(entry.target_path)) byPath.set(entry.target_path, [])
-    byPath.get(entry.target_path).push(entry)
+    byPath.get(entry.target_path)!.push(entry)
   }
 
-  const filesToWrite = []
-  const fillPrompts = []
+  const filesToWrite: FileToWrite[] = []
+  const fillPrompts: FillPrompt[] = []
   for (const [targetPath, entries] of byPath) {
-    const contributing = entries.map(e => chunkById.get(e.chunk_id)).filter(Boolean)
+    const contributing = entries.map(e => chunkById.get(e.chunk_id)).filter((c): c is Chunk => Boolean(c))
     const mergedChunk = mergeChunks(contributing, entries)
     const depsForFile = [...new Set(
       crossReferences
@@ -391,7 +471,8 @@ function buildImportPlan(source, session) {
     const content = fillTemplate(mergedChunk, { ...entries[0], scaffoldType }, sourceFile, depsForFile)
     if (!content) {
       for (const e of entries) {
-        needsReview.push({ chunk: chunkById.get(e.chunk_id), classification: { ...e, reason: 'Template not found' } })
+        const ch = chunkById.get(e.chunk_id)
+        if (ch) needsReview.push({ chunk: ch, classification: { ...e, reason: 'Template not found' } })
       }
       continue
     }
@@ -433,7 +514,7 @@ function buildImportPlan(source, session) {
 // doc (preceding, else following). A pure-image chunk whose embeds land
 // somewhere is dropped from the review queue. If nothing was classified there
 // are no anchors — those images stay staged and surface via the review queue.
-function attachOrphanEmbeds(chunks, proposed, filesToWrite, needsReview) {
+function attachOrphanEmbeds(chunks: Chunk[], proposed: ProposedFile[], filesToWrite: FileToWrite[], needsReview: ReviewItem[]): void {
   const fileByPath = new Map(filesToWrite.map(f => [f.path, f]))
   const indexOf = new Map(chunks.map((c, i) => [c.id, i]))
   const proposedIds = new Set(proposed.map(p => p.chunk_id))
@@ -444,8 +525,8 @@ function attachOrphanEmbeds(chunks, proposed, filesToWrite, needsReview) {
     .sort((a, b) => a.idx - b.idx)
   if (anchors.length === 0) return
 
-  const addByPath = new Map()           // path → embed names to append
-  const attachedPureImage = new Set()   // chunk ids to prune from review
+  const addByPath = new Map<string, string[]>()   // path → embed names to append
+  const attachedPureImage = new Set<string>()     // chunk ids to prune from review
 
   for (const chunk of chunks) {
     if (proposedIds.has(chunk.id)) continue // its embeds already live in its own doc
@@ -455,12 +536,12 @@ function attachOrphanEmbeds(chunks, proposed, filesToWrite, needsReview) {
     let anchor = anchors[0]
     for (const a of anchors) { if (a.idx <= ci) anchor = a; else break }
     if (!addByPath.has(anchor.path)) addByPath.set(anchor.path, [])
-    addByPath.get(anchor.path).push(...names)
+    addByPath.get(anchor.path)!.push(...names)
     if (classifiableText(chunk.text).length === 0) attachedPureImage.add(chunk.id)
   }
 
   for (const [p, names] of addByPath) {
-    const file = fileByPath.get(p)
+    const file = fileByPath.get(p)!
     const existing = new Set(embedsIn(file.content))
     const add = [...new Set(names)].filter(n => !existing.has(n))
     if (add.length) {
@@ -476,11 +557,11 @@ function attachOrphanEmbeds(chunks, proposed, filesToWrite, needsReview) {
 
 // Render the stored plan as a tool response. Reused on resume so a session that
 // dropped after planning but before approve can re-surface the same plan.
-function planResponse(source, session, { dry_run = false, resumed = false } = {}) {
+function planResponse(source: string, session: ImportSession, { dry_run = false, resumed = false }: { dry_run?: boolean; resumed?: boolean } = {}): Record<string, unknown> {
   const { chunks } = session
-  const { filesToWrite, proposed, needsReview, crossReferences, fillPrompts } = session.plan
+  const { filesToWrite, proposed, needsReview, crossReferences, fillPrompts } = session.plan!
 
-  const resp = {
+  const resp: Record<string, unknown> = {
     auto_classify: true,
     complete: false,
     plan: {
@@ -534,13 +615,14 @@ function planResponse(source, session, { dry_run = false, resumed = false } = {}
   return resp
 }
 
-async function executeImportPlan(source, dry_run) {
-  const session = getSession(source)
-  if (!session || session.phase !== 'plan_ready') {
+async function executeImportPlan(source: string | undefined, dry_run: boolean): Promise<Record<string, unknown>> {
+  const session = source ? getSession(source) : null
+  if (!session || !source || session.phase !== 'plan_ready') {
     return { error: `No import plan ready for "${source}". Run auto_classify first.` }
   }
 
-  const { filesToWrite, needsReview } = session.plan
+  const plan = session.plan!
+  const { filesToWrite, needsReview } = plan
   const sourceFile = path.basename(source)
 
   if (dry_run) {
@@ -549,7 +631,7 @@ async function executeImportPlan(source, dry_run) {
       auto_classify: true,
       complete: true,
       dry_run: true,
-      proposed: session.plan.proposed,
+      proposed: plan.proposed,
       needs_review: needsReview.map(({ chunk, classification }) => ({
         chunk_id: chunk.id,
         heading: chunk.heading,
@@ -559,7 +641,7 @@ async function executeImportPlan(source, dry_run) {
       })),
       summary: {
         total_chunks: session.chunks.length,
-        classified: session.plan.proposed.length,
+        classified: plan.proposed.length,
         needs_review: needsReview.length
       }
     }
@@ -605,9 +687,9 @@ async function executeImportPlan(source, dry_run) {
 // section is concatenated under its own heading so an aggregated doc (e.g. all
 // of a service's endpoints, or a domain's tables) carries every contributing
 // section. import_chunk records all source ids for provenance.
-function mergeChunks(chunks, entries) {
-  const seen = new Set()
-  const parts = []
+function mergeChunks(chunks: Chunk[], entries: ProposedFile[]): { id: string; heading?: string; text: string } {
+  const seen = new Set<string>()
+  const parts: string[] = []
   for (const c of chunks) {
     if (!c || seen.has(c.id)) continue
     seen.add(c.id)
@@ -617,7 +699,7 @@ function mergeChunks(chunks, entries) {
   const ids = [...seen]
   return {
     id: ids.length === 1 ? ids[0] : ids.join(','),
-    heading: (chunks[0] && chunks[0].heading) || (entries[0] && entries[0].heading) || null,
+    heading: (chunks[0] && chunks[0].heading) || (entries[0] && entries[0].heading) || undefined,
     text: parts.join('\n\n')
   }
 }
@@ -629,7 +711,7 @@ function mergeChunks(chunks, entries) {
 // is written via files_to_write and normalized by applyImportFiles. Passing the
 // baseline (not the raw template) guarantees provenance, tags, and cross-refs
 // survive the fill.
-function buildFillPrompt(scaffoldType, baselineContent, mergedChunk, entry, sourceFile) {
+function buildFillPrompt(scaffoldType: string, baselineContent: string, mergedChunk: { id: string; text: string }, entry: ProposedFile, sourceFile: string): string | null {
   if (!baselineContent) return null
   return resolvePrompt('import-map', {
     chunk_text: mergedChunk.text,
@@ -645,16 +727,16 @@ function buildFillPrompt(scaffoldType, baselineContent, mergedChunk, entry, sour
 // ── Cross-reference generation ──────────────────────────────────────────────
 
 // Priority order for directional depends_on links
-const TYPE_PRIORITY = { feature: 1, flow: 2, policy: 3, validation: 4, schema: 5, integration: 6, technical: 7, decision: 8, reference: 9, component: 10, standard: 11 }
+const TYPE_PRIORITY: Record<string, number> = { feature: 1, flow: 2, policy: 3, validation: 4, schema: 5, integration: 6, technical: 7, decision: 8, reference: 9, component: 10, standard: 11 }
 
-function generateCrossReferences(proposed, chunks) {
-  const refs = []
+function generateCrossReferences(proposed: ProposedFile[], chunks: Chunk[]): CrossRef[] {
+  const refs: CrossRef[] = []
 
   // 1. Same-chunk: if one chunk produced multiple types, cross-reference them
-  const byChunk = new Map()
+  const byChunk = new Map<string, ProposedFile[]>()
   for (const p of proposed) {
     if (!byChunk.has(p.chunk_id)) byChunk.set(p.chunk_id, [])
-    byChunk.get(p.chunk_id).push(p)
+    byChunk.get(p.chunk_id)!.push(p)
   }
   for (const entries of byChunk.values()) {
     if (entries.length < 2) continue
@@ -668,11 +750,11 @@ function generateCrossReferences(proposed, chunks) {
   }
 
   // 2. Same-group: files sharing suggested_group get directional links
-  const byGroup = new Map()
+  const byGroup = new Map<string, ProposedFile[]>()
   for (const p of proposed) {
     if (!p.suggested_group) continue
     if (!byGroup.has(p.suggested_group)) byGroup.set(p.suggested_group, [])
-    byGroup.get(p.suggested_group).push(p)
+    byGroup.get(p.suggested_group)!.push(p)
   }
   for (const entries of byGroup.values()) {
     if (entries.length < 2) continue
@@ -687,7 +769,7 @@ function generateCrossReferences(proposed, chunks) {
   }
 
   // 3. Text-mention: scan chunk text for other proposed files' suggested_id values
-  const chunkMap = new Map()
+  const chunkMap = new Map<string, Chunk>()
   for (const c of chunks) chunkMap.set(c.id, c)
 
   for (const from of proposed) {
@@ -715,9 +797,13 @@ function generateCrossReferences(proposed, chunks) {
 
 // ── Review queue ────────────────────────────────────────────────────────────
 
-function appendToReviewQueue(entries, sourceFile) {
+function appendToReviewQueue(entries: ReviewItem[], sourceFile: string): void {
   const reviewEntries = entries
-    .map(({ chunk, classification }) => buildReviewEntry(chunk, classification, sourceFile))
+    .map(({ chunk, classification }) => buildReviewEntry(
+      chunk as Parameters<typeof buildReviewEntry>[0],
+      classification as Parameters<typeof buildReviewEntry>[1],
+      sourceFile
+    ))
     .join('\n')
 
   const header = `\n---\n\n## Import: ${sourceFile} (${new Date().toISOString().split('T')[0]})\n\n`
@@ -737,7 +823,7 @@ function appendToReviewQueue(entries, sourceFile) {
 // and the forbidden `status` field, strip ghost wikilinks, guarantee required
 // frontmatter. Idempotent on already-normalized content. Falls back to the raw
 // content if frontmatter can't be parsed (lint will then flag it).
-function normalizeWrittenFile(filePath, content) {
+function normalizeWrittenFile(filePath: string, content: string): string {
   try {
     const parsed = matter(content)
     const id = path.basename(filePath, '.md')
@@ -748,7 +834,7 @@ function normalizeWrittenFile(filePath, content) {
   }
 }
 
-function validateKbPath(filePath) {
+function validateKbPath(filePath: string): string | null {
   const resolved = path.resolve(filePath)
   const kbDir = path.resolve('knowledge')
   if (!resolved.startsWith(kbDir + path.sep) && resolved !== kbDir) {
@@ -757,9 +843,9 @@ function validateKbPath(filePath) {
   return null
 }
 
-async function applyImportFiles(files_to_write, dry_run) {
-  const written = []
-  const skipped = []
+async function applyImportFiles(files_to_write: FileToWrite[], dry_run: boolean): Promise<Record<string, unknown> & { written: string[]; skipped: Array<{ path: string; reason: string }> }> {
+  const written: string[] = []
+  const skipped: Array<{ path: string; reason: string }> = []
 
   for (const { path: filePath, content } of files_to_write) {
     if (!filePath || !content) continue
@@ -802,24 +888,23 @@ async function applyImportFiles(files_to_write, dry_run) {
   }
 }
 
-module.exports = {
-  runTool,
-  definition: {
-    name: 'kb_import',
-    description: 'Import a document (PDF/DOCX/HTML/MD/TXT) into the KB. Auto-classify mode (recommended): Phase 1 extracts and classifies in batches (multi-label). Phase 2 returns an import plan with proposed files and cross-references, plus per-file fill prompts (structural fill is ON by default — lifts prose into Fields/Rules tables; pass no_fill: true for the cheap baseline-only run). Phase 3 (approve: true) writes files. Images are extracted to per-document asset folders and embedded as Obsidian ![[...]] links — auto_classify mode only. Classic mode: Phase 1 returns chunks, Phase 2 writes agent-generated files.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        source: { type: 'string', description: 'Path to the source document (PDF, DOCX, MD, TXT, HTML)' },
-        dry_run: { type: 'boolean', description: 'Preview without writing', default: false },
-        auto_classify: { type: 'boolean', description: 'Paginated classification mode — returns chunks in batches for agent to classify, then returns import plan for approval', default: false },
-        approve: { type: 'boolean', description: 'Execute a previously generated import plan (requires auto_classify)', default: false },
-        classifications: { type: 'array', description: 'Agent multi-label classification results from previous batch', items: { type: 'object', properties: { chunk_id: { type: 'string' }, types: { type: 'array', items: { type: 'object', properties: { type: { type: 'string' }, confidence: { type: 'number' }, suggested_id: { type: 'string' }, reason: { type: 'string' } }, required: ['type', 'confidence', 'suggested_id'] } }, suggested_group: { type: 'string' }, duplicate_of: { type: 'string' } }, required: ['chunk_id', 'types'] } },
-        cursor: { type: 'number', description: 'Current position in chunk list (returned by previous auto_classify call)' },
-        restart: { type: 'boolean', description: 'Discard any saved progress for this source and re-import from scratch (auto_classify)', default: false },
-        no_fill: { type: 'boolean', description: 'Opt out of structural fill (default ON). With no_fill, the plan writes the deterministic baseline only — prose stays under ## Imported Content and is NOT lifted into Fields/Rules tables.', default: false },
-        files_to_write: { type: 'array', description: 'Classic Phase 2: agent-generated files to write', items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_import',
+  description: 'Import a document (PDF/DOCX/HTML/MD/TXT) into the KB. Auto-classify mode (recommended): Phase 1 extracts and classifies in batches (multi-label). Phase 2 returns an import plan with proposed files and cross-references, plus per-file fill prompts (structural fill is ON by default — lifts prose into Fields/Rules tables; pass no_fill: true for the cheap baseline-only run). Phase 3 (approve: true) writes files. Images are extracted to per-document asset folders and embedded as Obsidian ![[...]] links — auto_classify mode only. Classic mode: Phase 1 returns chunks, Phase 2 writes agent-generated files.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      source: { type: 'string', description: 'Path to the source document (PDF, DOCX, MD, TXT, HTML)' },
+      dry_run: { type: 'boolean', description: 'Preview without writing', default: false },
+      auto_classify: { type: 'boolean', description: 'Paginated classification mode — returns chunks in batches for agent to classify, then returns import plan for approval', default: false },
+      approve: { type: 'boolean', description: 'Execute a previously generated import plan (requires auto_classify)', default: false },
+      classifications: { type: 'array', description: 'Agent multi-label classification results from previous batch', items: { type: 'object', properties: { chunk_id: { type: 'string' }, types: { type: 'array', items: { type: 'object', properties: { type: { type: 'string' }, confidence: { type: 'number' }, suggested_id: { type: 'string' }, reason: { type: 'string' } }, required: ['type', 'confidence', 'suggested_id'] } }, suggested_group: { type: 'string' }, duplicate_of: { type: 'string' } }, required: ['chunk_id', 'types'] } },
+      cursor: { type: 'number', description: 'Current position in chunk list (returned by previous auto_classify call)' },
+      restart: { type: 'boolean', description: 'Discard any saved progress for this source and re-import from scratch (auto_classify)', default: false },
+      no_fill: { type: 'boolean', description: 'Opt out of structural fill (default ON). With no_fill, the plan writes the deterministic baseline only — prose stays under ## Imported Content and is NOT lifted into Fields/Rules tables.', default: false },
+      files_to_write: { type: 'array', description: 'Classic Phase 2: agent-generated files to write', items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } }
     }
   }
 }
+
+export { runTool, definition }
