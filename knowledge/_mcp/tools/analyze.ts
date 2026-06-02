@@ -1,10 +1,24 @@
-const fs = require('fs')
-const path = require('path')
-const { loadRules } = require('../lib/rules')
-const { matchAllPatterns, resolveKbTarget, maxGlobDepth } = require('../lib/patterns')
-const { runTool: write } = require('./write')
+import * as fs from 'fs'
+import * as path from 'path'
+import { loadRules } from '../lib/rules'
+import { matchAllPatterns, resolveKbTarget, maxGlobDepth } from '../lib/patterns'
+import { runTool as write } from './write'
+import type { ToolDefinition } from '../src/types/tool'
 
 const KB_ROOT = 'knowledge'
+
+interface PatternEntry { intent?: string; paths?: string[]; kb_target?: string | string[]; [key: string]: unknown }
+interface FileGroup { intent?: string; kb_target: string | null; files: string[] }
+interface InventoryItem {
+  kb_target: string | null
+  intent?: string
+  file_count: number
+  sample_files: string[]
+  existing_kb_file: boolean
+  suggested_action: string
+  note?: string
+  truncated?: boolean
+}
 const SKIP_SCAN = new Set([
   'node_modules', '.git', '.next', 'dist', 'build', 'out', 'coverage',
   'knowledge', '.cursor', '.vscode', '.idea', '__pycache__', '.mypy_cache',
@@ -16,12 +30,19 @@ const SKIP_SCAN = new Set([
  * Groups source files by their KB target (using code_path_patterns from _rules.md)
  * and optionally writes draft KB files for uncovered groups.
  */
-async function runTool({ depth = 4, write_drafts = false, summary_only = false, include_samples = false } = {}) {
+async function runTool(
+  { depth = 4, write_drafts = false, summary_only = false, include_samples = false }: {
+    depth?: number
+    write_drafts?: boolean
+    summary_only?: boolean
+    include_samples?: boolean
+  } = {}
+): Promise<Record<string, unknown>> {
   // Default to the per-group summary (counts + suggested_action, no
   // sample_files): on a large monorepo the full sample inventory was the bulk
   // of this tool's payload, and the agent can grep the source tree for the
   // files behind any group. include_samples opts back into capped samples.
-  const renderInventory = (inv) =>
+  const renderInventory = (inv: InventoryItem[]): unknown[] =>
     (include_samples === true && summary_only !== true) ? capInventorySize(inv) : summarizeInventory(inv)
   const rules = loadRules(KB_ROOT)
   const raw = rules.getRaw()
@@ -31,7 +52,7 @@ async function runTool({ depth = 4, write_drafts = false, summary_only = false, 
       error: 'No code_path_patterns found in _rules.md. Run kb_init or copy patterns from knowledge/_mcp/presets/<stack>.yaml first.'
     }
   }
-  const patterns = raw.code_path_patterns
+  const patterns = raw.code_path_patterns as PatternEntry[]
 
   // 1. Collect source files
   const allGlobs = patterns.flatMap(p => p.paths || [])
@@ -65,7 +86,7 @@ async function runTool({ depth = 4, write_drafts = false, summary_only = false, 
     inventory: renderInventory(inventory),
     total_source_files: sourceFiles.length,
     total_groups: inventory.length,
-    unmatched_count: grouped.get('_unmatched') ? grouped.get('_unmatched').files.length : 0,
+    unmatched_count: grouped.get('_unmatched')?.files.length ?? 0,
     _instruction: 'Each inventory entry is a per-group summary (kb_target, file_count, suggested_action). Pass include_samples:true for sample_files, or grep the source tree for the files behind a group. Call kb_analyze with write_drafts=true to create draft KB files, or use kb_scaffold for specific files.'
   }
 }
@@ -83,7 +104,7 @@ const ANALYZE_TOTAL_CHAR_CAP = 24_000
 // summary_only: collapse each group to counts only — no sample_files, no
 // suggested_action prose. For large monorepos where even the truncated
 // inventory hits the cap.
-function summarizeInventory(inventory) {
+function summarizeInventory(inventory: InventoryItem[]): unknown[] {
   return inventory.map(item => ({
     kb_target: item.kb_target,
     file_count: item.file_count,
@@ -91,9 +112,9 @@ function summarizeInventory(inventory) {
     suggested_action: item.suggested_action
   }))
 }
-function capInventorySize(inventory) {
+function capInventorySize(inventory: InventoryItem[]): unknown[] {
   let running = JSON.stringify({ inventory: [] }).length
-  const out = []
+  const out: unknown[] = []
   let truncatedFrom = -1
   for (let i = 0; i < inventory.length; i++) {
     const item = inventory[i]
@@ -111,12 +132,12 @@ function capInventorySize(inventory) {
   return out
 }
 
-function collectSourceFiles(rootDir, maxDepth) {
-  const files = []
+function collectSourceFiles(rootDir: string, maxDepth: number): string[] {
+  const files: string[] = []
 
-  function walk(dir, currentDepth) {
+  function walk(dir: string, currentDepth: number): void {
     if (currentDepth > maxDepth) return
-    let entries
+    let entries: fs.Dirent[]
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true })
     } catch { return }
@@ -142,7 +163,7 @@ function collectSourceFiles(rootDir, maxDepth) {
   return files
 }
 
-function isSourceFile(filename) {
+function isSourceFile(filename: string): boolean {
   const ext = path.extname(filename).toLowerCase()
   const sourceExtensions = new Set([
     '.js', '.jsx', '.ts', '.tsx', '.vue', '.svelte',
@@ -159,8 +180,8 @@ function isSourceFile(filename) {
   return sourceExtensions.has(ext) || configFiles.has(filename)
 }
 
-function groupByKbTarget(sourceFiles, patterns) {
-  const groups = new Map()
+function groupByKbTarget(sourceFiles: string[], patterns: PatternEntry[]): Map<string, FileGroup> {
+  const groups = new Map<string, FileGroup>()
 
   for (const file of sourceFiles) {
     const matches = matchAllPatterns(file, patterns)
@@ -169,24 +190,24 @@ function groupByKbTarget(sourceFiles, patterns) {
       if (!groups.has('_unmatched')) {
         groups.set('_unmatched', { intent: 'unmatched', kb_target: null, files: [] })
       }
-      groups.get('_unmatched').files.push(file)
+      groups.get('_unmatched')!.files.push(file)
       continue
     }
 
     for (const pattern of matches) {
       const target = resolveKbTarget(pattern, file)
       if (!groups.has(target)) {
-        groups.set(target, { intent: pattern.intent, kb_target: target, files: [] })
+        groups.set(target, { intent: pattern.intent as string | undefined, kb_target: target, files: [] })
       }
-      groups.get(target).files.push(file)
+      groups.get(target)!.files.push(file)
     }
   }
 
   return groups
 }
 
-function buildInventory(grouped) {
-  const inventory = []
+function buildInventory(grouped: Map<string, FileGroup>): InventoryItem[] {
+  const inventory: InventoryItem[] = []
 
   for (const [key, group] of grouped) {
     if (key === '_unmatched') {
@@ -202,7 +223,7 @@ function buildInventory(grouped) {
       continue
     }
 
-    const kbFilePath = path.join(KB_ROOT, group.kb_target)
+    const kbFilePath = path.join(KB_ROOT, group.kb_target as string)
     const kbFileWithExt = kbFilePath.endsWith('.md') ? kbFilePath : kbFilePath + '.md'
     const exists = fs.existsSync(kbFileWithExt)
 
@@ -217,7 +238,7 @@ function buildInventory(grouped) {
   }
 
   // Sort: create first, then review, then skip
-  const actionOrder = { create: 0, review: 1, skip: 2 }
+  const actionOrder: Record<string, number> = { create: 0, review: 1, skip: 2 }
   inventory.sort((a, b) =>
     (actionOrder[a.suggested_action] ?? 9) - (actionOrder[b.suggested_action] ?? 9) ||
     b.file_count - a.file_count
@@ -226,7 +247,7 @@ function buildInventory(grouped) {
   return inventory
 }
 
-async function writeDraftFile(item) {
+async function writeDraftFile(item: InventoryItem): Promise<{ file_path: string; written?: boolean; error?: string }> {
   const today = new Date().toISOString().split('T')[0]
   const id = item.kb_target
     ? path.basename(item.kb_target, '.md')
@@ -277,25 +298,24 @@ ${today} — draft created by kb_analyze
       fs.mkdirSync(dir, { recursive: true })
     }
     const result = await write({ file_path: ensuredPath, content })
-    return { file_path: ensuredPath, written: result.written }
+    return { file_path: ensuredPath, written: result.written as boolean | undefined }
   } catch (e) {
-    return { file_path: ensuredPath, error: e.message }
+    return { file_path: ensuredPath, error: (e as Error).message }
   }
 }
 
-module.exports = {
-  runTool,
-  definition: {
-    name: 'kb_analyze',
-    description: 'Analyze project source files and generate a KB coverage inventory. Groups source files by their KB target (using code_path_patterns from _rules.md) and optionally writes draft KB files for uncovered groups. By default returns a per-group summary (no sample_files) — pass include_samples:true for capped per-group sample paths, or grep the source tree. Useful for bootstrapping KB on legacy projects.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        depth: { type: 'number', description: 'Max directory depth to scan (default: 4)', default: 4 },
-        write_drafts: { type: 'boolean', description: 'Write draft KB files for uncovered groups', default: false },
-        summary_only: { type: 'boolean', description: 'Return only kb_target, file_count, existing_kb_file, and suggested_action per group — no sample_files. This is now the default; the flag is retained for back-compat.', default: false },
-        include_samples: { type: 'boolean', description: 'Default false. When true, include capped per-group sample_files (heavier payload). Ignored when summary_only is set.', default: false }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_analyze',
+  description: 'Analyze project source files and generate a KB coverage inventory. Groups source files by their KB target (using code_path_patterns from _rules.md) and optionally writes draft KB files for uncovered groups. By default returns a per-group summary (no sample_files) — pass include_samples:true for capped per-group sample paths, or grep the source tree. Useful for bootstrapping KB on legacy projects.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      depth: { type: 'number', description: 'Max directory depth to scan (default: 4)', default: 4 },
+      write_drafts: { type: 'boolean', description: 'Write draft KB files for uncovered groups', default: false },
+      summary_only: { type: 'boolean', description: 'Return only kb_target, file_count, existing_kb_file, and suggested_action per group — no sample_files. This is now the default; the flag is retained for back-compat.', default: false },
+      include_samples: { type: 'boolean', description: 'Default false. When true, include capped per-group sample_files (heavier payload). Ignored when summary_only is set.', default: false }
     }
   }
 }
+
+export { runTool, definition }

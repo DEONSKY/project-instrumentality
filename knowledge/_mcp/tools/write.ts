@@ -1,12 +1,15 @@
-const fs = require('fs')
-const path = require('path')
-const matter = require('gray-matter')
-const yaml = require('js-yaml')
-const { runTool: reindex } = require('./reindex')
-const { runTool: autotag } = require('./autotag')
-const { loadRules } = require('../lib/rules')
+import * as fs from 'fs'
+import * as path from 'path'
+import matter from 'gray-matter'
+import * as yaml from 'js-yaml'
+import { runTool as reindex } from './reindex'
+import { runTool as autotag } from './autotag'
+import { loadRules } from '../lib/rules'
+import type { ToolDefinition } from '../src/types/tool'
 
 const KB_ROOT = 'knowledge'
+
+interface RelatedFile { path: string; id?: string; shared_tags: string[] }
 
 // Folders that are not KB content — skip folder validation
 const NON_CONTENT_DIRS = new Set([
@@ -14,7 +17,7 @@ const NON_CONTENT_DIRS = new Set([
   '.obsidian', 'node_modules', 'drift-log'
 ])
 
-function validateKbPath(filePath) {
+function validateKbPath(filePath: string): string | null {
   const resolved = path.resolve(filePath)
   const kbDir = path.resolve(KB_ROOT)
   if (!resolved.startsWith(kbDir + path.sep) && resolved !== kbDir) {
@@ -23,7 +26,7 @@ function validateKbPath(filePath) {
   return null
 }
 
-function validateFolder(filePath) {
+function validateFolder(filePath: string): string | null {
   const relative = path.relative(KB_ROOT, filePath)
   const topFolder = relative.split(path.sep)[0]
 
@@ -41,12 +44,13 @@ function validateFolder(filePath) {
   return null
 }
 
-function findRelatedFiles(filePath, content) {
+function findRelatedFiles(filePath: string, content: string): RelatedFile[] {
   try {
     const parsed = matter(content)
-    const fileTags = parsed.data.tags || []
-    const fileDeps = parsed.data.depends_on || []
-    const fileId = parsed.data.id || path.basename(filePath, '.md')
+    const data = parsed.data as Record<string, unknown>
+    const fileTags = (data.tags as string[]) || []
+    const fileDeps = (data.depends_on as string[]) || []
+    const fileId = (data.id as string) || path.basename(filePath, '.md')
 
     if (fileTags.length === 0) return []
 
@@ -54,12 +58,12 @@ function findRelatedFiles(filePath, content) {
     if (!fs.existsSync(indexPath)) return []
 
     const raw = fs.readFileSync(indexPath, 'utf8').replace(/^#[^\n]*\n/, '')
-    const index = yaml.load(raw)
+    const index = yaml.load(raw) as { files?: Record<string, { id?: string; tags?: string[] }> }
 
-    const candidates = []
+    const candidates: RelatedFile[] = []
     for (const [fp, entry] of Object.entries(index.files || {})) {
       if (entry.id === fileId) continue
-      if (fileDeps.includes(entry.id) || fileDeps.includes(fp.replace(/\.md$/, ''))) continue
+      if ((entry.id && fileDeps.includes(entry.id)) || fileDeps.includes(fp.replace(/\.md$/, ''))) continue
 
       const overlap = (entry.tags || []).filter(t => fileTags.includes(t))
       if (overlap.length >= 2) {
@@ -75,7 +79,7 @@ function findRelatedFiles(filePath, content) {
   }
 }
 
-async function runTool({ file_path, content }) {
+async function runTool({ file_path, content }: { file_path?: string; content?: string } = {}): Promise<Record<string, unknown>> {
   if (!file_path) return { error: 'file_path is required' }
   if (!content) return { error: 'content is required' }
 
@@ -111,24 +115,24 @@ async function runTool({ file_path, content }) {
   fs.writeFileSync(file_path, content, 'utf8')
 
   // Always call reindex as final step
-  const reindexResult = await reindex({})
+  const reindexResult = await reindex({}) as Record<string, unknown> & { lint_errors?: number; lint_warnings?: number }
 
   // Auto-tag the written file (fast mode, single file)
   await autotag({ file_path, mode: 'fast', skipReindex: true })
 
   // Build guidance hints from lint results
-  const guidance = []
-  if (reindexResult.lint_errors > 0) {
+  const guidance: string[] = []
+  if ((reindexResult.lint_errors ?? 0) > 0) {
     guidance.push('Fix lint errors before proceeding — they indicate structural problems in the written file.')
   }
-  if (reindexResult.lint_warnings > 0) {
+  if ((reindexResult.lint_warnings ?? 0) > 0) {
     guidance.push('Review lint warnings — they may indicate stale references, type mismatches, or unfilled placeholders.')
   }
 
   // Find related files for cross-referencing
   const suggestions = findRelatedFiles(file_path, content)
 
-  const result = {
+  const result: Record<string, unknown> = {
     written: true,
     file_path,
     lint_errors: reindexResult.lint_errors,
@@ -146,7 +150,7 @@ async function runTool({ file_path, content }) {
     // Skip-decision is scoped to THIS file's lint errors, not the global KB
     // count — a pre-existing broken file elsewhere must not block sweeps for
     // a clean write here.
-    const { runTool: lint } = require('./lint')
+    const { runTool: lint } = require('./lint') as typeof import('./lint')
     const fileLint = await lint({ file_path })
     const fileLintErrors = fileLint.error_count
 
@@ -160,7 +164,16 @@ async function runTool({ file_path, content }) {
       }
     } else {
       try {
-        const { runTool: conform } = require('./conform')
+        // conform is still CJS (converts later this phase); typed result slice.
+        const { runTool: conform } = require('./conform') as {
+          runTool: (args: Record<string, unknown>) => Promise<{
+            error?: string
+            requested_evaluations?: unknown[]
+            files_checked?: number
+            n_a_count?: number
+            sprawl_warnings?: unknown[]
+          }>
+        }
         const sweepResult = await conform({
           mode: 'aspirational',
           scope: file_path.replace(/^knowledge\//, ''),
@@ -183,7 +196,7 @@ async function runTool({ file_path, content }) {
       } catch (e) {
         // Non-fatal: write succeeded, sweep failed. Surface the error but don't
         // make the write fail — the user can rerun kb_conform manually.
-        result.aspirational_sweep = { error: `sweep failed: ${e.message}` }
+        result.aspirational_sweep = { error: `sweep failed: ${(e as Error).message}` }
       }
     }
   }
@@ -197,24 +210,23 @@ async function runTool({ file_path, content }) {
   return result
 }
 
-function isStandardFile(filePath) {
+function isStandardFile(filePath: string): boolean {
   // Match knowledge/standards/<group>/<id>.md (any depth allowed under group)
   const norm = filePath.replace(/\\/g, '/')
   return /^knowledge\/standards\/[^/]+\/.+\.md$/.test(norm)
 }
 
-module.exports = {
-  runTool,
-  definition: {
-    name: 'kb_write',
-    description: 'Write a KB file and automatically reindex. Never write _index.yaml directly.',
-    inputSchema: {
-      type: 'object',
-      required: ['file_path', 'content'],
-      properties: {
-        file_path: { type: 'string', description: 'Path to the KB file (e.g. knowledge/specs/features/my-feature.md)' },
-        content: { type: 'string', description: 'Full file content including YAML front-matter' }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_write',
+  description: 'Write a KB file and automatically reindex. Never write _index.yaml directly.',
+  inputSchema: {
+    type: 'object',
+    required: ['file_path', 'content'],
+    properties: {
+      file_path: { type: 'string', description: 'Path to the KB file (e.g. knowledge/specs/features/my-feature.md)' },
+      content: { type: 'string', description: 'Full file content including YAML front-matter' }
     }
   }
 }
+
+export { runTool, definition }
