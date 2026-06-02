@@ -227,8 +227,13 @@ Gate: full MCP smoke (ListTools + a read-only tool call).
   `__dirname` and reference `scripts/kb-feature.sh` + `tools/reindex.js`. tsc won't
   emit the `.sh`. Route through pkg-paths AND add a build step to copy non-JS hook
   assets into dist (or resolve them from the source tree like pkg-paths does).
-- **F2 (Phase 4, build-tool-catalog.cjs):** switch tool `require` from `tools/*.js`
-  source to compiled `dist/tools/*.js` (see inline NOTE in that script).
+- **F2 (Phase 4, build-tool-catalog.cjs): ✅ RESOLVED.** Triggered when get.ts
+  landed (node can't require `.ts`). Fixed by registering `tsx/cjs` in the script
+  and requiring the tool **source** (`.ts`, `.js` fallback) — NOT compiled
+  dist/tools, which would create a build cycle (shared build → kb-mcp build →
+  shared .d.ts). Loading a tool module is side-effect-free and its `import type`
+  is erased, so no prior build of either package is needed. Generated catalog is
+  byte-identical; extension build verified green.
 - **F3 (cosmetic):** pre-existing lint ERROR in
   `knowledge/standards/contracts/mcp-tool-response.md` (bad YAML front-matter).
   Unrelated to this migration; the pre-commit hook only warns. Fix opportunistically.

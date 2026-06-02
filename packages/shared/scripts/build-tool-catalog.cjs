@@ -13,7 +13,24 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
-const toolsDir = path.join(repoRoot, 'knowledge', '_mcp', 'tools');
+const mcpDir = path.join(repoRoot, 'knowledge', '_mcp');
+const srcToolsDir = path.join(mcpDir, 'tools');
+
+// kb-mcp tools are TypeScript now. Rather than depend on kb-mcp's compiled
+// dist/ (which would create a build cycle: shared build → kb-mcp build →
+// shared .d.ts → shared build), register tsx so we can require the .ts tool
+// SOURCE directly — mirroring the pre-migration behaviour of requiring source.
+// Loading a tool module is side-effect-free (no IO/listeners at import), and
+// its `import type` from @instrumentality/shared is erased, so this needs no
+// prior build of either package. tsx is a devDependency of this package.
+try {
+  require('tsx/cjs');
+} catch (e) {
+  throw new Error(
+    `build-tool-catalog needs tsx to load kb-mcp's TypeScript tool sources. ` +
+    `Run \`npm install\` in packages/shared. (${e.message})`
+  );
+}
 // kb-mcp's entry is server.ts (the root server.js is just a runtime shim that
 // requires the compiled dist). The tool-registration map we parse below lives
 // in server.ts. The regex/format is identical to the old JS source.
@@ -40,12 +57,12 @@ function loadRegisteredToolNames() {
 
 function loadDefinition(toolFile) {
   // Each tool module exports { runTool, definition }. Requiring is safe — they
-  // do not have side effects at load time (no listeners, no IO).
-  // NOTE (TS migration): tools are still CommonJS .js in tools/ today. Once
-  // Phase 4 converts them to .ts, node can't require the source directly —
-  // this must switch to requiring kb-mcp's compiled dist/tools/<file>.js
-  // (which means kb-mcp must be built before this catalog step).
-  const full = path.join(toolsDir, `${toolFile}.js`);
+  // do not have side effects at load time (no listeners, no IO). tsx (registered
+  // above) lets us require the .ts source; fall back to .js for any tool still
+  // authored as plain JavaScript.
+  const tsFull = path.join(srcToolsDir, `${toolFile}.ts`);
+  const jsFull = path.join(srcToolsDir, `${toolFile}.js`);
+  const full = fs.existsSync(tsFull) ? tsFull : jsFull;
   const mod = require(full);
   if (!mod.definition) {
     throw new Error(`Tool module ${full} missing 'definition' export`);

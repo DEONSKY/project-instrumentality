@@ -1,27 +1,75 @@
-const fs = require('fs')
-const path = require('path')
-const matter = require('gray-matter')
-const { loadGraph, getAlwaysLoad, getByScope } = require('../lib/graph')
-const { estimateTokens, totalTokens } = require('../lib/budget')
-const { loadRules } = require('../lib/rules')
-const { loadStandardsIndex, findStandardsForPath, inferAppScope } = require('../lib/standards')
-const { inferType } = require('../lib/types')
+import * as fs from 'fs'
+import * as path from 'path'
+import matter from 'gray-matter'
+import { loadGraph, getAlwaysLoad, getByScope } from '../lib/graph'
+import { estimateTokens, totalTokens } from '../lib/budget'
+import { loadRules } from '../lib/rules'
+import { loadStandardsIndex, findStandardsForPath, inferAppScope } from '../lib/standards'
+import { inferType } from '../lib/types'
+import type { ToolDefinition } from '../src/types/tool'
+import type { Graph, GraphEntry } from '../src/types/graph'
+import type { Rules } from '../src/types/rules'
 
 const KB_ROOT = 'knowledge'
 const DEFAULT_MAX_TOKENS = 8000
 const DESCRIPTION_CHAR_CAP = 300
 
-async function runTool({ task_type, keywords, app_scope, scope, max_tokens, type, task_context, working_paths } = {}) {
+// A loaded KB file as returned to callers.
+interface KbFile {
+  path: string
+  id: string
+  type: string
+  app_scope: unknown
+  content: string
+}
+
+type Keywords = string | string[]
+
+// Standards match shape from findStandardsForPath (loose; see lib/standards).
+type StandardMatch = ReturnType<typeof findStandardsForPath>[number]
+
+interface RuleInScope {
+  standard_id?: string
+  rule_id?: string
+  severity: string
+  applies_to: Record<string, unknown>
+  detect_hint: string
+  fix_hint: string
+  description: string
+  advisory: boolean
+  _matchStrength: number
+}
+
+interface BacklogEntry {
+  queueKey: string
+  standardId: string | null
+  ruleId: string | null
+  severity: string | null
+  filePaths: string[]
+}
+
+async function runTool(
+  { task_type, keywords, app_scope, scope, max_tokens, type, task_context, working_paths }: {
+    task_type?: string
+    keywords?: Keywords
+    app_scope?: string | null
+    scope?: Keywords
+    max_tokens?: number
+    type?: string | null
+    task_context?: string
+    working_paths?: string[]
+  } = {}
+): Promise<Record<string, unknown>> {
   const graph = loadGraph(KB_ROOT)
   const rules = loadRules(KB_ROOT)
   const raw = rules.getRaw()
-  const tokenBudget = max_tokens || (raw.token_budget) || DEFAULT_MAX_TOKENS
+  const tokenBudget = max_tokens || (raw.token_budget as number) || DEFAULT_MAX_TOKENS
 
   // Always load foundation files first
   const alwaysLoadEntries = getAlwaysLoad(graph)
   const alwaysLoadFiles = alwaysLoadEntries
     .map(entry => loadFile(entry.path))
-    .filter(Boolean)
+    .filter((f): f is KbFile => f !== null)
 
   // Export mode: load all files in scope
   if (task_type === 'export' || scope) {
@@ -45,7 +93,7 @@ async function runTool({ task_type, keywords, app_scope, scope, max_tokens, type
 
   const selectedFiles = selectWithinBudget(alwaysLoadFiles, candidates, tokenBudget)
 
-  const result = { files: selectedFiles }
+  const result: Record<string, unknown> = { files: selectedFiles }
 
   // Working-paths injection: surface relevant standard rules as a separate
   // field so the agent can treat them as constraints on the change. Token
@@ -68,10 +116,10 @@ async function runTool({ task_type, keywords, app_scope, scope, max_tokens, type
  * description trimmed to first paragraph or 300 chars (whichever shorter).
  * Full why/examples/exceptions live in the standard file.
  */
-function buildRulesInScope(graph, rules, workingPaths, explicitAppScope) {
+function buildRulesInScope(graph: Graph, rules: Rules, workingPaths: string[], explicitAppScope?: string | null): Array<Record<string, unknown>> {
   const index = loadStandardsIndex(graph)
   const cap = rules.getWorkingPathsCap ? rules.getWorkingPathsCap() : 10
-  const seen = new Map() // composite key → entry (so dedupe survives multiple working_paths)
+  const seen = new Map<string, RuleInScope>() // composite key → entry (so dedupe survives multiple working_paths)
 
   for (const wp of workingPaths) {
     const appScope = explicitAppScope || inferAppScope(wp, rules)
@@ -81,7 +129,7 @@ function buildRulesInScope(graph, rules, workingPaths, explicitAppScope) {
       if (seen.has(key)) {
         // Keep the higher-strength match (already sorted by findStandardsForPath
         // per-path, but cross-path dedupe needs a check)
-        const existing = seen.get(key)
+        const existing = seen.get(key)!
         if (m.matchStrength > existing._matchStrength) {
           seen.set(key, buildRuleEntry(m, false))
         }
@@ -120,40 +168,42 @@ function buildRulesInScope(graph, rules, workingPaths, explicitAppScope) {
   return all.slice(0, cap).map(({ _matchStrength, ...rest }) => rest)
 }
 
-function buildRuleEntry(match, advisory) {
+function buildRuleEntry(match: StandardMatch, advisory: boolean): RuleInScope {
   const r = match.rule
+  const detect = (r.detect || {}) as { hint?: string }
   return {
     standard_id: match.standard.id,
     rule_id: r.id,
     severity: r.severity || 'warn',
     applies_to: r.applies_to || {},
-    detect_hint: (r.detect && r.detect.hint) || '',
-    fix_hint: r.fix_hint || '',
+    detect_hint: detect.hint || '',
+    fix_hint: (r.fix_hint as string) || '',
     description: trimDescription(r.description || ''),
     advisory: !!advisory,
     _matchStrength: match.matchStrength
   }
 }
 
-function buildAdvisoryFromBacklogEntry(entry, index) {
+function buildAdvisoryFromBacklogEntry(entry: BacklogEntry, index: ReturnType<typeof loadStandardsIndex>): RuleInScope | null {
   const stdEntry = index.find(s => s.id === entry.standardId)
   if (!stdEntry) return null
   const rule = stdEntry.rules.find(r => r.id === entry.ruleId)
   if (!rule) return null
+  const detect = (rule.detect || {}) as { hint?: string }
   return {
-    standard_id: entry.standardId,
-    rule_id: entry.ruleId,
+    standard_id: entry.standardId || undefined,
+    rule_id: entry.ruleId || undefined,
     severity: entry.severity || rule.severity || 'warn',
     applies_to: rule.applies_to || {},
-    detect_hint: (rule.detect && rule.detect.hint) || '',
-    fix_hint: rule.fix_hint || '',
+    detect_hint: detect.hint || '',
+    fix_hint: (rule.fix_hint as string) || '',
     description: trimDescription(rule.description || ''),
     advisory: true,
     _matchStrength: 0
   }
 }
 
-function trimDescription(desc) {
+function trimDescription(desc: string): string {
   if (!desc) return ''
   const firstPara = desc.split(/\n\s*\n/)[0].trim()
   if (firstPara.length > DESCRIPTION_CHAR_CAP) {
@@ -163,15 +213,15 @@ function trimDescription(desc) {
   return firstPara
 }
 
-const SEVERITY_RANK = { error: 3, warn: 2, info: 1 }
-function severityRank(s) { return SEVERITY_RANK[s] || 0 }
+const SEVERITY_RANK: Record<string, number> = { error: 3, warn: 2, info: 1 }
+function severityRank(s: string): number { return SEVERITY_RANK[s] || 0 }
 
 /**
  * Read open backlog entries from sync/standards-backlog.md. Lightweight
  * regex-based parse — same shape conform.js writes. Returns [] silently if
  * the file is missing or malformed.
  */
-function readBacklogEntries() {
+function readBacklogEntries(): BacklogEntry[] {
   const backlogPath = path.join(KB_ROOT, 'sync/standards-backlog.md')
   if (!fs.existsSync(backlogPath)) return []
   try {
@@ -180,14 +230,14 @@ function readBacklogEntries() {
     if (headerEnd === -1) return []
     const body = content.slice(headerEnd + 1)
     const blocks = body.split(/\n(?=## )/).filter(b => b.trim())
-    const entries = []
+    const entries: BacklogEntry[] = []
     for (const block of blocks) {
       const headingMatch = block.match(/^## (.+)/)
       if (!headingMatch) continue
       const queueKey = headingMatch[1].trim()
       const stdMatch = block.match(/\*\*Standard:\*\*\s*`([^`]+)`/)
       const ruleMatch = block.match(/\*\*Rule:\*\*\s*`([^`]+)`\s*—\s*(\w+)/)
-      const filePaths = []
+      const filePaths: string[] = []
       for (const line of block.split('\n')) {
         const m = line.match(/^\s+-\s+`([^`]+)`\s+—\s+since/)
         if (m) filePaths.push(m[1])
@@ -204,20 +254,26 @@ function readBacklogEntries() {
   } catch { return [] }
 }
 
-function entryTouchesAnyPath(entry, workingPaths) {
+function entryTouchesAnyPath(entry: BacklogEntry, workingPaths: string[]): boolean {
   for (const wp of workingPaths) {
     if (entry.filePaths.some(fp => fp === wp)) return true
   }
   return false
 }
 
-function handleExportScope(graph, scope, appScopeFilter, alwaysLoadFiles, typeFilter) {
+function handleExportScope(
+  graph: Graph,
+  scope: Keywords | undefined,
+  appScopeFilter: string | null | undefined,
+  alwaysLoadFiles: KbFile[],
+  typeFilter: string | null | undefined
+): Record<string, unknown> {
   const scopes = Array.isArray(scope) ? scope : [scope || 'all']
-  const allEntries = new Map()
+  const allEntries = new Map<string, GraphEntry>()
 
   for (const s of scopes) {
     if (!s || s === 'all') {
-      const entries = getByScope(graph, appScopeFilter)
+      const entries = getByScope(graph, appScopeFilter || undefined)
       for (const [fp, entry] of entries) {
         allEntries.set(fp, entry)
       }
@@ -225,7 +281,8 @@ function handleExportScope(graph, scope, appScopeFilter, alwaysLoadFiles, typeFi
       for (const [fp, entry] of Object.entries(graph.files || {})) {
         const matchesDomain = fp.includes(s)
         const matchesId = entry.id === s
-        const matchesGroup = entry.group && entry.group.includes(s)
+        const group = entry.group as string | undefined
+        const matchesGroup = group && group.includes(s)
         if (matchesDomain || matchesId || matchesGroup) {
           allEntries.set(fp, entry)
         }
@@ -257,7 +314,7 @@ function handleExportScope(graph, scope, appScopeFilter, alwaysLoadFiles, typeFi
 
   const files = [...allEntries.keys()]
     .map(fp => loadFile(fp))
-    .filter(Boolean)
+    .filter((f): f is KbFile => f !== null)
 
   // When type filter is active, also filter always_load files by type
   const filteredAlwaysLoad = typeFilter
@@ -274,12 +331,12 @@ function handleExportScope(graph, scope, appScopeFilter, alwaysLoadFiles, typeFi
   return { files: all }
 }
 
-function findCandidates(graph, keywords, appScopeFilter, taskContext) {
+function findCandidates(graph: Graph, keywords: Keywords | undefined, appScopeFilter: string | null | undefined, taskContext?: string): KbFile[] {
   if (!keywords) return []
 
   const keywordList = Array.isArray(keywords) ? keywords : [keywords]
   const typeHints = taskContext ? inferTypeHints(keywordList) : []
-  const scored = []
+  const scored: Array<{ path: string; entry: GraphEntry; score: number }> = []
 
   Object.entries(graph.files || {}).forEach(([fp, entry]) => {
     // Scope filter
@@ -297,7 +354,7 @@ function findCandidates(graph, keywords, appScopeFilter, taskContext) {
       fp,
       entry.id || '',
       entry.type || '',
-      (entry.tags || []).join(' '),
+      ((entry.tags as string[]) || []).join(' '),
       (entry.depends_on || []).join(' ')
     ].join(' ').toLowerCase()
 
@@ -325,12 +382,12 @@ function findCandidates(graph, keywords, appScopeFilter, taskContext) {
   })
 
   // Sort by score desc, then by tokens_est asc (prefer smaller files)
-  scored.sort((a, b) => b.score - a.score || (a.entry.tokens_est || 0) - (b.entry.tokens_est || 0))
+  scored.sort((a, b) => b.score - a.score || ((a.entry.tokens_est as number) || 0) - ((b.entry.tokens_est as number) || 0))
 
-  return scored.map(s => loadFile(s.path)).filter(Boolean)
+  return scored.map(s => loadFile(s.path)).filter((f): f is KbFile => f !== null)
 }
 
-function selectWithinBudget(alwaysLoad, candidates, maxTokens) {
+function selectWithinBudget(alwaysLoad: KbFile[], candidates: KbFile[], maxTokens: number): KbFile[] {
   const selected = [...alwaysLoad]
   let usedTokens = totalTokens(alwaysLoad)
 
@@ -346,7 +403,7 @@ function selectWithinBudget(alwaysLoad, candidates, maxTokens) {
   return selected
 }
 
-function loadFile(filePath) {
+function loadFile(filePath: string): KbFile | null {
   const fullPath = filePath.startsWith('knowledge/') ? filePath : path.join(KB_ROOT, filePath)
   if (!fs.existsSync(fullPath)) return null
 
@@ -368,7 +425,7 @@ function loadFile(filePath) {
 
 // ── task context helpers ─────────────────────────────────────────────────────
 
-const TYPE_HINT_KEYWORDS = {
+const TYPE_HINT_KEYWORDS: Record<string, string[]> = {
   features: ['feature', 'screen', 'page', 'module'],
   flows: ['flow', 'process', 'workflow', 'pipeline'],
   'data/schema': ['schema', 'model', 'entity', 'table', 'database'],
@@ -380,8 +437,8 @@ const TYPE_HINT_KEYWORDS = {
   'standards/process': ['review', 'workflow', 'process', 'checklist']
 }
 
-function inferTypeHints(keywords) {
-  const hints = []
+function inferTypeHints(keywords: string[]): string[] {
+  const hints: string[] = []
   for (const [folder, triggers] of Object.entries(TYPE_HINT_KEYWORDS)) {
     if (keywords.some(kw => triggers.includes(kw.toLowerCase()))) {
       hints.push(folder)
@@ -390,12 +447,12 @@ function inferTypeHints(keywords) {
   return hints
 }
 
-function loadDriftTargets() {
+function loadDriftTargets(): string[] {
   const driftPath = path.join(KB_ROOT, 'sync/code-drift.md')
   if (!fs.existsSync(driftPath)) return []
   try {
     const content = fs.readFileSync(driftPath, 'utf8')
-    const targets = []
+    const targets: string[] = []
     for (const line of content.split('\n')) {
       const match = line.match(/^## (.+)/)
       if (match) targets.push(match[1].trim())
@@ -406,10 +463,10 @@ function loadDriftTargets() {
 
 // ── schema filtering ────────────────────────────────────────────────────────
 
-function applySchemaFiltering(candidates, keywords) {
+function applySchemaFiltering(candidates: KbFile[], keywords: Keywords | undefined): KbFile[] {
   if (!keywords || candidates.length === 0) return candidates
 
-  const { parseDbml, filterTablesByKeywords } = require('./schema')
+  const { parseDbml, filterTablesByKeywords } = require('./schema') as typeof import('./schema')
   const kwList = Array.isArray(keywords) ? keywords : [keywords]
 
   return candidates.map(file => {
@@ -431,22 +488,21 @@ function applySchemaFiltering(candidates, keywords) {
   })
 }
 
-module.exports = {
-  runTool,
-  definition: {
-    name: 'kb_get',
-    description: 'Primary use (load-bearing): pass working_paths to get rules_in_scope — the standards rules that apply to specific files via path-glob matching, plus any open backlog entries as advisory items. This computation has no grep equivalent and is the tool\'s structural value. Secondary use: keyword retrieval of KB files. Scoring is over metadata (path, id, type, tags, depends_on) — NOT file body — so for content inside KB files grep / Read are faster. Use the keyword form only when grep vocabulary doesn\'t match the KB tag vocabulary. Respects token budget and app_scope filtering.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        task_type: { type: 'string', description: 'Type of task (e.g. generate, review, export)' },
-        keywords: { description: 'Keywords to match KB files', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
-        app_scope: { type: 'string', description: 'Filter by app scope (e.g. frontend, backend). When working_paths is also set, this overrides path-based app_scope inference.' },
-        scope: { type: 'string', description: 'Export scope: domain name, feature id, or "all"' },
-        max_tokens: { type: 'number', description: 'Override token budget (default: 8000, or token_budget from _rules.md)' },
-        task_context: { type: 'string', enum: ['creating', 'fixing', 'reviewing'], description: 'Adjusts relevance scoring: creating boosts same-type files, fixing boosts code standards, reviewing includes drift targets' },
-        working_paths: { type: 'array', items: { type: 'string' }, description: 'File paths the agent is about to edit. Triggers rules_in_scope injection — relevant standards rules (capped at working_paths_cap, default 10) are returned in a separate field. Independent of task_context and keywords.' }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_get',
+  description: 'Primary use (load-bearing): pass working_paths to get rules_in_scope — the standards rules that apply to specific files via path-glob matching, plus any open backlog entries as advisory items. This computation has no grep equivalent and is the tool\'s structural value. Secondary use: keyword retrieval of KB files. Scoring is over metadata (path, id, type, tags, depends_on) — NOT file body — so for content inside KB files grep / Read are faster. Use the keyword form only when grep vocabulary doesn\'t match the KB tag vocabulary. Respects token budget and app_scope filtering.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      task_type: { type: 'string', description: 'Type of task (e.g. generate, review, export)' },
+      keywords: { description: 'Keywords to match KB files', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+      app_scope: { type: 'string', description: 'Filter by app scope (e.g. frontend, backend). When working_paths is also set, this overrides path-based app_scope inference.' },
+      scope: { type: 'string', description: 'Export scope: domain name, feature id, or "all"' },
+      max_tokens: { type: 'number', description: 'Override token budget (default: 8000, or token_budget from _rules.md)' },
+      task_context: { type: 'string', enum: ['creating', 'fixing', 'reviewing'], description: 'Adjusts relevance scoring: creating boosts same-type files, fixing boosts code standards, reviewing includes drift targets' },
+      working_paths: { type: 'array', items: { type: 'string' }, description: 'File paths the agent is about to edit. Triggers rules_in_scope injection — relevant standards rules (capped at working_paths_cap, default 10) are returned in a separate field. Independent of task_context and keywords.' }
     }
   }
 }
+
+export { runTool, definition }
