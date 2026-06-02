@@ -199,15 +199,26 @@ casts + narrowing predicates only).
 - `JsonSchema.type` widened to `string | string[]` (conform's `path_filter` uses a union type).
 
 ## Phase 5 — drivers/ + scripts/ (extension + CI critical)
-- [ ] scripts/live-status   *(extension spawns this; gate: bundled runner JSON)*
-- [ ] scripts/lint-standalone
-- [ ] scripts/drift-ci-check *(CI runs the compiled copy)*
-- [ ] scripts/screenshot
-- [ ] drivers/kb-conflict
-- [ ] drivers/kb-reindex
-Gate also: extension `npm run build` + live-status overlay JSON; CI drift path.
+**DECISION (user-approved): split by execution model.** Entrypoints that plain
+`node` runs *before any build exists* (fresh clone, `--omit=dev`, no tsx) stay
+committed `.js`; entrypoints consumed from compiled `dist/` convert to `.ts`.
+- [x] scripts/live-status → **.ts** *(extension spawns vendored source then falls
+      back to bundled `dist/runner/scripts/`; requires resolve to `dist/tools/*`)*
+- [~] scripts/lint-standalone → **kept .js** *(spawned by `lint.test.js` via plain
+      `node` with no build, and by the pre-commit hook on fresh clones; self-contained
+      by design — converting breaks the unchanged-tests + no-build-before-commit contract)*
+- [x] scripts/drift-ci-check → **.ts** *(CI runs compiled `dist/scripts/drift-ci-check.js`;
+      switched REPO_ROOT-absolute requires to `../tools/*` so dist resolves siblings)*
+- [x] scripts/screenshot → **.ts** *(manual `node dist/scripts/screenshot.js`; playwright
+      typed via a minimal local interface — optional peer, no compile-time types)*
+- [~] drivers/kb-conflict → **kept .js** *(git merge driver, plain `node`, self-contained: fs/path/uuid)*
+- [~] drivers/kb-reindex → **kept .js** *(git merge driver; require repointed to
+      `dist/tools/reindex.js` since tools/ is now TS — server.js shim model)*
+Gate: `tsc --noEmit` clean; `npm test` 294 green; `node dist/scripts/live-status.js`
+emits valid JSON; `node dist/scripts/drift-ci-check.js` runs; server boots 22 tools.
 
-`any` count: ___
+**Phase 5 COMPLETE.** `any` count: 0 (typed-require `as typeof import(...)` + minimal
+playwright interface; kept-`.js` files are checkJs:false so untyped by design).
 
 ## Phase 6 — server.ts finalisation
 - [ ] Replace the 22 runtime `require('./tools/*')` with typed imports once tools

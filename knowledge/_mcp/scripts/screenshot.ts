@@ -10,30 +10,51 @@
  * Usage: node knowledge/_mcp/scripts/screenshot.js
  */
 
-const fs = require('fs')
-const path = require('path')
-const yaml = require('js-yaml')
+import * as fs from 'fs'
+import * as path from 'path'
+import * as yaml from 'js-yaml'
 
 const KB_ROOT = 'knowledge'
 const INDEX_PATH = path.join(KB_ROOT, '_index.yaml')
 
-async function main() {
+// Extract a message from an unknown caught value without a bare `any`.
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
+// Minimal slice of the playwright surface this script uses. playwright is an
+// optional peer (installed separately for CI screenshots), so it has no
+// compile-time types here — describe just the calls we make.
+interface PwPage {
+  goto(url: string, opts?: { waitUntil?: string; timeout?: number }): Promise<unknown>
+  screenshot(opts: { path: string; fullPage?: boolean }): Promise<unknown>
+}
+interface PwBrowser {
+  newContext(): Promise<{ newPage(): Promise<PwPage> }>
+  close(): Promise<void>
+}
+interface Playwright { chromium: { launch(opts: { headless?: boolean }): Promise<PwBrowser> } }
+
+interface IndexEntry { screenshot?: boolean; screenshot_selector?: string; screenshot_path?: string }
+interface ScreenshotTarget { kb_path: string; url: string; output: string }
+
+async function main(): Promise<void> {
   if (!fs.existsSync(INDEX_PATH)) {
     console.error('[screenshot] No _index.yaml found. Run kb_reindex first.')
     process.exit(1)
   }
 
-  let graph
+  let graph: { files?: Record<string, IndexEntry> }
   try {
     const raw = fs.readFileSync(INDEX_PATH, 'utf8')
-    graph = yaml.load(raw) || {}
+    graph = (yaml.load(raw) as { files?: Record<string, IndexEntry> }) || {}
   } catch (e) {
-    console.error('[screenshot] Failed to parse _index.yaml:', e.message)
+    console.error('[screenshot] Failed to parse _index.yaml:', errMessage(e))
     process.exit(1)
   }
 
   const files = graph.files || {}
-  const targets = []
+  const targets: ScreenshotTarget[] = []
 
   Object.entries(files).forEach(([relPath, entry]) => {
     if (entry && entry.screenshot === true && entry.screenshot_selector && entry.screenshot_path) {
@@ -52,9 +73,9 @@ async function main() {
 
   console.log(`[screenshot] Found ${targets.length} screenshot target(s).`)
 
-  let playwright
+  let playwright: Playwright
   try {
-    playwright = require('playwright')
+    playwright = require('playwright') as Playwright
   } catch {
     console.error('[screenshot] playwright not installed. Run: npm install playwright')
     process.exit(1)
@@ -83,7 +104,7 @@ async function main() {
       console.log(`[screenshot] ✓ Saved to ${target.output}`)
       succeeded++
     } catch (e) {
-      console.error(`[screenshot] ✗ Failed ${target.kb_path}: ${e.message}`)
+      console.error(`[screenshot] ✗ Failed ${target.kb_path}: ${errMessage(e)}`)
       failed++
     }
   }
@@ -95,6 +116,6 @@ async function main() {
 }
 
 main().catch(e => {
-  console.error('[screenshot] Fatal:', e.message)
+  console.error('[screenshot] Fatal:', errMessage(e))
   process.exit(1)
 })

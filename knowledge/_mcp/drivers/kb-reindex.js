@@ -20,8 +20,11 @@ async function main() {
     // Find the knowledge/ root by walking up from the merge driver location
     const kbRoot = findKbRoot()
 
-    // Run reindex to regenerate _index.yaml from current KB files
-    const { runTool: reindex } = require(path.join(kbRoot, '_mcp/tools/reindex'))
+    // Run reindex to regenerate _index.yaml from current KB files. kb-mcp ships
+    // compiled — require the built dist copy (tools/ is TypeScript source). This
+    // git merge driver is plain JS so it runs under vanilla `node` with no build
+    // step, matching the server.js shim model.
+    const { runTool: reindex } = require(path.join(kbRoot, '_mcp/dist/tools/reindex.js'))
     await reindex({ silent: true })
 
     // Copy the freshly generated _index.yaml into git's "ours" slot

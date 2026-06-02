@@ -22,37 +22,51 @@
  * step summary so reviewers see what's out of sync.
  */
 
-const fs = require('fs')
-const path = require('path')
+import * as fs from 'fs'
+import * as path from 'path'
+import type { CodeDriftEntry, KbDriftEntry } from '../src/types/drift'
+import type { ConformEntry } from '../src/types/conform'
 
 const REPO_ROOT = process.cwd()
 const SYNC_DIR = path.join(REPO_ROOT, 'knowledge', 'sync')
 
-async function main() {
+// Extract a message from an unknown caught value without a bare `any`.
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
+async function main(): Promise<void> {
   // Bail out via env / label is handled by the workflow before this script
   // runs — by the time we're here, the gate is wanted.
 
-  let driftResult, conformCurrent, conformBacklog
+  // Relative requires (not REPO_ROOT-absolute) so the compiled
+  // dist/scripts/drift-ci-check.js resolves the sibling compiled dist/tools/*
+  // — CI runs the dist copy. Kept as require (inside try) so a module-load
+  // crash is caught and exits 0 rather than failing the gate.
+  let driftResult: Record<string, unknown>, conformCurrent: Record<string, unknown>, conformBacklog: Record<string, unknown>
   try {
-    const driftTool = require(path.join(REPO_ROOT, 'knowledge', '_mcp', 'tools', 'drift'))
+    const driftTool = require('../tools/drift') as typeof import('../tools/drift')
     driftResult = await driftTool.runTool({ readonly: true, include_diffs: false })
   } catch (e) {
-    process.stderr.write(`[kb-drift-ci] drift readonly run crashed (not a policy failure): ${e.message}\n`)
+    process.stderr.write(`[kb-drift-ci] drift readonly run crashed (not a policy failure): ${errMessage(e)}\n`)
     process.exit(0)
   }
   try {
-    const conformTool = require(path.join(REPO_ROOT, 'knowledge', '_mcp', 'tools', 'conform'))
+    const conformTool = require('../tools/conform') as typeof import('../tools/conform')
     conformCurrent = await conformTool.runTool({ readonly: true, include_diffs: false, mode: 'current' })
     conformBacklog = await conformTool.runTool({ readonly: true, include_diffs: false, mode: 'aspirational' })
   } catch (e) {
-    process.stderr.write(`[kb-drift-ci] conform readonly run crashed (not a policy failure): ${e.message}\n`)
+    process.stderr.write(`[kb-drift-ci] conform readonly run crashed (not a policy failure): ${errMessage(e)}\n`)
     process.exit(0)
   }
 
-  const liveCode = ((driftResult._state && driftResult._state.codeEntries) || []).map(codeKey)
-  const liveKb = ((driftResult._state && driftResult._state.kbEntries) || []).map(kbKey)
-  const liveStd = ((conformCurrent._state && conformCurrent._state.entries) || []).map(stdKey)
-  const liveBacklog = ((conformBacklog._state && conformBacklog._state.entries) || []).map(stdKey)
+  const driftState = driftResult._state as { codeEntries?: CodeDriftEntry[]; kbEntries?: KbDriftEntry[] } | undefined
+  const conformCurrentState = conformCurrent._state as { entries?: ConformEntry[] } | undefined
+  const conformBacklogState = conformBacklog._state as { entries?: ConformEntry[] } | undefined
+  const liveCode = ((driftState && driftState.codeEntries) || []).map(codeKey)
+  const liveKb = ((driftState && driftState.kbEntries) || []).map(kbKey)
+  const liveStd = ((conformCurrentState && conformCurrentState.entries) || []).map(stdKey)
+  const liveBacklog = ((conformBacklogState && conformBacklogState.entries) || []).map(stdKey)
 
   const onDiskCode = parsePublishedKeys(path.join(SYNC_DIR, 'code-drift.md'), parseCodeDriftBlocks)
   const onDiskKb = parsePublishedKeys(path.join(SYNC_DIR, 'kb-drift.md'), parseKbDriftBlocks)
@@ -64,7 +78,7 @@ async function main() {
     diffSet('kb-drift.md', liveKb, onDiskKb),
     diffSet('standards-drift.md', liveStd, onDiskStd),
     diffSet('standards-backlog.md', liveBacklog, onDiskBacklog),
-  ].filter(Boolean)
+  ].filter((d): d is string => Boolean(d))
 
   if (diffs.length === 0) {
     process.stdout.write('[kb-drift-ci] queue files match in-memory detection — no drift to publish.\n')
@@ -79,27 +93,27 @@ async function main() {
   process.exit(1)
 }
 
-function codeKey(e) {
+function codeKey(e: CodeDriftEntry): string {
   // The published entry is keyed by kbTarget + sorted file set.
   const files = (e.codeFiles || []).map((f) => f.path).sort().join(',')
   return `${e.kbTarget}|${files}`
 }
 
-function kbKey(e) {
+function kbKey(e: KbDriftEntry): string {
   return e.kbFile
 }
 
-function stdKey(e) {
+function stdKey(e: ConformEntry): string {
   // Queue key plus sorted file set per party to detect file-set drift even
   // when the queue key matches.
-  const fps = []
+  const fps: string[] = []
   for (const arr of Object.values(e.filesByParty || {})) {
     for (const f of arr) fps.push(f.path)
   }
   return `${e.queueKey}|${fps.sort().join(',')}`
 }
 
-function parsePublishedKeys(filePath, parser) {
+function parsePublishedKeys(filePath: string, parser: (content: string) => string[]): string[] {
   if (!fs.existsSync(filePath)) return []
   const content = fs.readFileSync(filePath, 'utf8')
   return parser(content)
@@ -109,19 +123,19 @@ function parsePublishedKeys(filePath, parser) {
 // computations above. We deliberately don't import the shared TS parsers here
 // to keep the CI script dependency-free (runs on a vanilla Node).
 
-function splitBlocks(content) {
+function splitBlocks(content: string): string[] {
   const headerEnd = content.indexOf('\n## ')
   if (headerEnd === -1) return []
   return content.slice(headerEnd + 1).split(/\n(?=## )/).filter((b) => b.trim())
 }
 
-function parseCodeDriftBlocks(content) {
-  const out = []
+function parseCodeDriftBlocks(content: string): string[] {
+  const out: string[] = []
   for (const block of splitBlocks(content)) {
     const heading = block.match(/^## (.+)/)
     if (!heading) continue
     const kbTarget = heading[1].trim()
-    const files = []
+    const files: string[] = []
     for (const line of block.split('\n')) {
       const m = line.match(/^\s+-\s+`([^`]+)`/)
       if (m) files.push(m[1])
@@ -131,8 +145,8 @@ function parseCodeDriftBlocks(content) {
   return out
 }
 
-function parseKbDriftBlocks(content) {
-  const out = []
+function parseKbDriftBlocks(content: string): string[] {
+  const out: string[] = []
   for (const block of splitBlocks(content)) {
     const heading = block.match(/^## (.+)/)
     if (heading) out.push(heading[1].trim())
@@ -140,13 +154,13 @@ function parseKbDriftBlocks(content) {
   return out
 }
 
-function parseStdDriftBlocks(content) {
-  const out = []
+function parseStdDriftBlocks(content: string): string[] {
+  const out: string[] = []
   for (const block of splitBlocks(content)) {
     const heading = block.match(/^## (.+)/)
     if (!heading) continue
     const queueKey = heading[1].trim()
-    const files = []
+    const files: string[] = []
     let inFiles = false
     for (const line of block.split('\n')) {
       if (/^- \*\*Files/.test(line)) { inFiles = true; continue }
@@ -160,7 +174,7 @@ function parseStdDriftBlocks(content) {
   return out
 }
 
-function diffSet(label, live, disk) {
+function diffSet(label: string, live: string[], disk: string[]): string | null {
   const liveSet = new Set(live)
   const diskSet = new Set(disk)
   const missingFromDisk = live.filter((k) => !diskSet.has(k))
@@ -179,6 +193,6 @@ function diffSet(label, live, disk) {
 }
 
 main().catch((e) => {
-  process.stderr.write(`[kb-drift-ci] unexpected error (not a policy failure): ${e && e.message ? e.message : String(e)}\n`)
+  process.stderr.write(`[kb-drift-ci] unexpected error (not a policy failure): ${errMessage(e)}\n`)
   process.exit(0)
 })
