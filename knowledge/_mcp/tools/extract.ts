@@ -1,10 +1,11 @@
-const fs = require('fs')
-const path = require('path')
-const { execFileSync } = require('child_process')
-const { resolvePrompt } = require('../lib/prompts')
-const { runTool: write } = require('./write')
-const { KB_ROOT, resolveFilePath } = require('../lib/kb-paths')
-const { globMatch } = require('../lib/patterns')
+import * as fs from 'fs'
+import * as path from 'path'
+import { execFileSync } from 'child_process'
+import { resolvePrompt } from '../lib/prompts'
+import { runTool as write } from './write'
+import { KB_ROOT, resolveFilePath } from '../lib/kb-paths'
+import { globMatch } from '../lib/patterns'
+import type { ToolDefinition } from '../src/types/tool'
 
 const SKIP_SCAN = new Set([
   'node_modules', '.git', '.next', 'dist', 'build', 'out', 'coverage',
@@ -26,7 +27,16 @@ const MAX_KB_FILES = 8
  * Phase 1 (no content): collect samples → return { file_path, prompt, sample_files, _instruction }
  * Phase 2 (content provided): write the filled content → return { file_path, written }
  */
-async function runTool({ source, target_id, target_group, paths, app_scope = 'all', content } = {}) {
+async function runTool(
+  { source, target_id, target_group, paths, app_scope = 'all', content }: {
+    source?: string
+    target_id?: string
+    target_group?: string
+    paths?: string | string[]
+    app_scope?: string
+    content?: string
+  } = {}
+): Promise<Record<string, unknown>> {
   if (!source) return { error: 'source is required: "code" or "knowledge"' }
   if (!['code', 'knowledge'].includes(source)) return { error: 'source must be "code" or "knowledge"' }
   if (!target_id) return { error: 'target_id is required' }
@@ -36,6 +46,7 @@ async function runTool({ source, target_id, target_group, paths, app_scope = 'al
   }
 
   const filePath = resolveFilePath('standard', target_id, target_group)
+  if (!filePath) return { error: `Could not resolve a file path for standard "${target_id}"` }
 
   // Phase 2: write filled content
   if (content) {
@@ -44,7 +55,7 @@ async function runTool({ source, target_id, target_group, paths, app_scope = 'al
   }
 
   // Phase 1: sample files and return prompt
-  let sampleFiles = []
+  let sampleFiles: string[] = []
   let sampledContent = ''
 
   if (source === 'code') {
@@ -106,7 +117,7 @@ async function runTool({ source, target_id, target_group, paths, app_scope = 'al
 
 // --- Code file sampling ---
 
-function sampleCodeFiles(filters) {
+function sampleCodeFiles(filters: string[] | null): string[] {
   const allFiles = collectSourceFiles(process.cwd(), 4)
 
   // Filter by path globs if provided
@@ -115,15 +126,15 @@ function sampleCodeFiles(filters) {
     : allFiles
 
   // Spread-sample: group by top-level directory, pick up to 3 per directory
-  const byDir = new Map()
+  const byDir = new Map<string, string[]>()
   for (const f of filtered) {
     const topDir = f.includes('/') ? f.split('/')[0] : '_root'
     if (!byDir.has(topDir)) byDir.set(topDir, [])
-    byDir.get(topDir).push(f)
+    byDir.get(topDir)!.push(f)
   }
 
   // Sort each group by file size descending, flatten up to MAX_CODE_FILES
-  const sampled = []
+  const sampled: string[] = []
   for (const files of byDir.values()) {
     const sorted = [...files].sort((a, b) => {
       try {
@@ -138,9 +149,9 @@ function sampleCodeFiles(filters) {
   return sampled.slice(0, MAX_CODE_FILES)
 }
 
-function readCodeFiles(files) {
+function readCodeFiles(files: string[]): string {
   let totalChars = 0
-  const parts = []
+  const parts: string[] = []
 
   for (const f of files) {
     if (totalChars >= MAX_TOTAL_CHARS) break
@@ -161,12 +172,12 @@ function readCodeFiles(files) {
 
 // --- KB file sampling ---
 
-function sampleKbFiles(folder) {
+function sampleKbFiles(folder: string | null): string[] {
   const kbRoot = path.join(process.cwd(), KB_ROOT)
-  const files = []
+  const files: string[] = []
 
-  function walkKb(dir, relBase) {
-    let entries
+  function walkKb(dir: string, relBase: string): void {
+    let entries: fs.Dirent[]
     try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
     for (const entry of entries) {
       if (entry.name.startsWith('_')) continue
@@ -184,7 +195,7 @@ function sampleKbFiles(folder) {
   if (folder) {
     walkKb(path.join(kbRoot, folder), folder)
   } else {
-    let entries
+    let entries: fs.Dirent[]
     try { entries = fs.readdirSync(kbRoot, { withFileTypes: true }) } catch { return [] }
     for (const entry of entries) {
       if (entry.isDirectory() && !KB_SKIP.has(entry.name) && !entry.name.startsWith('_')) {
@@ -204,9 +215,9 @@ function sampleKbFiles(folder) {
     .slice(0, MAX_KB_FILES)
 }
 
-function readKbFiles(files) {
+function readKbFiles(files: string[]): string {
   const kbRoot = path.join(process.cwd(), KB_ROOT)
-  const parts = []
+  const parts: string[] = []
 
   for (const f of files) {
     try {
@@ -228,7 +239,7 @@ function readKbFiles(files) {
  * (e.g. project not yet `git init`-ed) so kb_extract still works in fresh
  * directories.
  */
-function collectSourceFiles(rootDir, maxDepth) {
+function collectSourceFiles(rootDir: string, maxDepth: number): string[] {
   try {
     const out = execFileSync('git', ['ls-files', '--recurse-submodules'], {
       cwd: rootDir,
@@ -251,12 +262,12 @@ function collectSourceFiles(rootDir, maxDepth) {
   }
 }
 
-function collectSourceFilesFs(rootDir, maxDepth) {
-  const files = []
+function collectSourceFilesFs(rootDir: string, maxDepth: number): string[] {
+  const files: string[] = []
 
-  function walk(dir, depth) {
+  function walk(dir: string, depth: number): void {
     if (depth > maxDepth) return
-    let entries
+    let entries: fs.Dirent[]
     try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
     for (const entry of entries) {
       if (entry.name.startsWith('.') && entry.name !== '.') continue
@@ -296,7 +307,7 @@ function collectSourceFilesFs(rootDir, maxDepth) {
         const m = line.match(/^[\s+\-U]?[0-9a-f]+\s+(\S+)/)
         return m ? m[1] : null
       })
-      .filter(Boolean)
+      .filter((p): p is string => p !== null)
     for (const subRel of submodulePaths) {
       const subAbs = path.join(rootDir, subRel)
       // Sub-walk with the same depth budget. Results from this sub-walk are
@@ -313,7 +324,7 @@ function collectSourceFilesFs(rootDir, maxDepth) {
   return files
 }
 
-function listKbSubfolders(kbRootAbs) {
+function listKbSubfolders(kbRootAbs: string): string[] {
   try {
     return fs.readdirSync(kbRootAbs, { withFileTypes: true })
       .filter(e => e.isDirectory() && !e.name.startsWith('_') && !KB_SKIP.has(e.name))
@@ -324,7 +335,7 @@ function listKbSubfolders(kbRootAbs) {
   }
 }
 
-function isSourceFile(filename) {
+function isSourceFile(filename: string): boolean {
   const ext = path.extname(filename).toLowerCase()
   const sourceExtensions = new Set([
     '.js', '.jsx', '.ts', '.tsx', '.vue', '.svelte',
@@ -340,22 +351,21 @@ function isSourceFile(filename) {
   return sourceExtensions.has(ext) || configFiles.has(filename)
 }
 
-module.exports = {
-  runTool,
-  definition: {
-    name: 'kb_extract',
-    description: 'Sample existing code or KB files and return a prompt to derive a standards document from observed patterns. Phase 1 (no content): returns prompt + sampled file contents. Phase 2 (content provided): writes the filled standard to disk.',
-    inputSchema: {
-      type: 'object',
-      required: ['source', 'target_id', 'target_group'],
-      properties: {
-        source: { type: 'string', enum: ['code', 'knowledge'], description: 'What to sample: "code" for source files, "knowledge" for KB docs' },
-        target_id: { type: 'string', description: 'ID for the output standards file (kebab-case)' },
-        target_group: { type: 'string', enum: ['code', 'contracts', 'knowledge', 'process'], description: 'Standards subfolder to write into' },
-        paths: { description: 'Glob patterns to filter source files (source=code), or KB subfolder name (source=knowledge, e.g. "features")', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
-        app_scope: { type: 'string', description: 'App scope for the generated standard (default: all)' },
-        content: { type: 'string', description: '(Phase 2) Filled content to write to disk' }
-      }
+const definition: ToolDefinition = {
+  name: 'kb_extract',
+  description: 'Sample existing code or KB files and return a prompt to derive a standards document from observed patterns. Phase 1 (no content): returns prompt + sampled file contents. Phase 2 (content provided): writes the filled standard to disk.',
+  inputSchema: {
+    type: 'object',
+    required: ['source', 'target_id', 'target_group'],
+    properties: {
+      source: { type: 'string', enum: ['code', 'knowledge'], description: 'What to sample: "code" for source files, "knowledge" for KB docs' },
+      target_id: { type: 'string', description: 'ID for the output standards file (kebab-case)' },
+      target_group: { type: 'string', enum: ['code', 'contracts', 'knowledge', 'process'], description: 'Standards subfolder to write into' },
+      paths: { description: 'Glob patterns to filter source files (source=code), or KB subfolder name (source=knowledge, e.g. "features")', oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+      app_scope: { type: 'string', description: 'App scope for the generated standard (default: all)' },
+      content: { type: 'string', description: '(Phase 2) Filled content to write to disk' }
     }
   }
 }
+
+export { runTool, definition }
