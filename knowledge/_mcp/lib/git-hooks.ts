@@ -12,6 +12,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import type { Rules } from '../src/types/rules'
+import { packageRoot } from './pkg-paths'
 
 // Hooks check local path first, then fall back to the MCP server's own location.
 // This makes them work whether or not the MCP server is installed inside the project.
@@ -20,7 +21,18 @@ const toShPath = (p: string): string => process.platform === 'win32'
   ? p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`)
   : p
 const _LINT_SCRIPT = toShPath(path.join(__dirname, '../scripts/lint-standalone.js'))
-const _SERVER_SCRIPT = toShPath(path.join(__dirname, '../server.js'))
+
+// kb-mcp ships compiled: the tools that hooks invoke live at <pkg>/dist/tools/.
+// packageRoot() strips a trailing `dist` segment, so it resolves to
+// knowledge/_mcp whether this module runs from source (via tsx) or dist/lib
+// (compiled) — the baked absolute path therefore always targets the compiled
+// tree. Hooks prefer this absolute path and fall back to a repo-relative
+// `knowledge/_mcp/dist/tools` for clones whose checkout path differs from where
+// kb_init last ran. The `require()`s below run the path through `path.resolve()`
+// so both the relative and absolute forms load cleanly (a bare relative module
+// id like `knowledge/_mcp/dist/tools/drift` would otherwise hit node_modules
+// resolution; prefixing an absolute path with `./` would break it).
+const _DIST_TOOLS = toShPath(path.join(packageRoot(), 'dist', 'tools'))
 
 const PRE_COMMIT_HOOK = `#!/bin/sh
 # kb-mcp managed — updated by kb_init. Do not remove this line.
@@ -107,10 +119,10 @@ if [ -f .gitmodules ]; then
   fi
 fi
 
-LOCAL="knowledge/_mcp/server.js"
-BUNDLED="${_SERVER_SCRIPT}"
-SERVER="$LOCAL"
-[ -f "$BUNDLED" ] && SERVER="$BUNDLED"
+LOCAL_TOOLS="knowledge/_mcp/dist/tools"
+BUNDLED_TOOLS="${_DIST_TOOLS}"
+TOOLS="$LOCAL_TOOLS"
+[ -d "$BUNDLED_TOOLS" ] && TOOLS="$BUNDLED_TOOLS"
 
 # ── Branch-aware drift handling ───────────────────────────────────────────────
 #
@@ -136,7 +148,7 @@ esac
 if [ "$IS_PROTECTED" = "1" ]; then
   # Protected branch — full detection + auto-commit (original behavior).
   node -e "
-const drift = require('$SERVER/../tools/drift');
+const drift = require(require('path').resolve('$TOOLS', 'drift'));
 drift.runTool({ remote: '$1' }).then(result => {
   if (result.error) {
     process.stderr.write('[kb-drift] skipped: ' + result.error + '\\\\n');
@@ -152,9 +164,9 @@ drift.runTool({ remote: '$1' }).then(result => {
 }).catch(() => {});
 " 2>&1 || true
 
-  if [ -f "$SERVER/../tools/conform.js" ]; then
+  if [ -f "$TOOLS/conform.js" ]; then
   node -e "
-const conform = require('$SERVER/../tools/conform');
+const conform = require(require('path').resolve('$TOOLS', 'conform'));
 conform.runTool({}).then(result => {
   if (result.error) {
     process.stderr.write('[kb-conform] skipped: ' + result.error + '\\\\n');
@@ -184,7 +196,7 @@ conform.runTool({}).then(result => {
 else
   # Feature branch — advisory readonly run only. No fs writes, no commit.
   node -e "
-const drift = require('$SERVER/../tools/drift');
+const drift = require(require('path').resolve('$TOOLS', 'drift'));
 drift.runTool({ remote: '$1', readonly: true, include_diffs: false }).then(result => {
   if (result.error) return;
   const state = result._state || {};
@@ -198,9 +210,9 @@ drift.runTool({ remote: '$1', readonly: true, include_diffs: false }).then(resul
 }).catch(() => {});
 " 2>&1 || true
 
-  if [ -f "$SERVER/../tools/conform.js" ]; then
+  if [ -f "$TOOLS/conform.js" ]; then
   node -e "
-const conform = require('$SERVER/../tools/conform');
+const conform = require(require('path').resolve('$TOOLS', 'conform'));
 conform.runTool({ readonly: true, include_diffs: false }).then(result => {
   if (result.error) return;
   const requested = (result.requested_evaluations || []).length;
@@ -219,25 +231,25 @@ fi
 
 const POST_MERGE_HOOK = `#!/bin/sh
 # kb-mcp managed — updated by kb_init. Do not remove this line.
+# kb-mcp ships compiled — resolve the dist/tools dir (repo-relative, with an
+# absolute fallback baked at install time). path.resolve() in each node -e call
+# normalises both forms to an absolute id before require().
+LOCAL_TOOLS="knowledge/_mcp/dist/tools"
+BUNDLED_TOOLS="${_DIST_TOOLS}"
+TOOLS="$LOCAL_TOOLS"
+[ -d "$BUNDLED_TOOLS" ] && TOOLS="$BUNDLED_TOOLS"
+
 # 1. Rebuild _index.yaml
-LOCAL_REINDEX="knowledge/_mcp/tools/reindex.js"
-BUNDLED_REINDEX="${path.join(__dirname, '../tools/reindex.js')}"
-SCRIPT="$LOCAL_REINDEX"
-[ -f "$BUNDLED_REINDEX" ] && SCRIPT="$BUNDLED_REINDEX"
-node -e "require('./$SCRIPT').runTool({})" 2>/dev/null || true
+node -e "require(require('path').resolve('$TOOLS', 'reindex')).runTool({})" 2>/dev/null || true
 
 # 2. Dedupe baseline lines in drift queues (merge=union may have duplicated them)
-LOCAL_SERVER="knowledge/_mcp/server.js"
-BUNDLED_SERVER="${_SERVER_SCRIPT}"
-SERVER="$LOCAL_SERVER"
-[ -f "$BUNDLED_SERVER" ] && SERVER="$BUNDLED_SERVER"
-node -e "require('$SERVER/../tools/drift').runTool({ dedup_baselines: true }).catch(() => {})" 2>&1 || true
+node -e "require(require('path').resolve('$TOOLS', 'drift')).runTool({ dedup_baselines: true }).catch(() => {})" 2>&1 || true
 
 # 3. Run drift detection from ORIG_HEAD so cross-branch semantic conflicts are caught
 ORIG_HEAD=$(cat .git/ORIG_HEAD 2>/dev/null || echo "")
 if [ -n "$ORIG_HEAD" ]; then
   node -e "
-const drift = require('$SERVER/../tools/drift');
+const drift = require(require('path').resolve('$TOOLS', 'drift'));
 drift.runTool({ since: '$ORIG_HEAD' }).then(result => {
   if (result.error) {
     process.stderr.write('[kb-drift] post-merge skipped: ' + result.error + '\\\\n');

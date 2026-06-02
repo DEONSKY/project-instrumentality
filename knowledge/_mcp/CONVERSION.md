@@ -262,26 +262,28 @@ and the dist-consumed scripts are TypeScript under `strict`. Final gate: `tsc --
 live `kb_status` call returns content. Remaining source `.js` (by design): the 3 kept
 entrypoints + `server.js` shim + `scripts/copy-assets.cjs`.
 
-⚠ **One known regression — see F1 below (git-hook tool paths).**
+F1 (git-hook tool paths) resolved post-conversion — hooks now require the compiled
+`dist/tools/`. See the deferred-follow-ups section below.
 
 ---
 
 ## Deferred follow-ups (do NOT lose these)
-- **F1 (git-hooks emitted tool paths) — OPEN, action needed.** The hooks that
-  `lib/git-hooks.ts` generates `require()` source tool paths that are now `.ts` and
-  unreadable by plain `node`:
-    - pre-push: `[ -f "$SERVER/../tools/conform.js" ]` guard + `require('$SERVER/../tools/{conform,drift}')`
-    - post-merge: `LOCAL_REINDEX="knowledge/_mcp/tools/reindex.js"` + `require('$SERVER/../tools/drift')`
-  Impact: **graceful** (every branch has `|| true` / `.catch(()=>{})`, so commits/merges
-  never block) but the pre-push drift/conform advisories and post-merge auto-reindex
-  silently no-op on a TS install. Fix: repoint all hook tool references to the compiled
-  `dist/tools/*.js`. Subtlety — `SERVER` resolves to either the local `knowledge/_mcp/server.js`
-  shim (needs `$SERVER/../dist/tools/X`) or the bundled `dist/server.js` (needs `$SERVER/../tools/X`),
-  so the two depths differ; cleanest is to make `SERVER` always resolve to `dist/server.js`
-  (pkg-paths-style) so `$SERVER/../tools/X` is uniformly `dist/tools/X`. Also still copy
-  `scripts/kb-feature.sh` into dist (copy-assets already does this ✓). Needs kb_init +
-  merge-driver verification, so tracked as a focused follow-up rather than bundled into
-  the conversion commits.
+- **F1 (git-hooks emitted tool paths) — ✅ RESOLVED.** The generated pre-push /
+  post-merge hooks used to `require()` source tool paths (`$SERVER/../tools/{drift,conform}`,
+  `tools/reindex.js`) that became `.ts` and unreadable by plain `node` — graceful (every
+  branch has `|| true` / `.catch()`) but the drift/conform advisories + post-merge
+  auto-reindex silently no-op'd on a TS install. Fix (`lib/git-hooks.ts`): all hook tool
+  refs now target the **compiled** `dist/tools/`. A single `TOOLS` base resolves to
+  repo-relative `knowledge/_mcp/dist/tools` with an absolute fallback baked from
+  `pkg-paths.packageRoot()` (strips trailing `dist`, so it points at the compiled tree
+  from either source or dist). Each `node -e` runs the path through `path.resolve()` so
+  both the relative and absolute forms `require()` cleanly (a bare relative module id
+  would hit node_modules; `./` on an absolute path would break). Dropped the now-unused
+  `_SERVER_SCRIPT`. `drivers/kb-reindex.js` (kept `.js`) was already repointed to
+  `dist/tools/reindex.js` in Phase 5. `scripts/kb-feature.sh` copied to dist by
+  copy-assets ✓. Verified: generated hooks have no `$SERVER`/source-`tools/*.js` refs;
+  drift/conform/reindex load via both the relative and absolute `TOOLS` from repo-root
+  cwd; `drift.runTool({readonly})` runs end-to-end; 294 tests green.
 - **F2 (Phase 4, build-tool-catalog.cjs): ✅ RESOLVED.** Triggered when get.ts
   landed (node can't require `.ts`). Fixed by registering `tsx/cjs` in the script
   and requiring the tool **source** (`.ts`, `.js` fallback) — NOT compiled
