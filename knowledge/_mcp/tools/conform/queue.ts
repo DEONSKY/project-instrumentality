@@ -8,9 +8,22 @@
 // than a separate baseline.js because conform has only the parse/set pair
 // and the dedup logic — no SHA descent math like drift.
 
-const fs = require('fs')
-const path = require('path')
-const { KB_ROOT } = require('../../lib/kb-constants')
+import * as path from 'path'
+import { KB_ROOT } from '../../lib/kb-constants'
+import type { Acknowledgement } from '../../src/types/drift'
+import type {
+  ConformFile,
+  ConformEntry,
+  ConformState,
+  ConformStandard,
+  ConformRule,
+  ConformUpsertFile,
+  ConformLogEntry
+} from '../../src/types/conform'
+
+// fs-tracker monkey-patches fs in place; keep a CJS require so the patched
+// singleton is shared rather than rebound to read-only ESM bindings.
+const fs = require('fs') as typeof import('fs')
 
 const STANDARDS_DRIFT_PATH = path.join(KB_ROOT, 'sync/standards-drift.md')
 const STANDARDS_BACKLOG_PATH = path.join(KB_ROOT, 'sync/standards-backlog.md')
@@ -46,12 +59,12 @@ const BASELINE_RE = /<!--\s*baseline:\s*([a-f0-9]+)\s*-->/gi
 
 // ── Header / baseline helpers ─────────────────────────────────────────────────
 
-function parseBaseline(header) {
+function parseBaseline(header: string): string | null {
   const matches = [...header.matchAll(BASELINE_RE)]
   return matches.length > 0 ? matches[matches.length - 1][1] : null
 }
 
-function setBaseline(header, sha) {
+function setBaseline(header: string, sha: string): string {
   const stripped = header.replace(BASELINE_RE, '').replace(/\n{3,}/g, '\n\n')
   if (/<!-- AUTO-GENERATED[^\n]*-->\n/.test(stripped)) {
     return stripped.replace(/(<!-- AUTO-GENERATED[^\n]*-->\n)/, `$1<!-- baseline: ${sha} -->\n`)
@@ -59,7 +72,7 @@ function setBaseline(header, sha) {
   return `<!-- baseline: ${sha} -->\n` + stripped
 }
 
-function ensureHeader(filePath, header) {
+function ensureHeader(filePath: string, header: string): void {
   if (!fs.existsSync(filePath)) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true })
     fs.writeFileSync(filePath, header, 'utf8')
@@ -78,13 +91,13 @@ function ensureHeader(filePath, header) {
 
 const ACK_LINE_RE = /\*\*Acknowledged\*\*:\s*@(\S+)\s+at\s+`([^`]+)`\s+\(([^)]+)\)\s+—\s+"([^"]+)"/
 
-function parseAcknowledgement(block) {
+function parseAcknowledgement(block: string): Acknowledgement | null {
   const m = block.match(ACK_LINE_RE)
   if (!m) return null
   return { by: m[1], atCommit: m[2], atDate: m[3], reason: m[4] }
 }
 
-function formatAcknowledgement(ack) {
+function formatAcknowledgement(ack: Acknowledgement): string {
   const reason = (ack.reason || '').replace(/"/g, '\\"')
   return `- **Acknowledged**: @${ack.by} at \`${ack.atCommit}\` (${ack.atDate}) — "${reason}"`
 }
@@ -103,7 +116,7 @@ function formatAcknowledgement(ack) {
 //     - `...`
 //   - **Reason:** <one-line summary from latest judgment>
 
-function readQueue(filePath, header) {
+function readQueue(filePath: string, header: string): ConformState {
   ensureHeader(filePath, header)
   const content = fs.readFileSync(filePath, 'utf8')
   const headerEnd = content.indexOf('\n## ')
@@ -120,9 +133,9 @@ function readQueue(filePath, header) {
     const acknowledgement = parseAcknowledgement(block)
 
     // Files can be in a single "Files:" block OR per-party "Files (party: X):" blocks
-    const filesByParty = {} // null key for non-contract single block
+    const filesByParty: Record<string, ConformFile[]> = {} // null key for non-contract single block
     const lines = block.split('\n')
-    let currentParty = null
+    let currentParty: string | null = null
     let inFiles = false
     for (const line of lines) {
       const partyMatch = line.match(/^- \*\*Files(?:\s*\(party:\s*([^)]+)\))?:\*\*/)
@@ -157,12 +170,12 @@ function readQueue(filePath, header) {
       filesByParty,
       ...(acknowledgement && { acknowledgement })
     }
-  }).filter(e => e.queueKey)
+  }).filter(e => e.queueKey != null) as ConformEntry[]
 
   return { header: hdr, entries }
 }
 
-function writeQueue(filePath, header, entries) {
+function writeQueue(filePath: string, header: string, entries: ConformEntry[]): void {
   const body = entries.map(entry => {
     const partyKeys = Object.keys(entry.filesByParty || {})
     let filesBlock = ''
@@ -188,7 +201,7 @@ function writeQueue(filePath, header, entries) {
   fs.writeFileSync(filePath, header + (body ? '\n' + body + '\n' : ''), 'utf8')
 }
 
-function formatFileLine(f) {
+function formatFileLine(f: ConformFile): string {
   const latestNote = f.latestCommit && f.latestCommit !== f.sinceCommit
     ? `, latest \`${f.latestCommit}\` (${f.latestDate})`
     : ''
@@ -198,13 +211,13 @@ function formatFileLine(f) {
 
 // ── Audit log ────────────────────────────────────────────────────────────────
 
-function getDriftLogPath() {
+function getDriftLogPath(): string {
   const d = new Date()
   const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   return path.join(DRIFT_LOG_DIR, `${month}.md`)
 }
 
-function appendToDriftLog(entries) {
+function appendToDriftLog(entries: ConformLogEntry[]): void {
   if (!fs.existsSync(DRIFT_LOG_DIR)) fs.mkdirSync(DRIFT_LOG_DIR, { recursive: true })
   const logPath = getDriftLogPath()
   const DRIFT_LOG_HEADER = `<!-- AUTO-GENERATED audit trail — do not edit manually. -->\n\n# Drift Log\n\nResolved drift events. Append-only.\n\n`
@@ -267,19 +280,19 @@ function appendToDriftLog(entries) {
 
 // ── Pending evaluations cache ────────────────────────────────────────────────
 
-function writePending(pending) {
+function writePending(pending: { mode: string; [key: string]: unknown }): void {
   if (!fs.existsSync(PENDING_DIR)) fs.mkdirSync(PENDING_DIR, { recursive: true })
   const file = path.join(PENDING_DIR, `${pending.mode}.json`)
   fs.writeFileSync(file, JSON.stringify(pending, null, 2), 'utf8')
 }
 
-function readPending(mode) {
+function readPending(mode: string): unknown {
   const file = path.join(PENDING_DIR, `${mode}.json`)
   if (!fs.existsSync(file)) return null
   try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return null }
 }
 
-function clearPending(mode) {
+function clearPending(mode: string): void {
   const file = path.join(PENDING_DIR, `${mode}.json`)
   if (fs.existsSync(file)) fs.unlinkSync(file)
 }
@@ -291,16 +304,16 @@ function clearPending(mode) {
  * the matching party (or `_` for non-contracts). Returns 'new' for a brand-new
  * entry, 're_detected' for a Latest bump on an existing file, or null on no-op.
  */
-function upsertQueueEntry(state, standard, rule, files, reason) {
+function upsertQueueEntry(state: ConformState, standard: ConformStandard, rule: ConformRule, files: ConformUpsertFile[], reason: string | null | undefined): 'new' | 're_detected' | null {
   const queueKey = `${standard.id}.${rule.id}`
   let entry = state.entries.find(e => e.queueKey === queueKey)
-  let outcome = null
+  let outcome: 'new' | 're_detected' | null = null
   if (!entry) {
     entry = {
       queueKey,
-      standardId: standard.id,
-      standardKind: standard.kind,
-      ruleId: rule.id,
+      standardId: standard.id ?? null,
+      standardKind: standard.kind ?? null,
+      ruleId: rule.id ?? null,
       severity: rule.severity || 'warn',
       reason: reason || null,
       filesByParty: {}
@@ -354,19 +367,19 @@ function upsertQueueEntry(state, standard, rule, files, reason) {
  * drift's `handleCodeRename` shape but specialized for conform's per-rule
  * file lists.
  */
-function applyFileChangesToQueue(state, renamed, deleted) {
+function applyFileChangesToQueue(state: ConformState, renamed: Array<{ from: string; to: string }>, deleted: string[]): void {
   const renameMap = new Map(renamed.map(r => [r.from, r.to]))
   const deletedSet = new Set(deleted)
-  const surviving = []
+  const surviving: ConformEntry[] = []
   for (const entry of state.entries) {
     let totalFiles = 0
     for (const partyKey of Object.keys(entry.filesByParty || {})) {
       const list = entry.filesByParty[partyKey]
-      const updated = []
+      const updated: ConformFile[] = []
       for (const f of list) {
         if (deletedSet.has(f.path)) continue // drop deleted files
         if (renameMap.has(f.path)) {
-          updated.push({ ...f, path: renameMap.get(f.path), renamedFrom: f.path })
+          updated.push({ ...f, path: renameMap.get(f.path)!, renamedFrom: f.path })
         } else {
           updated.push(f)
         }
@@ -379,15 +392,15 @@ function applyFileChangesToQueue(state, renamed, deleted) {
   state.entries = surviving
 }
 
-function findEntryByKey(state, queueKey) {
+function findEntryByKey(state: ConformState, queueKey: string): ConformEntry | undefined {
   return state.entries.find(e => e.queueKey === queueKey)
 }
 
-function removeEntry(state, queueKey) {
+function removeEntry(state: ConformState, queueKey: string): void {
   state.entries = state.entries.filter(e => e.queueKey !== queueKey)
 }
 
-module.exports = {
+export {
   // Paths + headers
   STANDARDS_DRIFT_PATH,
   STANDARDS_BACKLOG_PATH,

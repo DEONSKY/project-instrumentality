@@ -363,3 +363,4 @@ export {
   VALID_SEVERITIES,
   VALID_DETECT_KINDS
 }
+export type { StandardIndexEntry, StandardRule, StandardParty, AppScope }

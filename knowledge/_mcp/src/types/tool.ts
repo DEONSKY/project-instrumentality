@@ -3,7 +3,7 @@
 // registered tool matches this contract.
 
 export interface JsonSchema {
-  type?: string
+  type?: string | string[]
   description?: string
   enum?: unknown[]
   items?: JsonSchema

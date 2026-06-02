@@ -34,7 +34,7 @@ interface FingerprintRule {
 
 interface FingerprintStandard {
   kind?: string
-  parties?: Record<string, { applies_to?: { paths?: string[] } }>
+  parties?: Record<string, { applies_to?: { paths?: string[] } }> | null
 }
 
 const KB_ROOT = 'knowledge'

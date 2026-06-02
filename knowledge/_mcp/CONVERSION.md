@@ -179,7 +179,7 @@ tool requires that are already `.ts` use `as typeof import('./x')`.
 ## Phase 4 — tools/ complex half (+ subdirs)
 - [x] get
 - [x] drift  *(drift.ts + drift/kb-match, drift/baseline, drift/queue)*
-- [ ] conform + conform/queue
+- [x] conform + conform/queue
 - [x] impact
 - [x] import + import/images, import/extract
 - [x] export
@@ -190,8 +190,13 @@ tool requires that are already `.ts` use `as typeof import('./x')`.
       SOURCE (.ts then .js fallback), NOT dist — avoids a shared↔kb-mcp build
       cycle.
 
-`any` count: 0 (documented `as typeof import(...)` typed-require casts + narrowing predicates only)
-- drift subdir types live in `src/types/drift.ts`; `PathPattern` re-exported from `lib/patterns`.
+**Phase 4 COMPLETE.** `any` count: 0 (documented `as typeof import(...)` typed-require
+casts + narrowing predicates only).
+- drift subdir types live in `src/types/drift.ts`; conform types in `src/types/conform.ts`.
+- `PathPattern` re-exported from `lib/patterns`; `Submodule` from `lib/submodule-sweep`;
+  `NameStatusEntry` from `lib/git-ops`; `StandardIndexEntry`/`StandardRule`/`StandardParty`/
+  `AppScope` from `lib/standards`.
+- `JsonSchema.type` widened to `string | string[]` (conform's `path_filter` uses a union type).
 
 ## Phase 5 — drivers/ + scripts/ (extension + CI critical)
 - [ ] scripts/live-status   *(extension spawns this; gate: bundled runner JSON)*

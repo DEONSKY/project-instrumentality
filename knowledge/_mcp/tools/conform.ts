@@ -1,22 +1,20 @@
-const fs = require('fs')
-const path = require('path')
-const crypto = require('crypto')
-const matter = require('gray-matter')
-const simpleGit = require('simple-git')
-const yaml = require('js-yaml')
-const { resolvePrompt } = require('../lib/prompts')
-const { loadGraph } = require('../lib/graph')
-const { loadRules } = require('../lib/rules')
-const { globMatch } = require('../lib/patterns')
-const { detectSubmodules } = require('../lib/submodule-sweep')
-const {
+import * as path from 'path'
+import matter from 'gray-matter'
+import simpleGit, { type SimpleGit } from 'simple-git'
+import { resolvePrompt } from '../lib/prompts'
+import { loadGraph } from '../lib/graph'
+import { loadRules } from '../lib/rules'
+import { globMatch } from '../lib/patterns'
+import { detectSubmodules } from '../lib/submodule-sweep'
+import {
   loadStandardsIndex,
   inferAppScope,
   getRule,
   validateStandard
-} = require('../lib/standards')
-const { preFilter } = require('../lib/rule-detect')
-const {
+} from '../lib/standards'
+import type { StandardIndexEntry, StandardRule, AppScope } from '../lib/standards'
+import { preFilter } from '../lib/rule-detect'
+import {
   readLedger,
   writeLedger,
   addPromotions,
@@ -24,32 +22,27 @@ const {
   getSuppressedPairs,
   applyFileChangesToLedger,
   computeRuleFingerprint
-} = require('../lib/promotion-ledger')
-const { runTool: runReindex } = require('./reindex')
-const {
+} from '../lib/promotion-ledger'
+import { runTool as runReindex } from './reindex'
+import {
   parseNameStatus,
   authorHandleFromEmail,
   baselineReachable,
   getLocalGitUserHandle
-} = require('../lib/git-ops')
-const { KB_ROOT } = require('../lib/kb-constants')
-const {
+} from '../lib/git-ops'
+import type { NameStatusEntry } from '../lib/git-ops'
+import { KB_ROOT } from '../lib/kb-constants'
+import type { ToolDefinition } from '../src/types/tool'
+import type { ConformState, ConformLogEntry } from '../src/types/conform'
+import {
   STANDARDS_DRIFT_PATH,
   STANDARDS_BACKLOG_PATH,
-  DRIFT_LOG_DIR,
-  PENDING_DIR,
-  STANDARDS_DRIFT_HEADER,
   STANDARDS_BACKLOG_HEADER,
-  BASELINE_RE,
+  STANDARDS_DRIFT_HEADER,
   parseBaseline,
   setBaseline,
-  ensureHeader,
-  parseAcknowledgement,
-  formatAcknowledgement,
   readQueue,
   writeQueue,
-  formatFileLine,
-  getDriftLogPath,
   appendToDriftLog,
   writePending,
   readPending,
@@ -58,7 +51,30 @@ const {
   applyFileChangesToQueue,
   findEntryByKey,
   removeEntry
-} = require('./conform/queue')
+} from './conform/queue'
+
+// fs-tracker monkey-patches fs in place; keep a CJS require so the patched
+// singleton is shared rather than rebound to read-only ESM bindings.
+const fs = require('fs') as typeof import('fs')
+const crypto = require('crypto') as typeof import('crypto')
+
+// Extract a message from an unknown caught value without a bare `any`.
+function errMessage(e: unknown): string | undefined {
+  return e instanceof Error ? e.message : undefined
+}
+
+// A changed file from getChangedFiles, carrying the private source flag.
+type ChangedFile = NameStatusEntry & { _source?: 'committed' | 'working-tree' }
+
+// One Phase-1 evaluation request: a (file, standard, rules) triple awaiting
+// LLM judgment.
+interface RequestedEvaluation {
+  file: string
+  standard_id: string
+  rule_ids: string[]
+  parties?: Array<string | undefined>
+  source: string
+}
 
 // Diff prefetch budgets — mirror drift's caps so a noisy run can't blow the
 // agent's context. The reproducible `cmd` is always preserved when content is
@@ -88,10 +104,10 @@ const TOTAL_CONTENT_CHAR_CAP = 32000
  * gitlink hasn't moved. Files carry a private `_source` tag the caller can
  * propagate onto queue entries.
  */
-async function getChangedFiles(git, ref, { includeWorkingTree = false } = {}) {
+async function getChangedFiles(git: SimpleGit, ref: string, { includeWorkingTree = false }: { includeWorkingTree?: boolean } = {}): Promise<ChangedFile[]> {
   // Parent committed: ref..HEAD, with committed submodule pointer changes
   // expanded into the actual files-inside.
-  let committed = []
+  let committed: ChangedFile[] = []
   try {
     const result = await git.diff(['--name-status', '-M', ref, 'HEAD'])
     committed = await expandSubmoduleEntries(git, parseNameStatus(result), ref)
@@ -110,13 +126,13 @@ async function getChangedFiles(git, ref, { includeWorkingTree = false } = {}) {
 
   // Parent working tree (no second ref → git diffs against working dir,
   // capturing staged + unstaged in one shot).
-  let parentWorkingTree = []
+  let parentWorkingTree: ChangedFile[] = []
   try {
     const result = await git.diff(['--name-status', '-M', ref])
     parentWorkingTree = parseNameStatus(result)
   } catch { /* leave empty */ }
 
-  let parentUntracked = []
+  let parentUntracked: ChangedFile[] = []
   try {
     const out = await git.raw(['ls-files', '--others', '--exclude-standard'])
     parentUntracked = out
@@ -137,7 +153,7 @@ async function getChangedFiles(git, ref, { includeWorkingTree = false } = {}) {
   // Iterate every submodule, regardless of pointer movement — uncommitted
   // edits inside a submodule must surface even when the parent gitlink
   // hasn't been bumped.
-  const subFiles = []
+  const subFiles: ChangedFile[] = []
   for (const sub of submodules) {
     try {
       const subRefLine = (await git.raw(['ls-tree', ref, '--', sub.path])).trim()
@@ -170,7 +186,7 @@ async function getChangedFiles(git, ref, { includeWorkingTree = false } = {}) {
 
   // Dedup against committed. Working-tree presence wins on Latest so the UI
   // renders "working tree" even when an earlier commit also touched the file.
-  const committedByPath = new Map()
+  const committedByPath = new Map<string, ChangedFile>()
   for (const f of committed) {
     committedByPath.set(f.path, f)
     if (f.oldPath) committedByPath.set(f.oldPath, f)
@@ -207,8 +223,8 @@ async function getChangedFiles(git, ref, { includeWorkingTree = false } = {}) {
 // Submodule-internal commits that haven't been bumped into the parent are
 // invisible to current-mode drift — the parent's diff is the source of truth.
 // Run kb_conform inside the submodule, or bump the pointer first.
-async function expandSubmoduleEntries(git, files, ref) {
-  const out = []
+async function expandSubmoduleEntries(git: SimpleGit, files: NameStatusEntry[], ref: string): Promise<ChangedFile[]> {
+  const out: ChangedFile[] = []
   for (const f of files) {
     let isSubmodule = false
     try {
@@ -242,7 +258,7 @@ async function expandSubmoduleEntries(git, files, ref) {
 
 // parseNameStatus + baselineReachable are imported from ../lib/git-ops
 
-async function resolveBootstrapRef(git) {
+async function resolveBootstrapRef(git: SimpleGit): Promise<string> {
   // Simpler than drift's full resolveLastSyncRef chain — conform's baseline
   // doesn't need to chase remote/upstream because the diff window is local.
   // Fall back to the empty tree SHA so first-run still produces a meaningful
@@ -260,7 +276,18 @@ async function resolveBootstrapRef(git) {
 
 // ── Phase 1 detect ────────────────────────────────────────────────────────────
 
-async function detect(opts) {
+interface DetectOpts {
+  mode?: string
+  scope?: string
+  since?: string
+  includeDiffs?: boolean
+  path_filter?: string | string[]
+  readonly?: boolean
+  includeWorkingTree?: boolean
+  promptMode?: string
+}
+
+async function detect(opts: DetectOpts): Promise<Record<string, unknown>> {
   const { mode = 'current', scope, since, includeDiffs = false, path_filter, readonly = false, includeWorkingTree = false, promptMode = 'inline' } = opts
   // Readonly callers (live overlay) always want working-tree visibility so the
   // panel previews drift before commit. Explicit opt-in (`include_working_tree`)
@@ -285,9 +312,10 @@ async function detect(opts) {
   // _rules.md has no app_root_patterns, every file's inferred scope is
   // null and `appScopeMatches` rejects every scoped standard silently —
   // the user sees 0 evaluations with no explanation. Surface it.
-  const configWarnings = []
-  const rawRules = typeof rules.getRaw === 'function' ? rules.getRaw() : rules
-  const hasAppRootPatterns = rawRules && rawRules.app_root_patterns && Object.keys(rawRules.app_root_patterns).length > 0
+  const configWarnings: string[] = []
+  const rawRules = (typeof rules.getRaw === 'function' ? rules.getRaw() : rules) as Record<string, unknown>
+  const appRootPatterns = rawRules && rawRules.app_root_patterns as Record<string, unknown> | undefined
+  const hasAppRootPatterns = appRootPatterns && Object.keys(appRootPatterns).length > 0
   if (!hasAppRootPatterns) {
     const scopedStandards = standardsIndex.filter(s => {
       const sc = s.app_scope
@@ -345,7 +373,7 @@ async function detect(opts) {
   } catch { /* non-fatal */ }
 
   // Resolve which files Phase 1 considers
-  let candidateFiles = []
+  let candidateFiles: ChangedFile[] = []
   if (mode === 'aspirational' && scope) {
     // Aspirational: scope is the standard's file path. Find rules in that
     // standard and intersect the tracked-file set with their applies_to.paths.
@@ -353,7 +381,7 @@ async function detect(opts) {
     if (!stdEntry) {
       return { error: `Standard not found in index: ${scope}. Run kb_reindex first.` }
     }
-    const ruleGlobs = []
+    const ruleGlobs: string[] = []
     if (stdEntry.kind === 'contract') {
       for (const party of Object.values(stdEntry.parties || {})) {
         for (const p of (party.applies_to && party.applies_to.paths) || []) ruleGlobs.push(p)
@@ -364,7 +392,7 @@ async function detect(opts) {
       }
     }
     const tracked = await listTrackedFiles(git)
-    const candidates = new Map() // path → 'committed' | 'working-tree'
+    const candidates = new Map<string, string>() // path → 'committed' | 'working-tree'
     for (const rel of tracked) candidates.set(rel, 'committed')
     // F18: include uncommitted (untracked-non-ignored + tracked-modified) when
     // the caller opted in via `include_working_tree` or is a readonly live
@@ -378,8 +406,8 @@ async function detect(opts) {
         }
       } catch { /* leave empty */ }
     }
-    const collected = new Set()
-    const sourceByPath = new Map()
+    const collected = new Set<string>()
+    const sourceByPath = new Map<string, string>()
     for (const [rel, src] of candidates) {
       if (!ruleGlobs.some(g => globMatch(rel, g))) continue
       if (filterGlobs && !filterGlobs.some(g => globMatch(rel, g))) continue
@@ -389,7 +417,7 @@ async function detect(opts) {
     if (filterGlobs && collected.size === 0) {
       return { error: `path_filter ${JSON.stringify(path_filter)} produced no candidates inside standard "${stdEntry.id}" (intersection with applies_to.paths is empty)` }
     }
-    candidateFiles = [...collected].map(p => ({ status: 'A', path: p, _source: sourceByPath.get(p) || 'committed' }))
+    candidateFiles = [...collected].map(p => ({ status: 'A', path: p, _source: sourceByPath.get(p) || 'committed' })) as ChangedFile[]
   } else {
     // Current-diff mode: changed files between baseline and HEAD. When the
     // caller opted in (`include_working_tree`) or is a readonly live overlay,
@@ -406,8 +434,8 @@ async function detect(opts) {
   const localUser = readonly ? await getLocalGitUserHandle(git) : null
 
   // Handle deletions and renames against open queue entries up front
-  const renamed = []
-  const deleted = []
+  const renamed: Array<{ from: string; to: string }> = []
+  const deleted: string[] = []
   for (const f of candidateFiles) {
     if (f.status === 'R' && f.oldPath) renamed.push({ from: f.oldPath, to: f.path })
     if (f.status === 'D') deleted.push(f.path)
@@ -422,7 +450,7 @@ async function detect(opts) {
   // (kb_write delete or external rm); keeps the queue from accumulating
   // ghosts.
   const liveStandardIds = new Set(standardsIndex.map(s => s.id))
-  const autoDismissed = []
+  const autoDismissed: ConformLogEntry[] = []
   queueState.entries = queueState.entries.filter(e => {
     if (e.standardId && !liveStandardIds.has(e.standardId)) {
       autoDismissed.push({ event_type: 'auto-dismissed-standard-removed', queue_key: e.queueKey, reason: `standard "${e.standardId}" removed` })
@@ -436,8 +464,8 @@ async function detect(opts) {
   // fingerprint has changed (i.e. a senior reviewer updated the standard).
   // Both events drop the entry from suppression so the rule re-evaluates
   // normally on this run.
-  const autoClosedPromotions = []
-  const survivingLedger = []
+  const autoClosedPromotions: ConformLogEntry[] = []
+  const survivingLedger: typeof ledgerState.entries = []
   for (const entry of ledgerState.entries) {
     if (!liveStandardIds.has(entry.standardId)) {
       autoClosedPromotions.push({
@@ -480,16 +508,16 @@ async function detect(opts) {
   // review. Applied to llm-survivors below so promoted (file, rule) pairs don't
   // re-fire until the standard changes or closed_promotion is called.
   const suppressedPairs = getSuppressedPairs(ledgerState)
-  const isSuppressed = (standardId, ruleId, filePath) => {
+  const isSuppressed = (standardId: string | undefined, ruleId: string | undefined, filePath: string): boolean => {
     const files = suppressedPairs.get(`${standardId}.${ruleId}`)
     return files ? files.has(filePath) : false
   }
 
   // Pre-filter every (file, rule) pair; survivors go into requested_evaluations
-  const requestedEvaluations = []
+  const requestedEvaluations: RequestedEvaluation[] = []
   const naCount = { count: 0 }
-  const fileContents = new Map()
-  const sprawlWarnings = []
+  const fileContents = new Map<string, string>()
+  const sprawlWarnings: Array<{ standard_id: string | undefined; rule_count: number; threshold: number }> = []
 
   for (const f of candidateFiles) {
     if (f.status === 'D') continue // deleted files don't need conformance check
@@ -498,9 +526,9 @@ async function detect(opts) {
     const fileAuthor = fileSource === 'working-tree' ? localUser : null
     const appScope = inferAppScope(filePath, rules)
 
-    let content
-    const readFile = () => {
-      if (fileContents.has(filePath)) return fileContents.get(filePath)
+    let content: string | undefined
+    const readFile = (): string => {
+      if (fileContents.has(filePath)) return fileContents.get(filePath)!
       try {
         const c = fs.readFileSync(filePath, 'utf8')
         fileContents.set(filePath, c)
@@ -528,7 +556,7 @@ async function detect(opts) {
       if (std.kind === 'contract') {
         // For contracts, every party whose applies_to.paths matches contributes
         // its rules. Each rule may have its own optional applies_to filter.
-        const matchingParties = []
+        const matchingParties: Array<{ partyName: string; party: import('../lib/standards').StandardParty }> = []
         for (const [partyName, party] of Object.entries(std.parties || {})) {
           if (!appScopeMatches(party.app_scope, appScope)) continue
           const partyPaths = (party.applies_to && party.applies_to.paths) || []
@@ -540,7 +568,7 @@ async function detect(opts) {
 
         if (!content) content = readFile()
 
-        const surviving = []
+        const surviving: string[] = []
         for (const rule of std.rules) {
           // Rule-level applies_to is optional intersect filter for contracts
           if (rule.applies_to && Array.isArray(rule.applies_to.paths) && rule.applies_to.paths.length > 0) {
@@ -565,10 +593,10 @@ async function detect(opts) {
             continue
           }
           if (isSuppressed(std.id, rule.id, filePath)) { naCount.count++; continue }
-          surviving.push(rule.id)
+          surviving.push(rule.id!)
         }
         if (surviving.length > 0) {
-          requestedEvaluations.push({ file: filePath, standard_id: std.id, rule_ids: surviving, parties: matchingParties.map(p => p.partyName), source: fileSource })
+          requestedEvaluations.push({ file: filePath, standard_id: std.id!, rule_ids: surviving, parties: matchingParties.map(p => p.partyName), source: fileSource })
         }
       } else {
         // stack-local / process / knowledge
@@ -580,7 +608,7 @@ async function detect(opts) {
 
         if (!content) content = readFile()
 
-        const surviving = []
+        const surviving: string[] = []
         for (const rule of matchingRules) {
           const result = preFilter(rule, filePath, content)
           if (result.decision === 'na' || result.decision === 'pass') { naCount.count++; continue }
@@ -596,10 +624,10 @@ async function detect(opts) {
             continue
           }
           if (isSuppressed(std.id, rule.id, filePath)) { naCount.count++; continue }
-          surviving.push(rule.id)
+          surviving.push(rule.id!)
         }
         if (surviving.length > 0) {
-          requestedEvaluations.push({ file: filePath, standard_id: std.id, rule_ids: surviving, source: fileSource })
+          requestedEvaluations.push({ file: filePath, standard_id: std.id!, rule_ids: surviving, source: fileSource })
         }
       }
     }
@@ -633,7 +661,7 @@ async function detect(opts) {
         file_contents: filesPrompt
       })
     } catch (e) {
-      prompt = `Error building prompt: ${e.message}`
+      prompt = `Error building prompt: ${errMessage(e)}`
     }
     if (mode === 'aspirational' && !filterGlobs && requestedEvaluations.length > 200) {
       prompt = `> NOTE: ${requestedEvaluations.length} evaluations in this sweep — if that exceeds what you can judge in one response, abort and re-run with \`path_filter\` to chunk by subtree (e.g. \`path_filter: "src/admin"\`). Submit_judgments must cover every requested triple in a single call.\n\n` + prompt
@@ -654,7 +682,7 @@ async function detect(opts) {
   if (!readonly) writePending(pending)
 
   // Optional diff prefetch — only meaningful in current-diff mode
-  let diffs
+  let diffs: Array<Record<string, unknown>> | undefined
   if (includeDiffs && mode !== 'aspirational' && requestedEvaluations.length > 0) {
     diffs = await prefetchDiffs(git, baseline, requestedEvaluations.map(r => r.file))
   }
@@ -717,10 +745,10 @@ async function detect(opts) {
   }
 }
 
-function buildRuleSpecsTable(requested, index) {
+function buildRuleSpecsTable(requested: RequestedEvaluation[], index: StandardIndexEntry[]): string {
   // Deduplicate by (standard_id, rule_id), output a compact table the agent can scan
-  const seen = new Set()
-  const rows = []
+  const seen = new Set<string>()
+  const rows: string[] = []
   for (const r of requested) {
     for (const ruleId of r.rule_ids) {
       const key = `${r.standard_id}.${ruleId}`
@@ -729,7 +757,7 @@ function buildRuleSpecsTable(requested, index) {
       const lookup = getRule(index, r.standard_id, ruleId)
       if (!lookup) continue
       const sev = lookup.rule.severity || 'warn'
-      const hint = (lookup.rule.detect && lookup.rule.detect.hint) || lookup.rule.description || ''
+      const hint = (lookup.rule.detect as { hint?: string } | undefined)?.hint || lookup.rule.description || ''
       const oneLine = String(hint).split('\n')[0].slice(0, 160)
       rows.push(`| \`${r.standard_id}.${ruleId}\` | ${sev} | ${oneLine.replace(/\|/g, '\\|')} |`)
     }
@@ -737,9 +765,9 @@ function buildRuleSpecsTable(requested, index) {
   return rows.length === 0 ? '_(no rules)_' : `| Rule | Severity | Hint |\n|---|---|---|\n${rows.join('\n')}`
 }
 
-function buildFileContentsBlock(requested, contents) {
-  const seen = new Set()
-  const blocks = []
+function buildFileContentsBlock(requested: RequestedEvaluation[], contents: Map<string, string>): string {
+  const seen = new Set<string>()
+  const blocks: string[] = []
   let total = 0
   for (const r of requested) {
     if (seen.has(r.file)) continue
@@ -768,10 +796,10 @@ function buildFileContentsBlock(requested, contents) {
 // every file in the queue, just without the diff content.
 const TOTAL_DIFF_CHAR_CAP = 40_000
 
-async function prefetchDiffs(git, baseline, files) {
+async function prefetchDiffs(git: SimpleGit, baseline: string, files: string[]): Promise<Array<Record<string, unknown>>> {
   let totalLines = 0
   let totalChars = 0
-  const out = []
+  const out: Array<Record<string, unknown>> = []
   for (const file of files) {
     if (totalLines >= TOTAL_LINE_CAP || totalChars >= TOTAL_DIFF_CHAR_CAP) {
       out.push({ file, cmd: `git diff ${baseline}..HEAD -- ${file}`, dropped: 'total cap reached' })
@@ -797,13 +825,13 @@ async function prefetchDiffs(git, baseline, files) {
       out.push({ file, cmd: `git diff ${baseline}..HEAD -- ${file}`, diff: emittedDiff })
       totalChars += emittedDiff.length
     } catch (e) {
-      out.push({ file, cmd: `git diff ${baseline}..HEAD -- ${file}`, error: e.message })
+      out.push({ file, cmd: `git diff ${baseline}..HEAD -- ${file}`, error: errMessage(e) })
     }
   }
   return out
 }
 
-function appScopeMatches(scope, appScope) {
+function appScopeMatches(scope: AppScope | undefined, appScope: string | null): boolean {
   if (!appScope) return scope === 'all' || (Array.isArray(scope) && scope.includes('all'))
   if (scope === 'all' || scope === appScope) return true
   if (Array.isArray(scope)) return scope.includes(appScope) || scope.includes('all')
@@ -814,17 +842,17 @@ function appScopeMatches(scope, appScope) {
 // _index.yaml. Returned paths are relative to KB_ROOT. Empty array if the
 // index is missing or up-to-date — the caller treats either as "nothing to
 // warn about".
-function findStaleStandards() {
+function findStaleStandards(): string[] {
   const indexPath = path.join(KB_ROOT, '_index.yaml')
   if (!fs.existsSync(indexPath)) return []
   const indexMtime = fs.statSync(indexPath).mtimeMs
   const standardsDir = path.join(KB_ROOT, 'standards')
   if (!fs.existsSync(standardsDir)) return []
-  const stale = []
-  const stack = [standardsDir]
+  const stale: string[] = []
+  const stack: string[] = [standardsDir]
   while (stack.length > 0) {
-    const dir = stack.pop()
-    let entries
+    const dir = stack.pop()!
+    let entries: import('fs').Dirent[]
     try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { continue }
     for (const ent of entries) {
       const abs = path.join(dir, ent.name)
@@ -845,7 +873,7 @@ function findStaleStandards() {
 // --recurse-submodules pulls in submodule-internal paths so aspirational sweeps
 // don't lose coverage relative to the prior fs.walk; falls back to the parent
 // repo if the flag isn't supported or a submodule isn't initialized.
-async function listTrackedFiles(git) {
+async function listTrackedFiles(git: SimpleGit): Promise<string[]> {
   try {
     const out = await git.raw(['ls-files', '--recurse-submodules'])
     return out.split('\n').filter(Boolean)
@@ -862,10 +890,10 @@ async function listTrackedFiles(git) {
 // Accept string or array; auto-expand directory-shaped inputs to recursive
 // globs ("src/admin" → "src/admin/**") so the most natural caller input
 // matches files under that subtree instead of returning nothing.
-function normalizePathFilter(input) {
+function normalizePathFilter(input: string | string[] | null | undefined): string[] | null {
   if (input == null) return null
   const arr = Array.isArray(input) ? input : [input]
-  const out = []
+  const out: string[] = []
   for (const p of arr) {
     if (typeof p !== 'string' || !p) continue
     if (/[*?]/.test(p)) { out.push(p); continue }
@@ -877,15 +905,19 @@ function normalizePathFilter(input) {
 
 // ── Phase 1.5 submit ─────────────────────────────────────────────────────────
 
-async function submitJudgments(opts) {
+interface PendingSession { requested?: RequestedEvaluation[]; head_sha_short?: string; head_date?: string; mode?: string; scope?: string | null }
+interface Judgment { file?: string; standard_id?: string; rule_id?: string; status?: string; reason?: string }
+
+async function submitJudgments(opts: { submit_judgments?: unknown; mode?: string }): Promise<Record<string, unknown>> {
   const { submit_judgments, mode = 'current' } = opts
   if (!Array.isArray(submit_judgments)) {
     return { error: 'submit_judgments must be an array of {file, standard_id, rule_id, status, reason}' }
   }
-  const pending = readPending(mode)
+  const judgments = submit_judgments as Judgment[]
+  const pending = readPending(mode) as PendingSession | null
   if (!pending) {
     const otherMode = mode === 'current' ? 'aspirational' : 'current'
-    const otherPending = readPending(otherMode)
+    const otherPending = readPending(otherMode) as PendingSession | null
     const hint = otherPending && otherPending.requested && otherPending.requested.length > 0
       ? ` Did you mean mode: "${otherMode}"? A pending ${otherMode} session with ${otherPending.requested.length} evaluation(s) exists.`
       : ''
@@ -893,7 +925,7 @@ async function submitJudgments(opts) {
   }
   if (!Array.isArray(pending.requested) || pending.requested.length === 0) {
     const otherMode = mode === 'current' ? 'aspirational' : 'current'
-    const otherPending = readPending(otherMode)
+    const otherPending = readPending(otherMode) as PendingSession | null
     const hint = otherPending && otherPending.requested && otherPending.requested.length > 0
       ? ` Did you mean mode: "${otherMode}"? A pending ${otherMode} session with ${otherPending.requested.length} evaluation(s) exists.`
       : ''
@@ -901,18 +933,18 @@ async function submitJudgments(opts) {
   }
 
   // Build set of expected (file, standard_id, rule_id) triples
-  const expected = new Set()
+  const expected = new Set<string>()
   for (const r of pending.requested) {
     for (const ruleId of r.rule_ids) {
       expected.add(`${r.file}::${r.standard_id}::${ruleId}`)
     }
   }
-  const submitted = new Set()
-  for (const j of submit_judgments) {
+  const submitted = new Set<string>()
+  for (const j of judgments) {
     if (!j.file || !j.standard_id || !j.rule_id || !j.status) continue
     submitted.add(`${j.file}::${j.standard_id}::${j.rule_id}`)
   }
-  const gaps = []
+  const gaps: Array<{ file: string; standard_id: string; rule_id: string }> = []
   for (const key of expected) {
     if (!submitted.has(key)) {
       const [file, standard_id, rule_id] = key.split('::')
@@ -928,8 +960,8 @@ async function submitJudgments(opts) {
   }
 
   const validStatuses = new Set(['pass', 'fail', 'n/a'])
-  for (const j of submit_judgments) {
-    if (!validStatuses.has(j.status)) {
+  for (const j of judgments) {
+    if (!validStatuses.has(j.status ?? '')) {
       return { error: `Invalid status "${j.status}" for ${j.file}.${j.standard_id}.${j.rule_id} — must be pass | fail | n/a` }
     }
   }
@@ -944,24 +976,24 @@ async function submitJudgments(opts) {
   let entriesNew = 0
   let entriesReDetected = 0
 
-  for (const j of submit_judgments) {
+  for (const j of judgments) {
     if (j.status !== 'fail') continue
-    const lookup = getRule(standardsIndex, j.standard_id, j.rule_id)
+    const lookup = getRule(standardsIndex, j.standard_id!, j.rule_id!)
     if (!lookup) continue
     const { standard, rule } = lookup
     // For contracts, derive the matching party from the file path
-    let partyName = null
+    let partyName: string | null = null
     if (standard.kind === 'contract' && standard.parties) {
       for (const [name, p] of Object.entries(standard.parties)) {
         const paths = (p.applies_to && p.applies_to.paths) || []
-        if (paths.some(g => globMatch(j.file, g))) { partyName = name; break }
+        if (paths.some(g => globMatch(j.file!, g))) { partyName = name; break }
       }
     }
     const outcome = upsertQueueEntry(queueState, standard, rule, [{
       partyName,
-      filePath: j.file,
-      sinceCommit: pending.head_sha_short,
-      sinceDate: pending.head_date
+      filePath: j.file!,
+      sinceCommit: pending.head_sha_short ?? '',
+      sinceDate: pending.head_date ?? ''
     }], j.reason || '')
     if (outcome === 'new') entriesNew++
     else if (outcome === 're_detected') entriesReDetected++
@@ -974,7 +1006,7 @@ async function submitJudgments(opts) {
     queue_advanced: true,
     entries_new: entriesNew,
     entries_re_detected: entriesReDetected,
-    judgments_processed: submit_judgments.length
+    judgments_processed: judgments.length
   }
 }
 
@@ -982,14 +1014,14 @@ async function submitJudgments(opts) {
 // ── Phase 2 resolutions ──────────────────────────────────────────────────────
 
 
-async function resolveApplied(items, mode = 'current') {
+async function resolveApplied(items: Array<{ queue_key: string }>, mode = 'current'): Promise<Record<string, unknown>> {
   if (!Array.isArray(items)) return { error: 'applied must be an array of {queue_key}' }
   const queuePath = mode === 'aspirational' ? STANDARDS_BACKLOG_PATH : STANDARDS_DRIFT_PATH
   const queueHeader = mode === 'aspirational' ? STANDARDS_BACKLOG_HEADER : STANDARDS_DRIFT_HEADER
   const state = readQueue(queuePath, queueHeader)
-  const logEntries = []
-  const removed = []
-  const missing = []
+  const logEntries: ConformLogEntry[] = []
+  const removed: string[] = []
+  const missing: string[] = []
   for (const it of items) {
     const e = findEntryByKey(state, it.queue_key)
     if (!e) { missing.push(it.queue_key); continue }
@@ -1002,15 +1034,15 @@ async function resolveApplied(items, mode = 'current') {
   return { resolved: removed.length, removed, missing }
 }
 
-async function resolveExempted(items, mode = 'current') {
+async function resolveExempted(items: Array<{ queue_key?: string; file_paths?: string[]; reason?: string }>, mode = 'current'): Promise<Record<string, unknown>> {
   if (!Array.isArray(items)) return { error: 'exempted must be an array of {queue_key, file_paths, reason}' }
   const queuePath = mode === 'aspirational' ? STANDARDS_BACKLOG_PATH : STANDARDS_DRIFT_PATH
   const queueHeader = mode === 'aspirational' ? STANDARDS_BACKLOG_HEADER : STANDARDS_DRIFT_HEADER
   const state = readQueue(queuePath, queueHeader)
-  const logEntries = []
-  const removed = []
-  const missing = []
-  const exceptionWritebacks = []
+  const logEntries: ConformLogEntry[] = []
+  const removed: string[] = []
+  const missing: string[] = []
+  const exceptionWritebacks: Array<{ standardId: string | null; ruleId: string | null; paths: string[]; reason: string }> = []
 
   for (const it of items) {
     if (!it.queue_key || !Array.isArray(it.file_paths) || it.file_paths.length === 0 || !it.reason) {
@@ -1051,7 +1083,7 @@ async function resolveExempted(items, mode = 'current') {
   return { resolved: removed.length, removed, missing, exceptions_written: writebackResults }
 }
 
-async function appendExceptionToRule(standardId, ruleId, paths, reason) {
+async function appendExceptionToRule(standardId: string | null, ruleId: string | null, paths: string[], reason: string): Promise<Record<string, unknown>> {
   const graph = loadGraph(KB_ROOT)
   const fileEntry = Object.entries(graph.files || {}).find(([, e]) => e.id === standardId && e.type === 'standard')
   if (!fileEntry) return { error: `standard not found in index: ${standardId}` }
@@ -1086,17 +1118,17 @@ async function appendExceptionToRule(standardId, ruleId, paths, reason) {
   return { written: true, file_path: filePath }
 }
 
-async function resolvePromoted(items, mode = 'current') {
+async function resolvePromoted(items: Array<{ queue_key?: string; originating_files?: string[]; note?: string }>, mode = 'current'): Promise<Record<string, unknown>> {
   if (!Array.isArray(items)) return { error: 'promoted must be an array of {queue_key, originating_files, note?}' }
   const queuePath = mode === 'aspirational' ? STANDARDS_BACKLOG_PATH : STANDARDS_DRIFT_PATH
   const queueHeader = mode === 'aspirational' ? STANDARDS_BACKLOG_HEADER : STANDARDS_DRIFT_HEADER
   const state = readQueue(queuePath, queueHeader)
   const ledgerState = readLedger()
   const standardsIndex = loadStandardsIndex(loadGraph(KB_ROOT))
-  const logEntries = []
-  const ledgerItems = []
-  const removed = []
-  const missing = []
+  const logEntries: ConformLogEntry[] = []
+  const ledgerItems: Parameters<typeof addPromotions>[1] = []
+  const removed: string[] = []
+  const missing: string[] = []
   const promotedAt = new Date().toISOString().split('T')[0]
   for (const it of items) {
     if (!it.queue_key || !Array.isArray(it.originating_files)) {
@@ -1111,12 +1143,12 @@ async function resolvePromoted(items, mode = 'current') {
 
     ledgerItems.push({
       queueKey: e.queueKey,
-      standardId: e.standardId,
+      standardId: e.standardId ?? '',
       standardKind: e.standardKind || (std && std.kind) || null,
-      ruleId: e.ruleId,
+      ruleId: e.ruleId ?? '',
       severity: e.severity,
       ruleFingerprint,
-      files: it.originating_files.map(p => ({ path: p, promotedAt, ...(it.note && { note: it.note }) }))
+      files: it.originating_files!.map(p => ({ path: p, promotedAt, ...(it.note && { note: it.note }) }))
     })
 
     removeEntry(state, it.queue_key)
@@ -1150,13 +1182,13 @@ async function resolvePromoted(items, mode = 'current') {
  * ignored because the ledger is shared across modes (the same (file, rule)
  * pair shouldn't be suppressed in one mode and active in another).
  */
-async function resolveClosedPromotion(items) {
+async function resolveClosedPromotion(items: Array<{ queue_key?: string; file_paths?: string[]; reason?: string }>): Promise<Record<string, unknown>> {
   if (!Array.isArray(items)) return { error: 'closed_promotion must be an array of {queue_key, file_paths, reason}' }
   const ledgerState = readLedger()
-  const logEntries = []
-  const removed = []
-  const missing = []
-  const exceptionWritebacks = []
+  const logEntries: ConformLogEntry[] = []
+  const removed: string[] = []
+  const missing: string[] = []
+  const exceptionWritebacks: Array<{ standardId: string | null; ruleId: string | null; paths: string[]; reason: string }> = []
 
   for (const it of items) {
     if (!it.queue_key || !Array.isArray(it.file_paths) || it.file_paths.length === 0 || !it.reason) {
@@ -1179,7 +1211,7 @@ async function resolveClosedPromotion(items) {
     })
   }
 
-  removePromotions(ledgerState, items.map(it => ({ queueKey: it.queue_key, file_paths: it.file_paths })))
+  removePromotions(ledgerState, items.map(it => ({ queueKey: it.queue_key ?? '', file_paths: it.file_paths })))
   writeLedger(ledgerState)
   if (logEntries.length) appendToDriftLog(logEntries)
 
@@ -1194,14 +1226,14 @@ async function resolveClosedPromotion(items) {
   return { resolved: removed.length, removed, missing, exceptions_written: writebackResults }
 }
 
-async function resolveDismissed(items, mode = 'current') {
+async function resolveDismissed(items: Array<{ queue_key?: string; reason?: string }>, mode = 'current'): Promise<Record<string, unknown>> {
   if (!Array.isArray(items)) return { error: 'dismissed must be an array of {queue_key, reason}' }
   const queuePath = mode === 'aspirational' ? STANDARDS_BACKLOG_PATH : STANDARDS_DRIFT_PATH
   const queueHeader = mode === 'aspirational' ? STANDARDS_BACKLOG_HEADER : STANDARDS_DRIFT_HEADER
   const state = readQueue(queuePath, queueHeader)
-  const logEntries = []
-  const removed = []
-  const missing = []
+  const logEntries: ConformLogEntry[] = []
+  const removed: string[] = []
+  const missing: string[] = []
   for (const it of items) {
     if (!it.queue_key || !it.reason) {
       return { error: `dismissed item requires queue_key and reason: ${JSON.stringify(it)}` }
@@ -1220,15 +1252,15 @@ async function resolveDismissed(items, mode = 'current') {
 // Acknowledge — non-resolving annotation. Stamps `**Acknowledged**: @author`
 // on the entry block but leaves the entry in the queue. CI still treats acked
 // entries as pending; a later resolving verdict overrides.
-async function resolveAcknowledge(items, { mode = 'current', readonly = false } = {}) {
+async function resolveAcknowledge(items: Array<{ queue_key?: string; reason?: string }>, { mode = 'current', readonly = false }: { mode?: string; readonly?: boolean } = {}): Promise<Record<string, unknown>> {
   if (!Array.isArray(items)) return { error: 'acknowledge must be an array of {queue_key, reason}' }
   const queuePath = mode === 'aspirational' ? STANDARDS_BACKLOG_PATH : STANDARDS_DRIFT_PATH
   const queueHeader = mode === 'aspirational' ? STANDARDS_BACKLOG_HEADER : STANDARDS_DRIFT_HEADER
   const state = readQueue(queuePath, queueHeader)
 
   const git = simpleGit(process.cwd())
-  let ackBy = null
-  let ackCommit = null
+  let ackBy: string | null = null
+  let ackCommit: string | null = null
   let ackDate = new Date().toISOString().split('T')[0]
   try {
     const email = (await git.raw(['config', 'user.email'])).trim()
@@ -1242,9 +1274,9 @@ async function resolveAcknowledge(items, { mode = 'current', readonly = false } 
     }
   } catch { /* fall through to per-item error */ }
 
-  const acknowledged = []
-  const missing = []
-  const logEntries = []
+  const acknowledged: string[] = []
+  const missing: string[] = []
+  const logEntries: ConformLogEntry[] = []
   for (const it of items) {
     if (!it || !it.queue_key) {
       return { error: `acknowledge item requires queue_key: ${JSON.stringify(it)}` }
@@ -1271,12 +1303,12 @@ async function resolveAcknowledge(items, { mode = 'current', readonly = false } 
 
 // ── Admin helpers ────────────────────────────────────────────────────────────
 
-async function forceBaseline(opts) {
+async function forceBaseline(opts: { force_baseline?: string; purge?: boolean; mode?: string }): Promise<Record<string, unknown>> {
   const { force_baseline, purge, mode = 'current' } = opts
   const queuePath = mode === 'aspirational' ? STANDARDS_BACKLOG_PATH : STANDARDS_DRIFT_PATH
   const queueHeader = mode === 'aspirational' ? STANDARDS_BACKLOG_HEADER : STANDARDS_DRIFT_HEADER
   const state = readQueue(queuePath, queueHeader)
-  let sha = force_baseline
+  let sha: string | null | undefined = force_baseline
   if (sha === 'HEAD') {
     try {
       const git = simpleGit(process.cwd())
@@ -1298,7 +1330,27 @@ async function forceBaseline(opts) {
 
 // ── Tool entry ───────────────────────────────────────────────────────────────
 
-async function runTool(args = {}) {
+interface ConformArgs {
+  since?: string
+  mode?: string
+  scope?: string
+  path_filter?: string | string[]
+  submit_judgments?: unknown
+  applied?: unknown
+  exempted?: unknown
+  promoted?: unknown
+  dismissed?: unknown
+  closed_promotion?: unknown
+  acknowledge?: unknown
+  force_baseline?: string
+  purge?: boolean
+  include_diffs?: boolean
+  readonly?: boolean
+  include_working_tree?: boolean
+  prompt_mode?: string
+}
+
+async function runTool(args: ConformArgs = {}): Promise<Record<string, unknown>> {
   const {
     since,
     mode = 'current',
@@ -1326,16 +1378,16 @@ async function runTool(args = {}) {
   const resolutionArgs = { applied, exempted, promoted, dismissed, closed_promotion }
   const provided = Object.entries(resolutionArgs).filter(([, v]) => Array.isArray(v))
   if (provided.length > 1) {
-    const keysByResolution = {}
+    const keysByResolution: Record<string, string[]> = {}
     for (const [name, arr] of provided) {
-      keysByResolution[name] = arr.map(it => it && it.queue_key).filter(Boolean)
+      keysByResolution[name] = (arr as Array<{ queue_key?: string }>).map(it => it && it.queue_key).filter((k): k is string => Boolean(k))
     }
-    const seen = new Map()
-    const conflicts = []
+    const seen = new Map<string, string>()
+    const conflicts: Array<{ queue_key: string; resolutions: string[] }> = []
     for (const [name, keys] of Object.entries(keysByResolution)) {
       for (const key of keys) {
         if (seen.has(key)) {
-          conflicts.push({ queue_key: key, resolutions: [seen.get(key), name] })
+          conflicts.push({ queue_key: key, resolutions: [seen.get(key)!, name] })
         } else {
           seen.set(key, name)
         }
@@ -1361,17 +1413,7 @@ async function runTool(args = {}) {
   return detect({ since, mode, scope, path_filter, includeDiffs: include_diffs, readonly, includeWorkingTree: include_working_tree, promptMode: prompt_mode })
 }
 
-module.exports = {
-  runTool,
-  // Exposed for tests / direct callers
-  STANDARDS_DRIFT_PATH,
-  STANDARDS_BACKLOG_PATH,
-  parseBaseline,
-  setBaseline,
-  readQueue,
-  writeQueue,
-  upsertQueueEntry,
-  definition: {
+const definition: ToolDefinition = {
     name: 'kb_conform',
     description: 'Three-phase non-functional conformance check. Phase 1 (no resolution args): MCP runs cheap pre-filters and returns requested_evaluations + a prompt for the agent to evaluate. The prompt embeds the rule specs and file contents needed to judge; git diffs are NOT prefetched by default (pass include_diffs:true for the diff prefetch, or use the diffs_hint command on demand). Phase 1.5 (submit_judgments): agent submits per-rule judgments — must cover every requested triple in a single call (partial submissions return gaps[] and are not persisted across calls). Phase 2 (applied/exempted/promoted/dismissed): close queue entries. Promoted (file, rule) pairs are suppressed from re-detection until the standard is updated (auto-close on rule fingerprint change) or a senior reviewer calls closed_promotion. Aspirational mode (mode: aspirational, scope: <standard-file>): retroactive sweep into a separate backlog queue; pass path_filter to chunk a large sweep by subtree.',
     inputSchema: {
@@ -1410,5 +1452,7 @@ module.exports = {
         prompt_mode: { type: 'string', enum: ['inline', 'reference'], description: 'Phase 1 only. "inline" (default): the agent-facing prompt is included in the response — can exceed the MCP response cap on sweeps with many evaluations. "reference": the prompt is written to knowledge/sync/.prompts/conform-phase1-<mode>-<hash>.md and a `prompt_path` field is returned instead; the agent reads the file directly. Use this when the inline response is being truncated.' }
       }
     }
-  }
 }
+
+// Exposed for tests / direct callers alongside the MCP surface.
+export { runTool, STANDARDS_DRIFT_PATH, STANDARDS_BACKLOG_PATH, parseBaseline, setBaseline, readQueue, writeQueue, upsertQueueEntry, definition }
