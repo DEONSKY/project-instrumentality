@@ -241,17 +241,47 @@ Gate: full MCP smoke — ListTools=22 + live `kb_status` call returns content (n
 
 **Phase 7 COMPLETE.** 294 tests green as `.ts` under tsx; `tsc --noEmit` clean.
 
-## Phase 8 — tighten & optional quality
-- [ ] `allowJs: false`; final strict sweep; drive any residual `any`/escape hatches to 0.
-- [ ] Optional, separated LLM quality refactors on suitable parts.
+## Phase 8 — tighten & final audit
+- [~] `allowJs: false` — **intentionally NOT set.** The Phase-5 user-approved split keeps
+      3 committed `.js` entrypoints (`scripts/lint-standalone.js`, `drivers/kb-{conflict,reindex}.js`)
+      that must run pre-build from source AND land in `dist/` for the extension bundler.
+      `allowJs:true` gives both for free; flipping it to false would drop them from `dist/`
+      and require re-plumbing `copy-assets`, with zero type-safety gain (they're `checkJs:false`).
+      `strict:true` is fully enforced on every `.ts` (the actual goal).
+- [x] Final strict sweep: **0 bare `any`** across `lib tools drivers scripts src server.ts`
+      (grep verified). Escape hatches in use, all justified, none are `any`:
+      22× `as typeof import('…')` (typed `require` for fs-tracker's in-place fs patch +
+      dynamic tool/lib loads), 2 ambient decls in `src/types/ambient.d.ts` (pdfkit, pngjs),
+      and a handful of narrowing `as`/`!` at MCP-arg & dynamic-data boundaries.
+- [~] Optional LLM quality refactors: **skipped** — out of scope for a behavior-preserving
+      conversion; the brief was types-only, no logic changes.
+
+**Phase 8 COMPLETE — CONVERSION COMPLETE.** All `lib/`, `tools/`, `src/`, `server.ts`,
+and the dist-consumed scripts are TypeScript under `strict`. Final gate: `tsc --noEmit`
+0 errors · `npm run build` clean · `npm test` 294/294 · `server.js` shim boots 22 tools ·
+live `kb_status` call returns content. Remaining source `.js` (by design): the 3 kept
+entrypoints + `server.js` shim + `scripts/copy-assets.cjs`.
+
+⚠ **One known regression — see F1 below (git-hook tool paths).**
 
 ---
 
 ## Deferred follow-ups (do NOT lose these)
-- **F1 (Phase 2, git-hooks.js):** installed hook scripts bake absolute paths via
-  `__dirname` and reference `scripts/kb-feature.sh` + `tools/reindex.js`. tsc won't
-  emit the `.sh`. Route through pkg-paths AND add a build step to copy non-JS hook
-  assets into dist (or resolve them from the source tree like pkg-paths does).
+- **F1 (git-hooks emitted tool paths) — OPEN, action needed.** The hooks that
+  `lib/git-hooks.ts` generates `require()` source tool paths that are now `.ts` and
+  unreadable by plain `node`:
+    - pre-push: `[ -f "$SERVER/../tools/conform.js" ]` guard + `require('$SERVER/../tools/{conform,drift}')`
+    - post-merge: `LOCAL_REINDEX="knowledge/_mcp/tools/reindex.js"` + `require('$SERVER/../tools/drift')`
+  Impact: **graceful** (every branch has `|| true` / `.catch(()=>{})`, so commits/merges
+  never block) but the pre-push drift/conform advisories and post-merge auto-reindex
+  silently no-op on a TS install. Fix: repoint all hook tool references to the compiled
+  `dist/tools/*.js`. Subtlety — `SERVER` resolves to either the local `knowledge/_mcp/server.js`
+  shim (needs `$SERVER/../dist/tools/X`) or the bundled `dist/server.js` (needs `$SERVER/../tools/X`),
+  so the two depths differ; cleanest is to make `SERVER` always resolve to `dist/server.js`
+  (pkg-paths-style) so `$SERVER/../tools/X` is uniformly `dist/tools/X`. Also still copy
+  `scripts/kb-feature.sh` into dist (copy-assets already does this ✓). Needs kb_init +
+  merge-driver verification, so tracked as a focused follow-up rather than bundled into
+  the conversion commits.
 - **F2 (Phase 4, build-tool-catalog.cjs): ✅ RESOLVED.** Triggered when get.ts
   landed (node can't require `.ts`). Fixed by registering `tsx/cjs` in the script
   and requiring the tool **source** (`.ts`, `.js` fallback) — NOT compiled
