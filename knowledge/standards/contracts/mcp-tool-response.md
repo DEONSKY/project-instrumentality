@@ -66,7 +66,7 @@ rules:
     exceptions: []
 
   - id: error-envelope-shape
-    title: Tool errors must use `{ isError: true, content: [...] }` not bare exceptions
+    title: "Tool errors must use `{ isError: true, content: [...] }` not bare exceptions"
     severity: warn
     applies_to:
       paths:
