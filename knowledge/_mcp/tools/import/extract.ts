@@ -6,20 +6,38 @@
 // falling back to paragraphs when no headings are found; oversize chunks are
 // further sub-split by chunkDocument's helper.
 
-const fs = require('fs')
-const path = require('path')
-const { htmlHeadingsToMarkdown } = require('../../lib/html-to-md-headings')
-const images = require('./images')
+import * as fs from 'fs'
+import * as path from 'path'
+import { htmlHeadingsToMarkdown } from '../../lib/html-to-md-headings'
+import * as images from './images'
+import type { ImageContext } from './images'
 
 const SUPPORTED_FORMATS = ['.pdf', '.docx', '.md', '.txt', '.html']
 const MAX_CHUNK_CHARS = 16000
-const EXT_BY_MIME = {
+const EXT_BY_MIME: Record<string, string> = {
   'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif',
   'image/webp': 'webp', 'image/svg+xml': 'svg', 'image/bmp': 'bmp', 'image/tiff': 'tiff'
 }
 
+interface Chunk {
+  id: string
+  heading: string
+  heading_level: number
+  parent_heading: string
+  text: string
+  page_hint: string
+}
+
+interface ExtractResult { text: string; images: ImageContext['images'] }
+
+interface MammothImage {
+  contentType?: string
+  altText?: string
+  readAsBuffer(): Promise<Buffer>
+}
+
 // Build the per-import image context shared across the extraction passes.
-function newImageContext(filePath) {
+function newImageContext(filePath: string): ImageContext {
   return {
     baseSlug: images.slugify(path.basename(filePath, path.extname(filePath)), 'import'),
     stagingDir: images.stagingDirFor(filePath),
@@ -33,7 +51,7 @@ function newImageContext(filePath) {
 
 // `extractText` returns { text, images } — text is markdown with bare
 // `![[name]]` embeds; images is [{ name, alt, page }] staged on disk.
-async function extractText(filePath) {
+async function extractText(filePath: string): Promise<ExtractResult> {
   const ext = path.extname(filePath).toLowerCase()
   if (!SUPPORTED_FORMATS.includes(ext)) {
     throw new Error(`Unsupported format: ${ext}. Supported: ${SUPPORTED_FORMATS.join(', ')}`)
@@ -53,7 +71,7 @@ async function extractText(filePath) {
     html = images.extractDataUriImages(html, ctx)
     html = images.extractLocalFileImages(html, ctx)
     // Preserve remote images as markdown links — htmlHeadingsToMarkdown strips tags.
-    html = html.replace(/<img\b[^>]*?src=["']\s*(https?:\/\/[^"']+?)\s*["'][^>]*>/gi, (m, url) => {
+    html = html.replace(/<img\b[^>]*?src=["']\s*(https?:\/\/[^"']+?)\s*["'][^>]*>/gi, (m: string, url: string) => {
       const altM = /alt=["']([^"']*)["']/i.exec(m)
       return `![${altM ? altM[1] : ''}](${url})`
     })
@@ -66,14 +84,18 @@ async function extractText(filePath) {
   return { text, images: ctx.images }
 }
 
-async function extractDocx(filePath, ctx) {
-  const mammoth = require('mammoth')
+async function extractDocx(filePath: string, ctx: ImageContext): Promise<string> {
+  // mammoth ships no usable types here; treat as a loose record.
+  const mammoth = require('mammoth') as {
+    convertToHtml: (opts: unknown) => Promise<{ value: string }>
+    images: { imgElement: (fn: (image: MammothImage) => Promise<{ src: string }>) => unknown }
+  }
   const result = await mammoth.convertToHtml({
     path: filePath,
     // Stage each embedded image with a content-hashed name; emit a sentinel
     // src we convert to a bare embed below (before tags are stripped).
-    convertImage: mammoth.images.imgElement((image) =>
-      image.readAsBuffer().then((buffer) => {
+    convertImage: mammoth.images.imgElement((image: MammothImage) =>
+      image.readAsBuffer().then((buffer: Buffer) => {
         const ext = EXT_BY_MIME[(image.contentType || '').toLowerCase()] || 'png'
         const name = images.imageName(ctx.baseSlug, image.altText || '', buffer, ext)
         if (!ctx.seen.has(name) && buffer.length >= images.MIN_IMAGE_BYTES) {
@@ -89,12 +111,15 @@ async function extractDocx(filePath, ctx) {
   })
   let html = result.value
   html = images.extractDataUriImages(html, ctx)          // any base64 <img> residue
-  html = html.replace(/<img\b[^>]*?src=["']staged:([^"']+?)["'][^>]*>/gi, (m, name) => images.obsidianEmbed(name))
+  html = html.replace(/<img\b[^>]*?src=["']staged:([^"']+?)["'][^>]*>/gi, (_m: string, name: string) => images.obsidianEmbed(name))
   return htmlHeadingsToMarkdown(html)
 }
 
-async function extractPdf(filePath, ctx) {
-  const pdfParse = require('pdf-parse')
+interface PdfTextItem { str: string; transform: number[] }
+interface PdfPageData { pageNumber?: number; getTextContent(): Promise<{ items: PdfTextItem[] }> }
+
+async function extractPdf(filePath: string, ctx: ImageContext): Promise<string> {
+  const pdfParse = require('pdf-parse') as (buf: Buffer, opts?: unknown) => Promise<{ text: string }>
   const buffer = fs.readFileSync(filePath)
 
   // Text via pdf-parse (proven), with a per-page marker appended so images can
@@ -102,10 +127,10 @@ async function extractPdf(filePath, ctx) {
   // render and just adds the marker, so text quality is unchanged.
   let pageNo = 0
   const data = await pdfParse(buffer, {
-    pagerender: (pageData) => {
+    pagerender: (pageData: PdfPageData) => {
       const n = pageData.pageNumber || ++pageNo
       return pageData.getTextContent().then((tc) => {
-        let lastY, text = ''
+        let lastY: number | undefined, text = ''
         for (const item of tc.items) {
           text += (lastY === item.transform[5] || lastY === undefined ? '' : '\n') + item.str
           lastY = item.transform[5]
@@ -123,15 +148,15 @@ async function extractPdf(filePath, ctx) {
   return text
 }
 
-function insertPdfEmbeds(text, imageList) {
-  const byPage = new Map()
+function insertPdfEmbeds(text: string, imageList: ImageContext['images']): string {
+  const byPage = new Map<number, string[]>()
   for (const img of imageList) {
     if (img.page == null) continue
     if (!byPage.has(img.page)) byPage.set(img.page, [])
-    byPage.get(img.page).push(img.name)
+    byPage.get(img.page)!.push(img.name)
   }
-  const placed = new Set()
-  let out = text.replace(/@@PDFPAGE:(\d+)@@/g, (m, n) => {
+  const placed = new Set<number>()
+  let out = text.replace(/@@PDFPAGE:(\d+)@@/g, (_m: string, n: string) => {
     const page = parseInt(n, 10)
     const names = byPage.get(page)
     if (!names || !names.length) return ''
@@ -139,22 +164,22 @@ function insertPdfEmbeds(text, imageList) {
     return '\n\n' + names.map(images.obsidianEmbed).join('\n\n') + '\n\n'
   })
   // Fallback: any page whose marker was missing → append its embeds at the end.
-  const leftover = []
+  const leftover: string[] = []
   for (const [page, names] of byPage) if (!placed.has(page)) leftover.push(...names)
   if (leftover.length) out += '\n\n' + leftover.map(images.obsidianEmbed).join('\n\n') + '\n'
   return out
 }
 
-function chunkDocument(text) {
+function chunkDocument(text: string): Chunk[] {
   // Preserve fenced code blocks
-  const codeBlocks = []
-  const safeText = text.replace(/```[^\n]*\n[\s\S]*?\n```/g, (match) => {
+  const codeBlocks: string[] = []
+  const safeText = text.replace(/```[^\n]*\n[\s\S]*?\n```/g, (match: string) => {
     codeBlocks.push(match)
     const newlineCount = (match.match(/\n/g) || []).length
     return `__CODE_BLOCK_${codeBlocks.length - 1}__` + '\n'.repeat(Math.max(0, newlineCount - 1))
   })
 
-  function restoreCodeBlocks(text) {
+  function restoreCodeBlocks(text: string): string {
     let restored = text
     codeBlocks.forEach((block, idx) => {
       restored = restored.replace(`__CODE_BLOCK_${idx}__`, block)
@@ -163,14 +188,14 @@ function chunkDocument(text) {
   }
 
   // Split on markdown headings (H1-H6)
-  const chunks = []
+  const chunks: Chunk[] = []
   const headingRegex = /\n(#{1,6}) /
   const sections = safeText.split(headingRegex)
 
   // sections alternates: [preamble, '#', 'heading + body', '##', 'heading + body', ...]
   // First element is text before any heading
   let idx = 0
-  const headingStack = [] // tracks parent headings
+  const headingStack: Array<{ level: number; heading: string }> = [] // tracks parent headings
 
   // Handle preamble (text before first heading)
   if (sections[0] && sections[0].trim().length >= 50) {
@@ -222,7 +247,7 @@ function chunkDocument(text) {
 
     // Sub-split if chunk is too large
     if (text.length > MAX_CHUNK_CHARS) {
-      const subChunks = subSplitChunk(chunk, codeBlocks)
+      const subChunks = subSplitChunk(chunk)
       chunks.push(...subChunks)
       chunkCounter += subChunks.length
     } else {
@@ -254,9 +279,9 @@ function chunkDocument(text) {
   return chunks
 }
 
-function subSplitChunk(chunk) {
+function subSplitChunk(chunk: Chunk): Chunk[] {
   const { text, heading, heading_level, parent_heading } = chunk
-  const subChunks = []
+  const subChunks: Chunk[] = []
   const suffix = 'abcdefghijklmnopqrstuvwxyz'
 
   // Try splitting at sub-headings within the chunk text
@@ -338,7 +363,7 @@ function subSplitChunk(chunk) {
   return subChunks.length > 0 ? subChunks : [chunk]
 }
 
-module.exports = {
+export {
   extractText,
   chunkDocument,
   SUPPORTED_FORMATS,

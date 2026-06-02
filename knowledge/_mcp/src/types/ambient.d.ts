@@ -2,6 +2,25 @@
 // no @types package. Kept minimal — only the surface kb-mcp actually uses.
 // Prefer extending these over reaching for `any` at call sites.
 
+declare module 'pngjs' {
+  interface PNGOptions {
+    width?: number
+    height?: number
+    [key: string]: unknown
+  }
+  class PNG {
+    constructor(options?: PNGOptions)
+    width: number
+    height: number
+    data: Buffer
+    static sync: {
+      write(png: PNG): Buffer
+      read(buffer: Buffer): PNG
+    }
+  }
+  export { PNG }
+}
+
 declare module 'pdfkit' {
   import { Writable } from 'node:stream'
 
