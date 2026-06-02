@@ -92,3 +92,4 @@ export {
   baselineReachable,
   getLocalGitUserHandle
 }
+export type { NameStatusEntry }

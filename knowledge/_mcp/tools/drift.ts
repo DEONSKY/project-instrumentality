@@ -1,37 +1,33 @@
-const fs = require('fs')
-const path = require('path')
-const simpleGit = require('simple-git')
-const { loadRules } = require('../lib/rules')
-const { matchAllPatterns, resolveKbTarget, expandGlob } = require('../lib/patterns')
-const { loadGraph, getDependents } = require('../lib/graph')
-const { detectSubmodules: detectSubmodulesHelper, resolveSubmoduleRefs } = require('../lib/submodule-sweep')
-const {
-  parseNameStatus: sharedParseNameStatus,
+import * as path from 'path'
+import simpleGit, { type SimpleGit } from 'simple-git'
+import { loadRules } from '../lib/rules'
+import { matchAllPatterns, resolveKbTarget, expandGlob } from '../lib/patterns'
+import type { PathPattern } from '../lib/patterns'
+import { detectSubmodules as detectSubmodulesHelper, resolveSubmoduleRefs } from '../lib/submodule-sweep'
+import type { Submodule } from '../lib/submodule-sweep'
+import {
+  parseNameStatus as sharedParseNameStatus,
   authorHandleFromEmail,
   baselineReachable,
   getLocalGitUserHandle
-} = require('../lib/git-ops')
-const { KB_ROOT } = require('../lib/kb-constants')
+} from '../lib/git-ops'
+import type { NameStatusEntry } from '../lib/git-ops'
+import { KB_ROOT } from '../lib/kb-constants'
+import type { ToolDefinition } from '../src/types/tool'
+import type { CodeDriftState, KbDriftState, CodeDriftEntry, KbDriftEntry, DriftLogEntry } from '../src/types/drift'
 
-// Submodules of drift.js — keep wire contracts (CODE_DRIFT_HEADER, ...) intact.
-const { reverseMapKbTarget, matchesKbTargetPattern, isKbContentFile } = require('./drift/kb-match')
-const {
+// Submodules of drift.ts — keep wire contracts (CODE_DRIFT_HEADER, ...) intact.
+import { reverseMapKbTarget, isKbContentFile } from './drift/kb-match'
+import {
   parseBaseline,
   setBaseline,
-  isAncestor,
-  pickDescendantSha,
-  computeAdvancedBaseline,
   advanceQueueBaseline
-} = require('./drift/baseline')
-const {
+} from './drift/baseline'
+import {
   CODE_DRIFT_PATH,
   KB_DRIFT_PATH,
-  DRIFT_LOG_DIR,
   CODE_DRIFT_HEADER,
   KB_DRIFT_HEADER,
-  DRIFT_LOG_HEADER,
-  parseAcknowledgement,
-  formatAcknowledgement,
   extractQueueBody,
   readCodeDriftEntries,
   writeCodeDriftEntries,
@@ -41,14 +37,64 @@ const {
   upsertKbDriftEntry,
   handleCodeRename,
   handleKbRename,
-  ensureHeader,
   stampAndRecomputeFingerprints,
   appendToDriftLog,
   dedupBaselines
-} = require('./drift/queue')
+} from './drift/queue'
+
+// fs-tracker monkey-patches fs in place; keep a CJS require so the patched
+// singleton is shared rather than rebound to read-only ESM bindings.
+const fs = require('fs') as typeof import('fs')
 
 // drift uses similarity scores on rename/copy entries
-const parseNameStatus = (output) => sharedParseNameStatus(output, { includeSimilarity: true })
+const parseNameStatus = (output: string): NameStatusEntry[] => sharedParseNameStatus(output, { includeSimilarity: true })
+
+// Extract a message from an unknown caught value without a bare `any`.
+function errMessage(e: unknown): string | undefined {
+  return e instanceof Error ? e.message : undefined
+}
+
+// Per-run line-budget tracker for the pre-fetched `_diffs` payload.
+interface DiffBudget {
+  used_lines: number
+  cap_lines: number
+  skipped: Array<{ kind: string; key: string; reason: string; cmd: string | null }>
+  grep_budget_left: number
+  entryUsed?: number
+}
+
+// One commit touching a file, in chronological order, keyed by path in the index.
+interface CommitEntry { sha: string; date: string; author: string | null }
+type CommitIndex = Map<string, CommitEntry[]>
+
+// since/latest commit pair resolved from the commit index for one file.
+interface CommitRange {
+  sinceCommit: string
+  sinceDate: string
+  latestCommit: string | null
+  latestDate: string | null
+  author: string | null
+}
+
+// A changed file from getChangedFiles, carrying the private source flag.
+type ChangedFile = NameStatusEntry & { _source?: 'committed' | 'working-tree' }
+
+// A normalized change record fanned out from main + submodule diffs.
+interface ChangeRecord {
+  file: string
+  oldFile: string | null
+  status: string
+  indexPath: string
+  indexOldPath: string | null
+  fallbackCommit: string
+  fallbackDate: string
+  index: CommitIndex
+  isShared?: boolean
+  source: string
+}
+
+// Resolved git location for a (possibly submodule-relative) path.
+interface GitTarget { cwd: string; relativePath: string; submodule: string | null; isShared: boolean }
 
 // Budget for pre-fetched diffs returned via result._diffs. Prevents a single
 // large drift queue from blowing the agent's context. When caps are hit, the
@@ -115,7 +161,22 @@ const SNIPPET_MAX_CHARS = 120
  *     entry block, and logs a `drift-acknowledged` event. The entry stays in
  *     the queue; a subsequent resolving verdict still overrides.
  */
-async function runTool({ since = 'last-sync', summaries, reverted, kb_confirmed, dismiss, acknowledge, remote, force_baseline, purge, dedup_baselines, include_diffs = true, readonly = false } = {}) {
+interface DriftArgs {
+  since?: string
+  summaries?: Array<{ kb_target?: string; summary?: string }>
+  reverted?: Array<{ code_file?: string } | string>
+  kb_confirmed?: Array<{ kb_file?: string } | string>
+  dismiss?: Array<{ queue?: string; queue_key?: string; reason?: string }>
+  acknowledge?: Array<{ queue?: string; queue_key?: string; kb_target?: string; kb_file?: string; reason?: string }>
+  remote?: string
+  force_baseline?: string
+  purge?: boolean
+  dedup_baselines?: boolean
+  include_diffs?: boolean
+  readonly?: boolean
+}
+
+async function runTool({ since = 'last-sync', summaries, reverted, kb_confirmed, dismiss, acknowledge, remote, force_baseline, purge, dedup_baselines, include_diffs = true, readonly = false }: DriftArgs = {}): Promise<Record<string, unknown>> {
   if (dedup_baselines) return dedupBaselines()
   if (force_baseline || purge) return resetBaselines({ force_baseline, purge, readonly })
   if (summaries && Array.isArray(summaries)) return resolveWithSummaries(summaries, { readonly })
@@ -128,7 +189,7 @@ async function runTool({ since = 'last-sync', summaries, reverted, kb_confirmed,
 
 // ── Phase 1: detect drift ─────────────────────────────────────────────────────
 
-async function detectDrift(since, remote, { includeDiffs = true, readonly = false } = {}) {
+async function detectDrift(since: string, remote: string | undefined, { includeDiffs = true, readonly = false }: { includeDiffs?: boolean; readonly?: boolean } = {}): Promise<Record<string, unknown>> {
   const mainGit = simpleGit(process.cwd())
   const rules = loadRules(KB_ROOT)
 
@@ -138,11 +199,12 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
 
   // Re-bootstrap events collected here so they can be surfaced in the API
   // response (`re_bootstrapped[]`), not just stderr + drift-log/.
-  const rebootstrapEvents = []
+  const rebootstrapEvents: Array<Record<string, unknown>> = []
 
   // Resolve per-queue baselines. Explicit `since` overrides both; otherwise
   // read from the header, falling back to resolveLastSyncRef for bootstrap.
-  let bCode, bKb
+  let bCode: string | null
+  let bKb: string | null
   if (since !== 'last-sync') {
     bCode = since
     bKb = since
@@ -156,7 +218,7 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
     // re-bootstrap instead and warn loudly.
     if (bCode && !(await baselineReachable(mainGit, bCode))) {
       const old = bCode
-      const meta = {}
+      const meta: { via?: string | null } = {}
       bCode = await resolveLastSyncRef(mainGit, remote, meta)
       process.stderr.write(`[kb-drift] warning: code-drift baseline ${old} unreachable in parent repo (likely squash-merged or never fetched); re-bootstrapping. New baseline: ${bCode || '(none — skipping)'}\n`)
       if (!readonly) appendToDriftLog([{ event_type: 're-bootstrap', repo: 'parent', queue: 'code-drift', old_sha: old, new_sha: bCode, resolver_used: meta.via }])
@@ -164,7 +226,7 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
     }
     if (bKb && !(await baselineReachable(mainGit, bKb))) {
       const old = bKb
-      const meta = {}
+      const meta: { via?: string | null } = {}
       bKb = await resolveLastSyncRef(mainGit, remote, meta)
       process.stderr.write(`[kb-drift] warning: kb-drift baseline ${old} unreachable in parent repo (likely squash-merged or never fetched); re-bootstrapping. New baseline: ${bKb || '(none — skipping)'}\n`)
       if (!readonly) appendToDriftLog([{ event_type: 're-bootstrap', repo: 'parent', queue: 'kb-drift', old_sha: old, new_sha: bKb, resolver_used: meta.via }])
@@ -179,7 +241,7 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
   // post-run baseline advance.
   let headCommit = 'unknown'
   let headDate = new Date().toISOString().split('T')[0]
-  let headSha = null
+  let headSha: string | null = null
   try {
     const log = await mainGit.log({ maxCount: 1 })
     if (log.latest) {
@@ -189,18 +251,18 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
     }
   } catch { /* non-fatal */ }
 
-  const patterns = rules.getCodePathPatterns()
+  const patterns = rules.getCodePathPatterns() as PathPattern[]
   let codeEntriesNew = 0
   let codeEntriesReDetected = 0
   let kbEntriesNew = 0
   let kbEntriesReDetected = 0
-  const stalePatterns = []
+  const stalePatterns: Array<NonNullable<ReturnType<typeof handleCodeRename>['stalePattern']>> = []
   // F17: track submodules whose pointer hasn't moved but whose working tree
   // has uncommitted changes — those edits are invisible to a non-readonly
   // kb_drift call, which surprises users (their visible code change doesn't
   // produce a code-drift entry). Surface as a warning on the response so the
   // agent can prompt the user to bump the pointer or include working tree.
-  const submoduleUnbumped = []
+  const submoduleUnbumped: Array<{ path: string; reason: string }> = []
 
   // ── code→KB pass (B_code, main + submodules, non-KB files only) ───────────
   const submodules = await detectSubmodules()
@@ -210,8 +272,8 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
   // published queue stays deterministic.
   const includeWorkingTree = !!readonly
   const localUser = includeWorkingTree ? await getLocalGitUserHandle(mainGit) : null
-  let codeChanges = []
-  let mainCodeIndex = new Map()
+  const codeChanges: ChangeRecord[] = []
+  let mainCodeIndex: CommitIndex = new Map()
   if (bCode === null) {
     process.stderr.write('[kb-drift] warning: no sync baseline for code-drift — skipping code→KB detection\n')
   } else {
@@ -226,7 +288,7 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
         source: f._source || 'committed'
       })))
     } catch (e) {
-      return { code_entries: 0, kb_entries: 0, error: e.message }
+      return { code_entries: 0, kb_entries: 0, error: errMessage(e) }
     }
 
     for (const sub of submodules) {
@@ -328,8 +390,8 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
   }
 
   // ── kb→code pass (B_kb, main repo only, KB files only) ────────────────────
-  let kbChanges = []
-  let mainKbIndex = new Map()
+  const kbChanges: ChangeRecord[] = []
+  let mainKbIndex: CommitIndex = new Map()
   if (bKb === null) {
     process.stderr.write('[kb-drift] warning: no sync baseline for kb-drift — skipping kb→code detection\n')
   } else {
@@ -394,7 +456,7 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
   // recompute fingerprints for entries with one. Mismatches → auto-close +
   // emit AUTO-CLOSED-PATTERN-CHANGED. Mirrors the standards-side fingerprint
   // auto-close on rule changes.
-  const autoCloseRecords = []
+  const autoCloseRecords: DriftLogEntry[] = []
   stampAndRecomputeFingerprints(codeState, patterns, 'code-drift', autoCloseRecords, e => e.kbTarget)
   stampAndRecomputeFingerprints(kbState, patterns, 'kb-drift', autoCloseRecords, e => e.kbFile)
   if (autoCloseRecords.length > 0 && !readonly) {
@@ -431,7 +493,7 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
     ? ' (no new drift — pre-existing open entries remain)'
     : reDetectedNote
 
-  const result = {
+  const result: Record<string, unknown> = {
     code_entries: codeEntriesWritten,
     code_entries_new: codeEntriesNew,
     code_entries_re_detected: codeEntriesReDetected,
@@ -455,14 +517,14 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
   // on quiet noDrift runs except readonly mode (live watcher needs the data).
   if (!noDrift || readonly) {
     try {
-      const { auditPatterns, collectSourceFiles, collectKbContentFiles, collectSubmodulePaths } = require('../lib/pattern-audit')
+      const { auditPatterns, collectSourceFiles, collectKbContentFiles, collectSubmodulePaths } = require('../lib/pattern-audit') as typeof import('../lib/pattern-audit')
       const sourceFiles = collectSourceFiles(process.cwd())
       const kbFiles = collectKbContentFiles(KB_ROOT)
       const submodulePaths = collectSubmodulePaths(process.cwd())
       const audit = auditPatterns({ patterns, sourceFiles, kbFiles, submodulePaths })
       if (audit.findings.length > 0) result.pattern_audit = audit
     } catch (e) {
-      process.stderr.write(`[kb-drift] pattern audit failed: ${e.message}\n`)
+      process.stderr.write(`[kb-drift] pattern audit failed: ${errMessage(e)}\n`)
     }
   }
 
@@ -517,14 +579,14 @@ async function detectDrift(since, remote, { includeDiffs = true, readonly = fals
 
 // ── Phase 2a: code→kb resolved — KB updated ──────────────────────────────────
 
-async function resolveWithSummaries(summaries, { readonly = false } = {}) {
+async function resolveWithSummaries(summaries: Array<{ kb_target?: string; summary?: string }>, { readonly = false }: { readonly?: boolean } = {}): Promise<Record<string, unknown>> {
   const { entries: codeEntries, header } = readCodeDriftEntries()
   const openCodeTargets = new Set(codeEntries.map(e => e.kbTarget))
   const openKbFiles = new Set(readKbDriftEntries().entries.map(e => e.kbFile))
 
-  const closed = []
-  const notFound = []
-  const logRecords = []
+  const closed: Array<{ kb_target?: string; summary?: string }> = []
+  const notFound: Array<Record<string, unknown>> = []
+  const logRecords: DriftLogEntry[] = []
 
   for (const { kb_target, summary } of summaries) {
     if (!summary || !kb_target) {
@@ -536,7 +598,7 @@ async function resolveWithSummaries(summaries, { readonly = false } = {}) {
       logRecords.push({ direction: 'code→kb', resolution: 'kb-updated', kb_target, summary })
       continue
     }
-    const entry = { kb_target, reason: 'no open entry in sync/code-drift.md for this kb_target' }
+    const entry: Record<string, unknown> = { kb_target, reason: 'no open entry in sync/code-drift.md for this kb_target' }
     if (openKbFiles.has(kb_target)) {
       entry.hint = `"${kb_target}" is open in sync/kb-drift.md (kb→code direction). Did you mean kb_drift({ kb_confirmed: [{ kb_file: "${kb_target}" }] })?`
     }
@@ -554,7 +616,7 @@ async function resolveWithSummaries(summaries, { readonly = false } = {}) {
     appendToDriftLog(logRecords)
   }
 
-  const result = { resolved: closed.length, closed, not_found: notFound }
+  const result: Record<string, unknown> = { resolved: closed.length, closed, not_found: notFound }
   if (closed.length > 0) {
     const kbTargetList = closed.map(c => c.kb_target).join(', ')
     result._instruction = `Queue entries closed for: ${kbTargetList}. `
@@ -572,14 +634,14 @@ async function resolveWithSummaries(summaries, { readonly = false } = {}) {
 
 // ── Phase 2b: code→kb resolved — code file reverted ──────────────────────────
 
-async function resolveReverted(reverted, { readonly = false } = {}) {
-  const codeFiles = reverted.map(r => r.code_file || r)
+async function resolveReverted(reverted: Array<{ code_file?: string } | string>, { readonly = false }: { readonly?: boolean } = {}): Promise<Record<string, unknown>> {
+  const codeFiles: Array<string | { code_file?: string }> = reverted.map(r => (typeof r === 'string' ? r : r.code_file) || r)
   const { entries, header } = readCodeDriftEntries()
-  const logRecords = []
-  const closed = []
-  const matchedFiles = new Set()
+  const logRecords: DriftLogEntry[] = []
+  const closed: Array<{ kb_target: string; code_files: string[] }> = []
+  const matchedFiles = new Set<unknown>()
 
-  const resolvedShas = []
+  const resolvedShas: string[] = []
   const updated = entries.map(entry => {
     const removedFiles = entry.codeFiles.filter(f => codeFiles.includes(f.path))
     const removedHere = removedFiles.map(f => f.path)
@@ -603,7 +665,7 @@ async function resolveReverted(reverted, { readonly = false } = {}) {
     appendToDriftLog(logRecords)
   }
 
-  const result = { reverted: matchedFiles.size, closed, not_found: notFound }
+  const result: Record<string, unknown> = { reverted: matchedFiles.size, closed, not_found: notFound }
   if (notFound.length > 0) {
     result.error = matchedFiles.size === 0
       ? `No matching code files in sync/code-drift.md. Nothing was closed.`
@@ -614,30 +676,30 @@ async function resolveReverted(reverted, { readonly = false } = {}) {
 
 // ── Phase 2c: kb→code resolved ────────────────────────────────────────────────
 
-async function resolveKbConfirmed(kb_confirmed, { readonly = false } = {}) {
-  const kbFiles = kb_confirmed.map(r => r.kb_file || r)
+async function resolveKbConfirmed(kb_confirmed: Array<{ kb_file?: string } | string>, { readonly = false }: { readonly?: boolean } = {}): Promise<Record<string, unknown>> {
+  const kbFiles: Array<string | { kb_file?: string }> = kb_confirmed.map(r => (typeof r === 'string' ? r : r.kb_file) || r)
   const rules = loadRules(KB_ROOT)
-  const patterns = rules.getCodePathPatterns()
+  const patterns = rules.getCodePathPatterns() as PathPattern[]
 
   const { header, entries } = readKbDriftEntries()
-  const openKbFiles = new Set(entries.map(e => e.kbFile))
-  const openCodeTargets = new Set(readCodeDriftEntries().entries.map(e => e.kbTarget))
+  const openKbFiles = new Set<unknown>(entries.map(e => e.kbFile))
+  const openCodeTargets = new Set<unknown>(readCodeDriftEntries().entries.map(e => e.kbTarget))
 
-  const closed = []
-  const notFound = []
-  const warnings = []
-  const logRecords = []
+  const closed: Array<Record<string, unknown>> = []
+  const notFound: Array<Record<string, unknown>> = []
+  const warnings: Array<Record<string, unknown>> = []
+  const logRecords: DriftLogEntry[] = []
 
   for (const kb_file of kbFiles) {
     if (!openKbFiles.has(kb_file)) {
-      const entry = { kb_file, reason: 'no open entry in sync/kb-drift.md for this kb_file' }
+      const entry: Record<string, unknown> = { kb_file, reason: 'no open entry in sync/kb-drift.md for this kb_file' }
       if (openCodeTargets.has(kb_file)) {
         entry.hint = `"${kb_file}" is open in sync/code-drift.md (code→kb direction). Did you mean kb_drift({ summaries: [{ kb_target: "${kb_file}", summary: "..." }] })?`
       }
       notFound.push(entry)
       continue
     }
-    const codePaths = reverseMapKbTarget(kb_file, patterns)
+    const codePaths = reverseMapKbTarget(kb_file as string, patterns)
     const unmapped = codePaths.length === 0
     if (unmapped) {
       warnings.push({
@@ -649,7 +711,7 @@ async function resolveKbConfirmed(kb_confirmed, { readonly = false } = {}) {
       })
     }
     closed.push({ kb_file, ...(unmapped && { unmapped: true }) })
-    logRecords.push({ direction: 'kb→code', resolution: 'confirmed', kb_file, ...(unmapped && { unmapped: true }) })
+    logRecords.push({ direction: 'kb→code', resolution: 'confirmed', kb_file: kb_file as string, ...(unmapped && { unmapped: true }) })
   }
 
   const closedFiles = new Set(closed.map(c => c.kb_file))
@@ -663,7 +725,7 @@ async function resolveKbConfirmed(kb_confirmed, { readonly = false } = {}) {
     appendToDriftLog(logRecords)
   }
 
-  const result = { confirmed: closed.length, closed, not_found: notFound }
+  const result: Record<string, unknown> = { confirmed: closed.length, closed, not_found: notFound }
   if (warnings.length > 0) result.warnings = warnings
   if (notFound.length > 0) {
     result.error = closed.length === 0
@@ -682,26 +744,26 @@ async function resolveKbConfirmed(kb_confirmed, { readonly = false } = {}) {
 // RESOLVED stream so dismissals stay visible as a signal that upstream rules
 // need attention.
 
-const DISMISS_QUEUES = new Set(['code-drift', 'kb-drift'])
+const DISMISS_QUEUES = new Set<string>(['code-drift', 'kb-drift'])
 
-async function resolveDismissed(dismiss, { readonly = false } = {}) {
-  const closed = []
-  const notFound = []
-  const logRecords = []
+async function resolveDismissed(dismiss: Array<{ queue?: string; queue_key?: string; reason?: string }>, { readonly = false }: { readonly?: boolean } = {}): Promise<Record<string, unknown>> {
+  const closed: Array<Record<string, unknown>> = []
+  const notFound: Array<Record<string, unknown>> = []
+  const logRecords: DriftLogEntry[] = []
 
   const codeState = readCodeDriftEntries()
   const kbState = readKbDriftEntries()
   let codeDirty = false
   let kbDirty = false
-  const codeResolvedShas = []
-  const kbResolvedShas = []
+  const codeResolvedShas: Array<string | null | undefined> = []
+  const kbResolvedShas: Array<string | null | undefined> = []
 
   for (const item of dismiss) {
     const queue = item?.queue
     const queue_key = item?.queue_key
     const reason = typeof item?.reason === 'string' ? item.reason.trim() : ''
 
-    if (!DISMISS_QUEUES.has(queue)) {
+    if (!DISMISS_QUEUES.has(queue ?? '')) {
       notFound.push({ queue, queue_key, reason_missing: `queue must be one of ${[...DISMISS_QUEUES].join(', ')}` })
       continue
     }
@@ -750,7 +812,7 @@ async function resolveDismissed(dismiss, { readonly = false } = {}) {
     appendToDriftLog(logRecords)
   }
 
-  const result = { dismissed: closed.length, closed, not_found: notFound }
+  const result: Record<string, unknown> = { dismissed: closed.length, closed, not_found: notFound }
   if (notFound.length > 0) {
     result.error = closed.length === 0
       ? 'No entries dismissed. See not_found for details.'
@@ -766,20 +828,20 @@ async function resolveDismissed(dismiss, { readonly = false } = {}) {
 // losing the audit trail. The mandatory `reason` mitigates ack-spam; later
 // resolving verdicts (apply / dismiss / etc.) still override.
 
-async function resolveAcknowledge(ack, { readonly = false } = {}) {
+async function resolveAcknowledge(ack: Array<{ queue?: string; queue_key?: string; kb_target?: string; kb_file?: string; reason?: string }>, { readonly = false }: { readonly?: boolean } = {}): Promise<Record<string, unknown>> {
   const codeState = readCodeDriftEntries()
   const kbState = readKbDriftEntries()
-  const closed = []
-  const notFound = []
-  const logRecords = []
+  const closed: Array<Record<string, unknown>> = []
+  const notFound: Array<Record<string, unknown>> = []
+  const logRecords: DriftLogEntry[] = []
   let codeDirty = false
   let kbDirty = false
 
   // Anchor the acknowledgement to the current author + HEAD so the marker
   // identifies who signed off and against which state.
   const git = simpleGit(process.cwd())
-  let ackBy = null
-  let ackCommit = null
+  let ackBy: string | null = null
+  let ackCommit: string | null = null
   let ackDate = new Date().toISOString().split('T')[0]
   try {
     const email = (await git.raw(['config', 'user.email'])).trim()
@@ -798,7 +860,7 @@ async function resolveAcknowledge(ack, { readonly = false } = {}) {
     const queue_key = item?.queue_key || item?.kb_target || item?.kb_file
     const reason = typeof item?.reason === 'string' ? item.reason.trim() : ''
 
-    if (!DISMISS_QUEUES.has(queue)) {
+    if (!DISMISS_QUEUES.has(queue ?? '')) {
       notFound.push({ queue, queue_key, reason_missing: `queue must be one of ${[...DISMISS_QUEUES].join(', ')}` })
       continue
     }
@@ -845,7 +907,7 @@ async function resolveAcknowledge(ack, { readonly = false } = {}) {
     if (logRecords.length > 0) appendToDriftLog(logRecords)
   }
 
-  const result = { acknowledged: closed.length, closed, not_found: notFound }
+  const result: Record<string, unknown> = { acknowledged: closed.length, closed, not_found: notFound }
   if (notFound.length > 0) {
     result.error = closed.length === 0
       ? 'No entries acknowledged. See not_found for details.'
@@ -856,9 +918,9 @@ async function resolveAcknowledge(ack, { readonly = false } = {}) {
 
 // ── Admin escape hatch: force_baseline / purge ───────────────────────────────
 
-async function resetBaselines({ force_baseline, purge, readonly = false }) {
+async function resetBaselines({ force_baseline, purge, readonly = false }: { force_baseline?: string; purge?: boolean; readonly?: boolean }): Promise<Record<string, unknown>> {
   const git = simpleGit(process.cwd())
-  let sha = null
+  let sha: string | null = null
   if (force_baseline) {
     const arg = force_baseline === 'HEAD' ? 'HEAD' : force_baseline
     try {
@@ -922,7 +984,7 @@ async function resetBaselines({ force_baseline, purge, readonly = false }) {
  * Uses git ls-tree to read the submodule pointer (mode 160000) without checking out.
  * Returns null if the submodule didn't exist at that commit.
  */
-async function getSubmodulePointerAt(git, commitSha, subPath) {
+async function getSubmodulePointerAt(git: SimpleGit, commitSha: string, subPath: string): Promise<string | null> {
   try {
     const line = (await git.raw(['ls-tree', commitSha, subPath])).trim()
     const match = line.match(/^160000 commit ([a-f0-9]+)/)
@@ -939,7 +1001,7 @@ async function getSubmodulePointerAt(git, commitSha, subPath) {
  * Optional `meta` out-param: caller can pass `{}` and read `meta.via` to learn
  * which resolver branch produced the ref — used by the re-bootstrap audit log.
  */
-async function resolveLastSyncRef(git, remote, meta) {
+async function resolveLastSyncRef(git: SimpleGit, remote?: string | null, meta?: { via?: string | null }): Promise<string | null> {
   try {
     const upstream = await git.raw(['rev-parse', '--abbrev-ref', '@{upstream}'])
     if (upstream && upstream.trim()) {
@@ -953,7 +1015,7 @@ async function resolveLastSyncRef(git, remote, meta) {
     try {
       const remotes = (await git.raw(['remote'])).split('\n').filter(r => r.trim())
       if (!remotes.includes(remote)) {
-        const cwd = git._executor?.cwd || 'unknown'
+        const cwd = (git as unknown as { _executor?: { cwd?: string } })._executor?.cwd || 'unknown'
         process.stderr.write(`[kb-drift] warning: remote '${remote}' not found in ${cwd} — available remotes: ${remotes.join(', ') || 'none'}. Skipping drift detection.\n`)
         process.stderr.write(`[kb-drift]   fix: git -C ${cwd} remote rename <correct> ${remote}\n`)
         validRemote = null
@@ -1016,9 +1078,9 @@ async function resolveLastSyncRef(git, remote, meta) {
  * shows the most recent state ("Latest = working tree") while preserving the
  * real `Since` commit anchor from history.
  */
-async function getChangedFiles(git, ref, toRef = 'HEAD', { includeWorkingTree = false } = {}) {
+async function getChangedFiles(git: SimpleGit, ref: string, toRef = 'HEAD', { includeWorkingTree = false }: { includeWorkingTree?: boolean } = {}): Promise<ChangedFile[]> {
   // Committed: ref..toRef
-  let committed = []
+  let committed: ChangedFile[] = []
   try {
     const result = await git.diff(['--name-status', '-M', ref, toRef])
     committed = parseNameStatus(result)
@@ -1038,14 +1100,14 @@ async function getChangedFiles(git, ref, toRef = 'HEAD', { includeWorkingTree = 
   // captures committed-since-ref + staged + unstaged in one shot — git
   // compares the working copy to the given ref, so anything not yet matching
   // `ref` shows up regardless of where it sits in the index hierarchy.
-  let workingTreeDiff = []
+  let workingTreeDiff: ChangedFile[] = []
   try {
     const result = await git.diff(['--name-status', '-M', ref])
     workingTreeDiff = parseNameStatus(result)
   } catch { /* leave empty */ }
 
   // Untracked files: not in any tree, so not produced by `git diff`.
-  let untracked = []
+  let untracked: ChangedFile[] = []
   try {
     const out = await git.raw(['ls-files', '--others', '--exclude-standard'])
     untracked = out
@@ -1056,7 +1118,7 @@ async function getChangedFiles(git, ref, toRef = 'HEAD', { includeWorkingTree = 
   } catch { /* leave empty */ }
 
   // Index committed paths so we can upgrade entries the working tree extends.
-  const committedByPath = new Map()
+  const committedByPath = new Map<string, ChangedFile>()
   for (const f of committed) {
     committedByPath.set(f.path, f)
     if (f.oldPath) committedByPath.set(f.oldPath, f)
@@ -1092,10 +1154,10 @@ async function getChangedFiles(git, ref, toRef = 'HEAD', { includeWorkingTree = 
 // --name-status reports on that line); pre-rename history under the old path
 // is retained under the old path key — resolveCommitRange merges both.
 // Returns an empty Map when the range has no commits or git fails.
-async function buildCommitIndex(git, baseline, toRef = 'HEAD') {
+async function buildCommitIndex(git: SimpleGit, baseline: string | null, toRef = 'HEAD'): Promise<CommitIndex> {
   if (!baseline) return new Map()
-  const index = new Map()
-  let output
+  const index: CommitIndex = new Map()
+  let output: string
   try {
     // %ae uses .mailmap when available — gives the canonical email for the
     // author. The local-part is what's surfaced as `@author` on file lines.
@@ -1104,9 +1166,9 @@ async function buildCommitIndex(git, baseline, toRef = 'HEAD') {
   } catch { return index }
   if (!output) return index
 
-  let currentSha = null
-  let currentDate = null
-  let currentAuthor = null
+  let currentSha: string | null = null
+  let currentDate: string | null = null
+  let currentAuthor: string | null = null
   for (const line of output.split('\n')) {
     if (line.startsWith('__C ')) {
       const m = line.match(/^__C ([a-f0-9]+) (\S+) (.+)$/)
@@ -1121,7 +1183,7 @@ async function buildCommitIndex(git, baseline, toRef = 'HEAD') {
     const parts = line.split('\t')
     const code = parts[0].trim()
     if (!code) continue
-    const entry = { sha: currentSha, date: currentDate, author: currentAuthor }
+    const entry: CommitEntry = { sha: currentSha, date: currentDate ?? '', author: currentAuthor }
     if (code.startsWith('R') || code.startsWith('C')) {
       const newPath = parts[2]
       if (newPath) appendCommit(index, newPath, entry)
@@ -1135,7 +1197,7 @@ async function buildCommitIndex(git, baseline, toRef = 'HEAD') {
 
 // authorHandleFromEmail is imported from ../lib/git-ops
 
-function appendCommit(index, key, entry) {
+function appendCommit(index: CommitIndex, key: string, entry: CommitEntry): void {
   const list = index.get(key)
   if (list) list.push(entry)
   else index.set(key, [entry])
@@ -1144,10 +1206,10 @@ function appendCommit(index, key, entry) {
 // Merge chronologies for new+old paths, return earliest/latest commit pair.
 // `oldPath` lets renamed files pick up commits from before the rename.
 // Returns null if no commits found — caller should fall back to HEAD info.
-function resolveCommitRange(index, newPath, oldPath) {
-  const commits = []
-  if (index.has(newPath)) commits.push(...index.get(newPath))
-  if (oldPath && oldPath !== newPath && index.has(oldPath)) commits.push(...index.get(oldPath))
+function resolveCommitRange(index: CommitIndex, newPath: string, oldPath: string | null): CommitRange | null {
+  const commits: CommitEntry[] = []
+  if (index.has(newPath)) commits.push(...index.get(newPath)!)
+  if (oldPath && oldPath !== newPath && index.has(oldPath)) commits.push(...index.get(oldPath)!)
   if (commits.length === 0) return null
   commits.sort((a, b) => a.date.localeCompare(b.date))
   const first = commits[0]
@@ -1171,7 +1233,7 @@ function resolveCommitRange(index, newPath, oldPath) {
 // (and skip the step). Every file carries a reproducible `cmd` — truncation
 // or errors never leave the agent without a way to re-fetch.
 
-function resolveGitTarget(filePath, submodules) {
+function resolveGitTarget(filePath: string, submodules: Submodule[]): GitTarget {
   for (const sub of submodules) {
     const prefix = sub.path.endsWith('/') ? sub.path : sub.path + '/'
     if (filePath === sub.path || filePath.startsWith(prefix)) {
@@ -1186,7 +1248,7 @@ function resolveGitTarget(filePath, submodules) {
   return { cwd: process.cwd(), relativePath: filePath, submodule: null, isShared: false }
 }
 
-function buildCmd({ submodule, op, since, latest, relativePath }) {
+function buildCmd({ submodule, op, since, latest, relativePath }: { submodule: string | null; op: string; since: string; latest?: string | null; relativePath: string }): string {
   const prefix = submodule ? `git -C ${submodule}` : 'git'
   const to = latest || 'HEAD'
   if (op === 'show') return `${prefix} show ${since} -- ${relativePath}`
@@ -1197,7 +1259,7 @@ function buildCmd({ submodule, op, since, latest, relativePath }) {
 // v2: rename-aware log command for code-drift entries with `renamedFrom`.
 // Plain `git diff <since>~1..HEAD -- <newPath>` can hide the rename's content
 // when baseline predates the rename; --follow (log-only) traces across it.
-function buildFollowCmd({ submodule, since, latest, relativePath }) {
+function buildFollowCmd({ submodule, since, latest, relativePath }: { submodule: string | null; since: string; latest?: string | null; relativePath: string }): string {
   const prefix = submodule ? `git -C ${submodule}` : 'git'
   const to = latest || 'HEAD'
   return `${prefix} log --follow -p --stat ${since}~1..${to} -- ${relativePath}`
@@ -1206,9 +1268,9 @@ function buildFollowCmd({ submodule, since, latest, relativePath }) {
 // v2: reproducible grep cmd for a list of files. Pathspecs are submodule-
 // relative when submodule is set (same convention as buildCmd). Pattern is
 // pre-built ERE with alternation and \b word boundaries.
-function buildGrepCmd({ submodule, pattern, files }) {
+function buildGrepCmd({ submodule, pattern, files }: { submodule: string | null; pattern: string; files: string[] }): string {
   const prefix = submodule ? `git -C ${submodule}` : 'git'
-  const esc = (s) => `'${s.replace(/'/g, `'\\''`)}'`
+  const esc = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
   const paths = files.map(esc).join(' ')
   return `${prefix} grep -nE ${esc(pattern)} -- ${paths}`
 }
@@ -1225,16 +1287,16 @@ const IDENTIFIER_STOPWORDS = new Set([
   'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'
 ])
 
-function extractChangedIdentifiers(diffText) {
+function extractChangedIdentifiers(diffText: string | null | undefined): string[] {
   if (!diffText || typeof diffText !== 'string') return []
-  const bodyLines = []
+  const bodyLines: string[] = []
   for (const line of diffText.split('\n')) {
     if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) continue
     if (line.startsWith('+') || line.startsWith('-')) bodyLines.push(line.slice(1))
   }
   const text = bodyLines.join('\n').replace(/\|/g, ' ')
 
-  const out = new Set()
+  const out = new Set<string>()
   // PascalCase: TrUserRole, UserDefinition
   for (const m of text.matchAll(/\b[A-Z][a-z0-9]+(?:[A-Z][a-zA-Z0-9]*)+\b/g)) out.add(m[0])
   // camelCase starting lowercase: linestopMail, userId, maxLength
@@ -1257,8 +1319,8 @@ function extractChangedIdentifiers(diffText) {
   return filtered.slice(0, IDENTIFIER_CAP)
 }
 
-function buildIdentifierRegex(identifiers) {
-  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+function buildIdentifierRegex(identifiers: string[]): string {
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const parts = identifiers.map(id => {
     const e = esc(id)
     // Word-boundary wrap when the identifier starts/ends with a word char.
@@ -1269,7 +1331,7 @@ function buildIdentifierRegex(identifiers) {
   return `(${parts.join('|')})`
 }
 
-function computeStat(diffText) {
+function computeStat(diffText: string | null): string {
   if (!diffText) return '+0 -0 (0 hunks)'
   let adds = 0, dels = 0, hunks = 0
   for (const line of diffText.split('\n')) {
@@ -1280,20 +1342,22 @@ function computeStat(diffText) {
   return `+${adds} -${dels} (${hunks} hunk${hunks === 1 ? '' : 's'})`
 }
 
-function detectBinaryMarker(diffText) {
+function detectBinaryMarker(diffText: string | null): string | null {
   if (!diffText) return null
   const m = diffText.match(/^Binary files .* differ$/m)
   return m ? m[0] : null
 }
 
-function truncateDiff(diffText, cap) {
+function truncateDiff(diffText: string | null, cap: number): { text: string; lines: number; truncated: boolean } {
   if (!diffText) return { text: '', lines: 0, truncated: false }
   const lines = diffText.split('\n')
   if (lines.length <= cap) return { text: diffText, lines: lines.length, truncated: false }
   return { text: lines.slice(0, cap).join('\n'), lines: cap, truncated: true }
 }
 
-async function fetchFileDiff({ cwd, submodule, since, latest, relativePath }) {
+interface DiffResult { cmd: string; diff: string | null; stat: string | null; lines: number; truncated: boolean; binary: boolean; error?: string }
+
+async function fetchFileDiff({ cwd, submodule, since, latest, relativePath }: { cwd: string; submodule: string | null; since: string; latest?: string | null; relativePath: string }): Promise<DiffResult> {
   const cmd = buildCmd({ submodule, op: 'diff', since, latest, relativePath })
   const to = latest || 'HEAD'
   const git = simpleGit(cwd)
@@ -1320,7 +1384,7 @@ async function fetchFileDiff({ cwd, submodule, since, latest, relativePath }) {
       raw = await git.show([since, '--', relativePath])
     } catch (e) {
       return { cmd, diff: null, stat: null, lines: 0, truncated: false, binary: false,
-        error: e.message || 'git invocation failed' }
+        error: errMessage(e) || 'git invocation failed' }
     }
   }
 
@@ -1338,11 +1402,13 @@ async function fetchFileDiff({ cwd, submodule, since, latest, relativePath }) {
   return { cmd: actualCmd, diff: text, stat, lines, truncated, binary: false }
 }
 
-async function fetchCommitSubjects({ cwd, submodule, since, latest, relativePath }) {
+interface CommitSubjects { commits: Array<{ sha: string; subject: string }>; total: number; cmd: string; error?: string }
+
+async function fetchCommitSubjects({ cwd, submodule, since, latest, relativePath }: { cwd: string; submodule: string | null; since: string; latest?: string | null; relativePath: string }): Promise<CommitSubjects> {
   const to = latest || 'HEAD'
   const cmd = buildCmd({ submodule, op: 'log', since, latest, relativePath })
   const git = simpleGit(cwd)
-  let raw
+  let raw: string
   try {
     raw = await git.raw(['log', '--pretty=format:%h%x09%s', `${since}~1..${to}`, '--', relativePath])
   } catch {
@@ -1365,29 +1431,32 @@ async function fetchCommitSubjects({ cwd, submodule, since, latest, relativePath
 // (per-file match counts descending, top HITS_PER_AREA_CAP total). `cmd` is
 // always preserved for manual re-run. Per-call timeout protects against a
 // pathological regex; on timeout we return empty hits + error, not throw.
-async function grepFiles({ cwd, submodule, identifiers, files, pattern }) {
+interface GrepHit { file: string; line: number; identifier: string; snippet: string }
+
+async function grepFiles({ cwd, submodule, identifiers, files, pattern }: { cwd: string; submodule: string | null; identifiers: string[]; files: string[]; pattern: string }): Promise<{ hits: GrepHit[]; cmd: string; error?: string }> {
   const cmd = buildGrepCmd({ submodule, pattern, files })
   if (!files || files.length === 0 || !identifiers || identifiers.length === 0) {
     return { hits: [], cmd }
   }
   const git = simpleGit(cwd)
 
-  const run = git.raw(['grep', '-n', '-E', pattern, '--', ...files])
-    .then(raw => ({ ok: true, raw }))
-    .catch(err => {
+  type GrepRunResult = { ok: true; raw: string } | { ok: false; err: string }
+  const run: Promise<GrepRunResult> = git.raw(['grep', '-n', '-E', pattern, '--', ...files])
+    .then((raw): GrepRunResult => ({ ok: true, raw }))
+    .catch((err): GrepRunResult => {
       // git grep exits 1 when no matches — simple-git surfaces as error.
       const msg = err && (err.message || String(err))
       if (msg && /exit\s*code\s*1\b/i.test(msg)) return { ok: true, raw: '' }
       return { ok: false, err: msg || 'git grep failed' }
     })
-  const timer = new Promise(resolve => setTimeout(() => resolve({ ok: false, err: 'grep timeout' }), GREP_TIMEOUT_MS))
+  const timer = new Promise<GrepRunResult>(resolve => setTimeout(() => resolve({ ok: false, err: 'grep timeout' }), GREP_TIMEOUT_MS))
   const res = await Promise.race([run, timer])
   if (!res.ok) return { hits: [], cmd, error: res.err }
 
   const raw = res.raw || ''
   if (!raw.trim()) return { hits: [], cmd }
 
-  const byFile = new Map()
+  const byFile = new Map<string, GrepHit[]>()
   for (const line of raw.split('\n')) {
     if (!line) continue
     const firstColon = line.indexOf(':')
@@ -1402,12 +1471,12 @@ async function grepFiles({ cwd, submodule, identifiers, files, pattern }) {
     // Attribute hit to the first matching identifier in the snippet (best-effort).
     const hitIdent = identifiers.find(id => snippet.includes(id)) || identifiers[0]
     if (!byFile.has(file)) byFile.set(file, [])
-    byFile.get(file).push({ file, line: lineNo, identifier: hitIdent, snippet: snippet.trim() })
+    byFile.get(file)!.push({ file, line: lineNo, identifier: hitIdent, snippet: snippet.trim() })
   }
 
   const ranked = [...byFile.entries()]
     .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
-  const hits = []
+  const hits: GrepHit[] = []
   for (const [, fileHits] of ranked) {
     for (const h of fileHits.slice(0, HITS_PER_FILE_CAP)) {
       hits.push(h)
@@ -1420,18 +1489,28 @@ async function grepFiles({ cwd, submodule, identifiers, files, pattern }) {
 // v2: orchestrate identifier extraction, glob expansion, and grep intersection
 // for one kb-drift entry. Produces `code_areas[]` shape; idempotent; never
 // throws. Caller gates via budget.grep_budget_left (decremented per hit).
-async function buildCodeAreasPayload({ diffText, codeAreas, submodules, budget }) {
+interface AreaPayload {
+  pattern: string
+  matched_count: number
+  matched_sample: string[]
+  truncated: boolean
+  hits_top: GrepHit[]
+  grep_cmd: string | null
+  skipped_reason?: string
+}
+
+async function buildCodeAreasPayload({ diffText, codeAreas, submodules, budget }: { diffText: string | null; codeAreas: string[]; submodules: Submodule[]; budget: DiffBudget }): Promise<{ identifiers: string[] | null; areas: AreaPayload[] | null }> {
   const identifiers = extractChangedIdentifiers(diffText)
   if (!codeAreas || codeAreas.length === 0) {
     return { identifiers: identifiers.length > 0 ? identifiers : null, areas: null }
   }
 
-  const areas = []
+  const areas: AreaPayload[] = []
   const pattern = identifiers.length > 0 ? buildIdentifierRegex(identifiers) : null
 
   for (const glob of codeAreas) {
     const { files, matchedCount, truncated } = expandGlob(glob, { fileCap: FILES_PER_AREA_CAP })
-    const area = {
+    const area: AreaPayload = {
       pattern: glob,
       matched_count: matchedCount,
       matched_sample: files.slice(0, FILES_PER_AREA_CAP),
@@ -1464,10 +1543,10 @@ async function buildCodeAreasPayload({ diffText, codeAreas, submodules, budget }
       continue
     }
 
-    const perFileCounts = new Map()
-    const allHits = []
-    const cmds = []
-    let anyError = null
+    const perFileCounts = new Map<string, number>()
+    const allHits: GrepHit[] = []
+    const cmds: string[] = []
+    let anyError: string | null = null
     for (const g of groups) {
       const { hits, cmd, error } = await grepFiles({
         cwd: g.cwd, submodule: g.submodule, identifiers,
@@ -1497,22 +1576,24 @@ async function buildCodeAreasPayload({ diffText, codeAreas, submodules, budget }
   return { identifiers: identifiers.length > 0 ? identifiers : [], areas }
 }
 
-function groupFilesBySubmodule(files, submodules) {
-  const byKey = new Map()
+interface SubmoduleGroup { submodule: string | null; cwd: string; relativeFiles: string[] }
+
+function groupFilesBySubmodule(files: string[], submodules: Submodule[]): SubmoduleGroup[] {
+  const byKey = new Map<string, SubmoduleGroup>()
   for (const f of files) {
     const tgt = resolveGitTarget(f, submodules)
     const key = tgt.submodule || ''
     if (!byKey.has(key)) {
       byKey.set(key, { submodule: tgt.submodule, cwd: tgt.cwd, relativeFiles: [] })
     }
-    byKey.get(key).relativeFiles.push(tgt.relativePath)
+    byKey.get(key)!.relativeFiles.push(tgt.relativePath)
   }
   return [...byKey.values()]
 }
 
-function dedupCommits(lists) {
-  const seen = new Set()
-  const out = []
+function dedupCommits(lists: CommitSubjects[]): { commits: Array<{ sha: string; subject: string }>; total: number } {
+  const seen = new Set<string>()
+  const out: Array<{ sha: string; subject: string }> = []
   let total = 0
   for (const list of lists) {
     total += list.total
@@ -1526,9 +1607,9 @@ function dedupCommits(lists) {
   return { commits: out, total }
 }
 
-async function buildCodeDiffEntry(entry, submodules, budget) {
-  const fileList = []
-  const commitLists = []
+async function buildCodeDiffEntry(entry: CodeDriftEntry, submodules: Submodule[], budget: DiffBudget): Promise<Record<string, unknown>> {
+  const fileList: Array<Record<string, unknown>> = []
+  const commitLists: CommitSubjects[] = []
   for (const f of entry.codeFiles) {
     const tgt = resolveGitTarget(f.path, submodules)
     const since = f.sinceCommit
@@ -1538,7 +1619,7 @@ async function buildCodeDiffEntry(entry, submodules, budget) {
     const totalBudgetLeft = TOTAL_LINE_CAP - budget.used_lines
     const canFetchDiff = entryBudgetLeft > 0 && totalBudgetLeft > 0
 
-    const fileObj = {
+    const fileObj: Record<string, unknown> = {
       path: f.path,
       submodule: tgt.submodule,
       isShared: tgt.isShared,
@@ -1567,10 +1648,11 @@ async function buildCodeDiffEntry(entry, submodules, budget) {
       fileObj.diff_lines = 0
       fileObj.truncated = true
       fileObj.binary = false
-      fileObj.cmd = f.renamedFrom
+      const skipCmd = f.renamedFrom
         ? buildFollowCmd({ submodule: tgt.submodule, since, latest, relativePath: tgt.relativePath })
         : buildCmd({ submodule: tgt.submodule, op: 'diff', since, latest, relativePath: tgt.relativePath })
-      budget.skipped.push({ kind: 'code', key: `${entry.kbTarget} :: ${f.path}`, reason: 'budget', cmd: fileObj.cmd })
+      fileObj.cmd = skipCmd
+      budget.skipped.push({ kind: 'code', key: `${entry.kbTarget} :: ${f.path}`, reason: 'budget', cmd: skipCmd })
     }
     // v2: renamed files get --follow-aware cmd so re-fetch traces the rename.
     if (f.renamedFrom && canFetchDiff) {
@@ -1587,11 +1669,11 @@ async function buildCodeDiffEntry(entry, submodules, budget) {
   return { kb_target: entry.kbTarget, commits, total_commits: total, files: fileList }
 }
 
-async function buildKbDiffEntry(entry, budget, submodules) {
+async function buildKbDiffEntry(entry: KbDriftEntry, budget: DiffBudget, submodules: Submodule[]): Promise<Record<string, unknown>> {
   const relativePath = path.posix.join(KB_ROOT, entry.kbFile)
   const since = entry.sinceCommit
   const latest = entry.latestCommit || null
-  const obj = {
+  const obj: Record<string, unknown> = {
     kb_file: entry.kbFile,
     since,
     ...(latest && { latest }),
@@ -1616,8 +1698,9 @@ async function buildKbDiffEntry(entry, budget, submodules) {
     obj.diff_lines = 0
     obj.truncated = true
     obj.binary = false
-    obj.cmd = since ? buildCmd({ submodule: null, op: 'diff', since, latest, relativePath }) : null
-    if (since) budget.skipped.push({ kind: 'kb', key: entry.kbFile, reason: 'budget', cmd: obj.cmd })
+    const skipCmd = since ? buildCmd({ submodule: null, op: 'diff', since, latest, relativePath }) : null
+    obj.cmd = skipCmd
+    if (since) budget.skipped.push({ kind: 'kb', key: entry.kbFile, reason: 'budget', cmd: skipCmd })
   }
 
   if (since) {
@@ -1634,7 +1717,7 @@ async function buildKbDiffEntry(entry, budget, submodules) {
   // Skip when the KB diff is empty, binary, or missing — no signal to extract.
   if (obj.diff && !obj.binary && entry.codeAreas && entry.codeAreas.length > 0) {
     const { identifiers, areas } = await buildCodeAreasPayload({
-      diffText: obj.diff,
+      diffText: obj.diff as string,
       codeAreas: entry.codeAreas,
       submodules: submodules || [],
       budget
@@ -1645,15 +1728,15 @@ async function buildKbDiffEntry(entry, budget, submodules) {
   return obj
 }
 
-async function buildDiffsPayload({ codeState, kbState, submodules }) {
-  const budget = { used_lines: 0, cap_lines: TOTAL_LINE_CAP, skipped: [],
+async function buildDiffsPayload({ codeState, kbState, submodules }: { codeState: CodeDriftState; kbState: KbDriftState; submodules: Submodule[] }): Promise<Record<string, unknown>> {
+  const budget: DiffBudget = { used_lines: 0, cap_lines: TOTAL_LINE_CAP, skipped: [],
     grep_budget_left: GREP_BUDGET_TOTAL }
-  const code = []
+  const code: Array<Record<string, unknown>> = []
   for (const entry of codeState.entries) {
     budget.entryUsed = 0
     code.push(await buildCodeDiffEntry(entry, submodules, budget))
   }
-  const kb = []
+  const kb: Array<Record<string, unknown>> = []
   for (const entry of kbState.entries) {
     const hadRoom = TOTAL_LINE_CAP - budget.used_lines > 0
     if (!hadRoom) {
@@ -1671,19 +1754,17 @@ async function buildDiffsPayload({ codeState, kbState, submodules }) {
     kb.push(await buildKbDiffEntry(entry, budget, submodules))
   }
   delete budget.entryUsed
-  delete budget.grep_budget_left
+  delete (budget as { grep_budget_left?: number }).grep_budget_left
   return { code, kb, budget }
 }
 
 // Submodule detection lives in lib/submodule-sweep.js so conform.js can reuse
 // the same parser. Keep a thin local alias to preserve drift.js's call sites.
-async function detectSubmodules() {
+async function detectSubmodules(): Promise<Submodule[]> {
   return detectSubmodulesHelper(process.cwd())
 }
 
-module.exports = {
-  runTool,
-  definition: {
+const definition: ToolDefinition = {
     name: 'kb_drift',
     description: 'Bidirectional drift detection. Phase 1: writes entries to sync/code-drift.md (keyed by KB target, tracks all code files + since-commit) and sync/kb-drift.md (keyed by KB file). Multiple commits accumulate automatically. The response includes `_diffs` with pre-fetched unified diffs, stats, and commit subjects for every open entry — read those directly before resolving. Phase 2: summaries=KB updated (closes code-drift.md), reverted=code file reverted (closes code-drift.md), kb_confirmed=kb→code reviewed (closes kb-drift.md), dismiss=close a structurally-broken ghost entry whose kb_target/kb_file will never exist (logged separately as DISMISSED in the audit trail — use this when an upstream code_path_patterns rule produced a garbage name rather than hand-editing the queue file). Phase 2 responses include `closed` (what was actually removed) and `not_found` (inputs that matched no open entry, with a `hint` when the input matches the *other* queue — i.e. you called the wrong phase). When anything lands in `not_found`, an `error` field is set; trust `closed`, not the top-level count, to know what was written.',
     inputSchema: {
@@ -1701,5 +1782,6 @@ module.exports = {
         readonly: { type: 'boolean', description: 'Compute results in memory but skip every fs write (queue files, drift-log, baseline advance). Returned `_state` carries the would-have-written entries. Used by the live watcher in the extension and the soft-mode CI check.', default: false }
       }
     }
-  }
 }
+
+export { runTool, definition }

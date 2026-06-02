@@ -22,8 +22,8 @@ export interface CodeFile {
   renamedFrom?: string
   sinceCommit: string
   sinceDate: string
-  latestCommit?: string
-  latestDate?: string
+  latestCommit?: string | null
+  latestDate?: string | null
   author?: string
   source?: string
 }
@@ -47,8 +47,8 @@ export interface KbDriftEntry {
   references: string[]
   sinceCommit?: string
   sinceDate?: string
-  latestCommit?: string
-  latestDate?: string
+  latestCommit?: string | null
+  latestDate?: string | null
   author?: string
   acknowledgement?: Acknowledgement
   fingerprint?: string
@@ -72,16 +72,16 @@ export interface KbDriftState {
 export interface DriftLogEntry {
   event_type?: string
   // purge
-  baseline?: string
+  baseline?: string | null
   code_count?: number
   kb_count?: number
   code_body?: string
   kb_body?: string
   // re-bootstrap
-  old_sha?: string
-  new_sha?: string
+  old_sha?: string | null
+  new_sha?: string | null
   repo?: string
-  resolver_used?: string
+  resolver_used?: string | null
   // dismissed / acknowledged / auto-closed
   queue?: string
   queue_key?: string

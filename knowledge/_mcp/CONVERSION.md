@@ -178,7 +178,7 @@ tool requires that are already `.ts` use `as typeof import('./x')`.
 
 ## Phase 4 — tools/ complex half (+ subdirs)
 - [x] get
-- [ ] drift  *(subdirs done: drift/kb-match, drift/baseline, drift/queue — parent drift.ts pending)*
+- [x] drift  *(drift.ts + drift/kb-match, drift/baseline, drift/queue)*
 - [ ] conform + conform/queue
 - [x] impact
 - [x] import + import/images, import/extract

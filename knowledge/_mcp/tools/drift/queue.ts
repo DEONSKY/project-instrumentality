@@ -186,7 +186,7 @@ function writeCodeDriftEntries(header: string, entries: CodeDriftEntry[]): void 
  * 're_detected' when an existing file's Latest was bumped to a newer commit,
  * or null when no change was made.
  */
-function upsertCodeDriftEntry(state: CodeDriftState, kbTarget: string, codeFile: string, sinceCommit: string, sinceDate: string, latestCommit: string | undefined, latestDate: string | undefined, isShared: boolean, renamedFrom?: string, author?: string, opts: { source?: string } = {}): 'new' | 're_detected' | null {
+function upsertCodeDriftEntry(state: CodeDriftState, kbTarget: string, codeFile: string, sinceCommit: string, sinceDate: string, latestCommit: string | null | undefined, latestDate: string | null | undefined, isShared: boolean | undefined, renamedFrom?: string, author?: string | null, opts: { source?: string } = {}): 'new' | 're_detected' | null {
   const { source } = opts
   const existing = state.entries.find(e => e.kbTarget === kbTarget)
   const fileShape: CodeFile = {
@@ -299,7 +299,7 @@ function readKbDriftEntries(): KbDriftState {
       ...(fingerprintMatch && { fingerprint: fingerprintMatch[1] }),
       unmapped
     }
-  }).filter((e): e is KbDriftEntry => e.kbFile != null)
+  }).filter(e => e.kbFile != null) as KbDriftEntry[]
 
   return { header, entries }
 }
@@ -341,7 +341,7 @@ function writeKbDriftEntries(header: string, entries: KbDriftEntry[]): void {
  * Returns 'new' when a fresh entry is created, 're_detected' when an existing
  * entry's Latest was bumped to a newer commit, or null when no change.
  */
-function upsertKbDriftEntry(state: KbDriftState, kbFile: string, codeAreas: string[], sinceCommit: string, sinceDate: string, latestCommit: string | undefined, latestDate: string | undefined, author?: string, opts: { source?: string } = {}): 'new' | 're_detected' | null {
+function upsertKbDriftEntry(state: KbDriftState, kbFile: string, codeAreas: string[], sinceCommit: string, sinceDate: string, latestCommit: string | null | undefined, latestDate: string | null | undefined, author?: string | null, opts: { source?: string } = {}): 'new' | 're_detected' | null {
   const { source } = opts
   const existing = state.entries.find(e => e.kbFile === kbFile)
   if (existing) {
@@ -393,7 +393,7 @@ function upsertKbDriftEntry(state: KbDriftState, kbFile: string, codeAreas: stri
  */
 interface StalePattern { intent?: unknown; kb_target: string; moved: { from: string; to: string } }
 
-function handleCodeRename(state: CodeDriftState, newPath: string, oldPath: string, sinceCommit: string, sinceDate: string, latestCommit: string | undefined, latestDate: string | undefined, isShared: boolean, patterns: PathPattern[], author?: string, opts: { source?: string } = {}): { outcomes: { new: number; re_detected: number }; stalePattern: StalePattern | null } {
+function handleCodeRename(state: CodeDriftState, newPath: string, oldPath: string, sinceCommit: string, sinceDate: string, latestCommit: string | null | undefined, latestDate: string | null | undefined, isShared: boolean | undefined, patterns: PathPattern[], author?: string | null, opts: { source?: string } = {}): { outcomes: { new: number; re_detected: number }; stalePattern: StalePattern | null } {
   const { source } = opts
   const oldMatches = matchAllPatterns(oldPath, patterns)
   const newMatches = matchAllPatterns(newPath, patterns)
@@ -442,7 +442,7 @@ function handleCodeRename(state: CodeDriftState, newPath: string, oldPath: strin
  * creates a kb-drift entry with rename metadata.
  * Returns { outcome: 'new'|'re_detected'|null }.
  */
-function handleKbRename(state: KbDriftState, newPath: string, oldPath: string, sinceCommit: string, sinceDate: string, latestCommit: string | undefined, latestDate: string | undefined, patterns: PathPattern[], author?: string, opts: { source?: string } = {}): { outcome: 'new' | 're_detected' | null } {
+function handleKbRename(state: KbDriftState, newPath: string, oldPath: string, sinceCommit: string, sinceDate: string, latestCommit: string | null | undefined, latestDate: string | null | undefined, patterns: PathPattern[], author?: string | null, opts: { source?: string } = {}): { outcome: 'new' | 're_detected' | null } {
   const { source } = opts
   const oldRelative = oldPath.replace(/^knowledge\//, '')
   const newRelative = newPath.replace(/^knowledge\//, '')
@@ -478,7 +478,7 @@ function handleKbRename(state: KbDriftState, newPath: string, oldPath: string, s
 /**
  * Replace a code file path in an existing code-drift entry (same KB target rename).
  */
-function replaceCodeFileInEntry(state: CodeDriftState, kbTarget: string, oldPath: string, newPath: string, sinceCommit: string, sinceDate: string, latestCommit: string | undefined, latestDate: string | undefined, author?: string, opts: { source?: string } = {}): void {
+function replaceCodeFileInEntry(state: CodeDriftState, kbTarget: string, oldPath: string, newPath: string, sinceCommit: string, sinceDate: string, latestCommit: string | null | undefined, latestDate: string | null | undefined, author?: string | null, opts: { source?: string } = {}): void {
   const { source } = opts
   const existing = state.entries.find(e => e.kbTarget === kbTarget)
   const shape: CodeFile = {

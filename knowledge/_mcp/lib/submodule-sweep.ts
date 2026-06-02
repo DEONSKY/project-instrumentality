@@ -61,7 +61,7 @@ function detectSubmodules(cwd = process.cwd()): Submodule[] {
  */
 interface ResolveSubmoduleRefsHelpers {
   baselineReachable: (git: SimpleGit, sha: string | null) => Promise<boolean>
-  resolveLastSyncRef: (git: SimpleGit, remote: string, meta?: { via?: string }) => Promise<string | null>
+  resolveLastSyncRef: (git: SimpleGit, remote: string | undefined, meta?: { via?: string | null }) => Promise<string | null>
   getSubmodulePointerAt: (git: SimpleGit, ref: string, subPath: string) => Promise<string | null>
 }
 
@@ -70,7 +70,7 @@ interface ResolveSubmoduleRefsArgs {
   sub: Submodule
   baseline: string | null
   headSha: string | null
-  remote: string
+  remote: string | undefined
   toolName: string
   helpers: ResolveSubmoduleRefsHelpers
 }
@@ -169,3 +169,4 @@ export {
   detectSubmodules,
   resolveSubmoduleRefs
 }
+export type { Submodule }
