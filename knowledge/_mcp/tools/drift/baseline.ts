@@ -9,16 +9,16 @@
 // dedupBaselines (lives in queue.js) to pick the true descendant when both
 // survive.
 
-const simpleGit = require('simple-git')
+import simpleGit, { type SimpleGit } from 'simple-git'
 
 const BASELINE_RE = /<!--\s*baseline:\s*([a-f0-9]+)\s*-->/gi
 
-function parseBaseline(header) {
+function parseBaseline(header: string): string | null {
   const matches = [...header.matchAll(BASELINE_RE)]
   return matches.length > 0 ? matches[matches.length - 1][1] : null
 }
 
-function setBaseline(header, sha) {
+function setBaseline(header: string, sha: string): string {
   const stripped = header.replace(BASELINE_RE, '').replace(/\n{3,}/g, '\n\n')
   if (/<!-- AUTO-GENERATED[^\n]*-->\n/.test(stripped)) {
     return stripped.replace(/(<!-- AUTO-GENERATED[^\n]*-->\n)/, `$1<!-- baseline: ${sha} -->\n`)
@@ -26,7 +26,7 @@ function setBaseline(header, sha) {
   return `<!-- baseline: ${sha} -->\n` + stripped
 }
 
-async function isAncestor(git, ancestor, descendant) {
+async function isAncestor(git: SimpleGit, ancestor: string, descendant: string): Promise<boolean> {
   try {
     const aFull = (await git.raw(['rev-parse', '--verify', `${ancestor}^{commit}`])).trim()
     const mb = (await git.raw(['merge-base', ancestor, descendant])).trim()
@@ -39,8 +39,8 @@ async function isAncestor(git, ancestor, descendant) {
 // history. Unlike dedupBaselines, this helper refuses to pick on divergence —
 // callers that must commit to a choice use their own loop; callers where
 // "don't advance" is a valid outcome (resolve flows) use this.
-async function pickDescendantSha(git, shas) {
-  const unique = [...new Set(shas.filter(Boolean))]
+async function pickDescendantSha(git: SimpleGit, shas: Array<string | null | undefined>): Promise<string | null> {
+  const unique = [...new Set(shas.filter((s): s is string => Boolean(s)))]
   if (unique.length === 0) return null
   if (unique.length === 1) return unique[0]
   let winner = unique[0]
@@ -60,10 +60,10 @@ async function pickDescendantSha(git, shas) {
 // survivors. Returns the current baseline unchanged when there is nothing to
 // advance to (no reachable candidates, divergence, or the current baseline is
 // already the descendant). Never rolls the baseline back.
-async function computeAdvancedBaseline(git, currentBaseline, entryShas) {
-  const candidates = [currentBaseline, ...entryShas].filter(Boolean)
+async function computeAdvancedBaseline(git: SimpleGit, currentBaseline: string | null | undefined, entryShas: Array<string | null | undefined>): Promise<string | null> {
+  const candidates = [currentBaseline, ...entryShas].filter((s): s is string => Boolean(s))
   if (candidates.length === 0) return currentBaseline || null
-  const reachable = []
+  const reachable: string[] = []
   for (const sha of [...new Set(candidates)]) {
     if (await isAncestor(git, sha, 'HEAD')) reachable.push(sha)
   }
@@ -76,7 +76,7 @@ async function computeAdvancedBaseline(git, currentBaseline, entryShas) {
 // resolved entries' Latest SHAs, returns the header with baseline advanced if
 // `computeAdvancedBaseline` can confidently move it forward. No-op if the
 // resulting SHA equals the existing baseline.
-async function advanceQueueBaseline(header, entryShas) {
+async function advanceQueueBaseline(header: string, entryShas: Array<string | null | undefined>): Promise<string> {
   const git = simpleGit(process.cwd())
   const currentBaseline = parseBaseline(header)
   const next = await computeAdvancedBaseline(git, currentBaseline, entryShas)
@@ -89,7 +89,7 @@ async function advanceQueueBaseline(header, entryShas) {
   return setBaseline(header, full)
 }
 
-module.exports = {
+export {
   BASELINE_RE,
   parseBaseline,
   setBaseline,

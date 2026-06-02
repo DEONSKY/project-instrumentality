@@ -3,20 +3,34 @@
 // stamping, and post-merge baseline dedup. Everything that touches the queue
 // files on disk lives here.
 
-const fs = require('fs')
-const path = require('path')
-const simpleGit = require('simple-git')
-const { matchAllPatterns, resolveKbTarget } = require('../../lib/patterns')
-const { loadGraph, getDependents } = require('../../lib/graph')
-const { KB_ROOT } = require('../../lib/kb-constants')
-const { BASELINE_RE, parseBaseline, setBaseline } = require('./baseline')
-const { reverseMapKbTarget } = require('./kb-match')
+import * as path from 'path'
+import simpleGit from 'simple-git'
+import { matchAllPatterns, resolveKbTarget } from '../../lib/patterns'
+import type { PathPattern } from '../../lib/patterns'
+import { loadGraph, getDependents } from '../../lib/graph'
+import { KB_ROOT } from '../../lib/kb-constants'
+import { BASELINE_RE, parseBaseline, setBaseline } from './baseline'
+import { reverseMapKbTarget } from './kb-match'
+import type {
+  Acknowledgement,
+  RefCount,
+  CodeFile,
+  CodeDriftEntry,
+  CodeDriftState,
+  KbDriftEntry,
+  KbDriftState,
+  DriftLogEntry
+} from '../../src/types/drift'
+
+// fs-tracker monkey-patches fs in place; keep a CJS require so the patched
+// singleton is shared rather than rebound to read-only ESM bindings.
+const fs = require('fs') as typeof import('fs')
 
 const CODE_DRIFT_PATH = path.join(KB_ROOT, 'sync/code-drift.md')
 const KB_DRIFT_PATH = path.join(KB_ROOT, 'sync/kb-drift.md')
 const DRIFT_LOG_DIR = path.join(KB_ROOT, 'sync/drift-log')
 
-function getDriftLogPath() {
+function getDriftLogPath(): string {
   const d = new Date()
   const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   return path.join(DRIFT_LOG_DIR, `${month}.md`)
@@ -74,18 +88,18 @@ Resolved drift events. Append-only.
 
 const ACK_LINE_RE = /\*\*Acknowledged\*\*:\s*@(\S+)\s+at\s+`([^`]+)`\s+\(([^)]+)\)\s+—\s+"([^"]+)"/
 
-function parseAcknowledgement(block) {
+function parseAcknowledgement(block: string): Acknowledgement | null {
   const m = block.match(ACK_LINE_RE)
   if (!m) return null
   return { by: m[1], atCommit: m[2], atDate: m[3], reason: m[4] }
 }
 
-function formatAcknowledgement(ack) {
+function formatAcknowledgement(ack: Acknowledgement): string {
   const reason = (ack.reason || '').replace(/"/g, '\\"')
   return `- **Acknowledged**: @${ack.by} at \`${ack.atCommit}\` (${ack.atDate}) — "${reason}"`
 }
 
-function extractQueueBody(filePath) {
+function extractQueueBody(filePath: string): string {
   if (!fs.existsSync(filePath)) return ''
   const content = fs.readFileSync(filePath, 'utf8')
   const headerEnd = content.indexOf('\n## ')
@@ -95,7 +109,7 @@ function extractQueueBody(filePath) {
 
 // ── code-drift.md parse / serialize ──────────────────────────────────────────
 
-function readCodeDriftEntries() {
+function readCodeDriftEntries(): CodeDriftState {
   ensureHeader(CODE_DRIFT_PATH, CODE_DRIFT_HEADER)
   const content = fs.readFileSync(CODE_DRIFT_PATH, 'utf8')
   const headerEnd = content.indexOf('\n## ')
@@ -109,7 +123,7 @@ function readCodeDriftEntries() {
     const hasShared = /\*\*Shared module:\*\*\s*true/.test(block)
     const acknowledgement = parseAcknowledgement(block)
     const fingerprintMatch = block.match(/<!--\s*fingerprint:\s*(sha256:[a-f0-9]+)\s*-->/)
-    const codeFiles = []
+    const codeFiles: CodeFile[] = []
     for (const line of block.split('\n')) {
       const m = line.match(/^\s+-\s+`([^`]+)`(?:\s+←\s+renamed from\s+`([^`]+)`)?\s+—\s+since\s+`([^`]+)`\s+\(([^)]+)\)(?:,\s+latest\s+`([^`]+)`\s+\(([^)]+)\))?(?:\s+—\s+by\s+@(\S+))?/)
       if (m) {
@@ -128,12 +142,12 @@ function readCodeDriftEntries() {
       ...(acknowledgement && { acknowledgement }),
       ...(fingerprintMatch && { fingerprint: fingerprintMatch[1] }),
     }
-  }).filter(e => e.kbTarget)
+  }).filter((e): e is CodeDriftEntry => e.kbTarget != null)
 
   return { header, entries }
 }
 
-function writeCodeDriftEntries(header, entries) {
+function writeCodeDriftEntries(header: string, entries: CodeDriftEntry[]): void {
   const body = entries.map(entry => {
     const fileLines = entry.codeFiles.map(f => {
       const renameNote = f.renamedFrom ? ` ← renamed from \`${f.renamedFrom}\`` : ''
@@ -172,10 +186,10 @@ function writeCodeDriftEntries(header, entries) {
  * 're_detected' when an existing file's Latest was bumped to a newer commit,
  * or null when no change was made.
  */
-function upsertCodeDriftEntry(state, kbTarget, codeFile, sinceCommit, sinceDate, latestCommit, latestDate, isShared, renamedFrom, author, opts = {}) {
+function upsertCodeDriftEntry(state: CodeDriftState, kbTarget: string, codeFile: string, sinceCommit: string, sinceDate: string, latestCommit: string | undefined, latestDate: string | undefined, isShared: boolean, renamedFrom?: string, author?: string, opts: { source?: string } = {}): 'new' | 're_detected' | null {
   const { source } = opts
   const existing = state.entries.find(e => e.kbTarget === kbTarget)
-  const fileShape = {
+  const fileShape: CodeFile = {
     path: codeFile,
     sinceCommit,
     sinceDate,
@@ -225,7 +239,7 @@ function upsertCodeDriftEntry(state, kbTarget, codeFile, sinceCommit, sinceDate,
 
 // ── kb-drift.md parse / serialize ────────────────────────────────────────────
 
-function readKbDriftEntries() {
+function readKbDriftEntries(): KbDriftState {
   ensureHeader(KB_DRIFT_PATH, KB_DRIFT_HEADER)
   const content = fs.readFileSync(KB_DRIFT_PATH, 'utf8')
   const headerEnd = content.indexOf('\n## ')
@@ -246,11 +260,11 @@ function readKbDriftEntries() {
     // shipped — handled via lazy migration in the recompute pass.
     const fingerprintMatch = block.match(/<!--\s*fingerprint:\s*(sha256:[a-f0-9]+)\s*-->/)
 
-    const codeAreas = []
+    const codeAreas: string[] = []
     let inCodeAreas = false
     let inRefs = false
-    const references = []
-    let refCount = null
+    const references: string[] = []
+    let refCount: RefCount | null = null
     const lines = block.split('\n')
     for (const line of lines) {
       if (/^- \*\*Code areas to review:\*\*/.test(line)) { inCodeAreas = true; inRefs = false; continue }
@@ -285,12 +299,12 @@ function readKbDriftEntries() {
       ...(fingerprintMatch && { fingerprint: fingerprintMatch[1] }),
       unmapped
     }
-  }).filter(e => e.kbFile)
+  }).filter((e): e is KbDriftEntry => e.kbFile != null)
 
   return { header, entries }
 }
 
-function writeKbDriftEntries(header, entries) {
+function writeKbDriftEntries(header: string, entries: KbDriftEntry[]): void {
   const body = entries.map(entry => {
     const areaLines = entry.codeAreas.length > 0
       ? entry.codeAreas.map(p => `  - \`${p}\``).join('\n')
@@ -327,7 +341,7 @@ function writeKbDriftEntries(header, entries) {
  * Returns 'new' when a fresh entry is created, 're_detected' when an existing
  * entry's Latest was bumped to a newer commit, or null when no change.
  */
-function upsertKbDriftEntry(state, kbFile, codeAreas, sinceCommit, sinceDate, latestCommit, latestDate, author, opts = {}) {
+function upsertKbDriftEntry(state: KbDriftState, kbFile: string, codeAreas: string[], sinceCommit: string, sinceDate: string, latestCommit: string | undefined, latestDate: string | undefined, author?: string, opts: { source?: string } = {}): 'new' | 're_detected' | null {
   const { source } = opts
   const existing = state.entries.find(e => e.kbFile === kbFile)
   if (existing) {
@@ -377,7 +391,9 @@ function upsertKbDriftEntry(state, kbFile, codeAreas, sinceCommit, sinceDate, la
  * Returns { outcomes: { new, re_detected }, stalePattern }. Caller increments
  * counters by the totals.
  */
-function handleCodeRename(state, newPath, oldPath, sinceCommit, sinceDate, latestCommit, latestDate, isShared, patterns, author, opts = {}) {
+interface StalePattern { intent?: unknown; kb_target: string; moved: { from: string; to: string } }
+
+function handleCodeRename(state: CodeDriftState, newPath: string, oldPath: string, sinceCommit: string, sinceDate: string, latestCommit: string | undefined, latestDate: string | undefined, isShared: boolean, patterns: PathPattern[], author?: string, opts: { source?: string } = {}): { outcomes: { new: number; re_detected: number }; stalePattern: StalePattern | null } {
   const { source } = opts
   const oldMatches = matchAllPatterns(oldPath, patterns)
   const newMatches = matchAllPatterns(newPath, patterns)
@@ -408,7 +424,7 @@ function handleCodeRename(state, newPath, oldPath, sinceCommit, sinceDate, lates
 
   // Stale: had patterns before, none now. Surface the orphaned targets so the
   // caller can warn the user that _rules.md is out of date.
-  let stalePattern = null
+  let stalePattern: StalePattern | null = null
   if (newTargets.size === 0 && oldTargets.size > 0) {
     const firstOld = oldMatches[0]
     stalePattern = {
@@ -426,7 +442,7 @@ function handleCodeRename(state, newPath, oldPath, sinceCommit, sinceDate, lates
  * creates a kb-drift entry with rename metadata.
  * Returns { outcome: 'new'|'re_detected'|null }.
  */
-function handleKbRename(state, newPath, oldPath, sinceCommit, sinceDate, latestCommit, latestDate, patterns, author, opts = {}) {
+function handleKbRename(state: KbDriftState, newPath: string, oldPath: string, sinceCommit: string, sinceDate: string, latestCommit: string | undefined, latestDate: string | undefined, patterns: PathPattern[], author?: string, opts: { source?: string } = {}): { outcome: 'new' | 're_detected' | null } {
   const { source } = opts
   const oldRelative = oldPath.replace(/^knowledge\//, '')
   const newRelative = newPath.replace(/^knowledge\//, '')
@@ -462,10 +478,10 @@ function handleKbRename(state, newPath, oldPath, sinceCommit, sinceDate, latestC
 /**
  * Replace a code file path in an existing code-drift entry (same KB target rename).
  */
-function replaceCodeFileInEntry(state, kbTarget, oldPath, newPath, sinceCommit, sinceDate, latestCommit, latestDate, author, opts = {}) {
+function replaceCodeFileInEntry(state: CodeDriftState, kbTarget: string, oldPath: string, newPath: string, sinceCommit: string, sinceDate: string, latestCommit: string | undefined, latestDate: string | undefined, author?: string, opts: { source?: string } = {}): void {
   const { source } = opts
   const existing = state.entries.find(e => e.kbTarget === kbTarget)
-  const shape = {
+  const shape: CodeFile = {
     path: newPath,
     sinceCommit,
     sinceDate,
@@ -487,7 +503,7 @@ function replaceCodeFileInEntry(state, kbTarget, oldPath, newPath, sinceCommit, 
 /**
  * Remove a single code file from its code-drift entry. Removes the entry entirely if empty.
  */
-function removeCodeFileFromEntry(state, kbTarget, codePath) {
+function removeCodeFileFromEntry(state: CodeDriftState, kbTarget: string, codePath: string): void {
   const existing = state.entries.find(e => e.kbTarget === kbTarget)
   if (!existing) return
   existing.codeFiles = existing.codeFiles.filter(f => f.path !== codePath)
@@ -498,7 +514,7 @@ function removeCodeFileFromEntry(state, kbTarget, codePath) {
 
 // ── Shared queue helpers ──────────────────────────────────────────────────────
 
-function ensureHeader(filePath, header) {
+function ensureHeader(filePath: string, header: string): void {
   if (!fs.existsSync(filePath)) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true })
     fs.writeFileSync(filePath, header, 'utf8')
@@ -527,9 +543,9 @@ function ensureHeader(filePath, header) {
  * kb-drift) used both to look up the matching pattern and to populate the
  * audit-log record. `queueKind` is "code-drift" or "kb-drift".
  */
-function stampAndRecomputeFingerprints(state, patterns, queueKind, autoCloseRecords, keyFn) {
-  const { computePatternFingerprint, findPatternForKbTarget } = require('../../lib/pattern-audit')
-  const surviving = []
+function stampAndRecomputeFingerprints<E extends { fingerprint?: string }>(state: { entries: E[] }, patterns: PathPattern[], queueKind: string, autoCloseRecords: DriftLogEntry[], keyFn: (entry: E) => string): void {
+  const { computePatternFingerprint, findPatternForKbTarget } = require('../../lib/pattern-audit') as typeof import('../../lib/pattern-audit')
+  const surviving: E[] = []
   for (const entry of state.entries) {
     const queueKey = keyFn(entry)
     const matchedPattern = findPatternForKbTarget(queueKey, patterns)
@@ -566,7 +582,7 @@ function stampAndRecomputeFingerprints(state, patterns, queueKind, autoCloseReco
   state.entries = surviving
 }
 
-function appendToDriftLog(entries) {
+function appendToDriftLog(entries: DriftLogEntry[]): void {
   if (!fs.existsSync(DRIFT_LOG_DIR)) fs.mkdirSync(DRIFT_LOG_DIR, { recursive: true })
   const logPath = getDriftLogPath()
   ensureHeader(logPath, DRIFT_LOG_HEADER)
@@ -648,14 +664,31 @@ function appendToDriftLog(entries) {
 // baseline lines, the merged header ends up with multiple <!-- baseline: -->
 // comments — and until deduped, parseBaseline returns only the last one while
 // the older orphan lingers as noise. Called by the post-merge git hook.
-async function dedupBaselines() {
+async function dedupBaselines(): Promise<{ deduped: Array<{ file: string; kept: string; dropped: number }> }> {
   const git = simpleGit(process.cwd())
-  const results = []
-  const queues = [
-    { filePath: CODE_DRIFT_PATH, read: readCodeDriftEntries, write: writeCodeDriftEntries },
-    { filePath: KB_DRIFT_PATH, read: readKbDriftEntries, write: writeKbDriftEntries }
+  const results: Array<{ file: string; kept: string; dropped: number }> = []
+  // read+write are paired per queue via a `rewrite` closure so the two
+  // queue shapes (CodeDriftState / KbDriftState) stay type-correlated; a
+  // union of {read, write} would lose that link.
+  const queues: Array<{ filePath: string; rewrite: (winner: string) => void }> = [
+    {
+      filePath: CODE_DRIFT_PATH,
+      rewrite: (winner) => {
+        const state = readCodeDriftEntries()
+        state.header = setBaseline(state.header, winner)
+        writeCodeDriftEntries(state.header, state.entries)
+      }
+    },
+    {
+      filePath: KB_DRIFT_PATH,
+      rewrite: (winner) => {
+        const state = readKbDriftEntries()
+        state.header = setBaseline(state.header, winner)
+        writeKbDriftEntries(state.header, state.entries)
+      }
+    }
   ]
-  for (const { filePath, read, write } of queues) {
+  for (const { filePath, rewrite } of queues) {
     if (!fs.existsSync(filePath)) continue
     const content = fs.readFileSync(filePath, 'utf8')
     const shas = [...content.matchAll(BASELINE_RE)].map(m => m[1])
@@ -678,16 +711,14 @@ async function dedupBaselines() {
       }
     }
 
-    const state = read()
-    state.header = setBaseline(state.header, winner)
-    write(state.header, state.entries)
+    rewrite(winner)
     results.push({ file: filePath, kept: winner, dropped: shas.length - 1 })
     process.stderr.write(`[kb-drift] deduped ${shas.length} baseline lines in ${filePath}; kept ${winner.slice(0, 7)}\n`)
   }
   return { deduped: results }
 }
 
-module.exports = {
+export {
   // Paths + headers
   CODE_DRIFT_PATH,
   KB_DRIFT_PATH,

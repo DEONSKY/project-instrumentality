@@ -278,3 +278,4 @@ function maxGlobDepth(globs: string[], floor = 0): number {
 }
 
 export { globMatch, matchAllPatterns, pickBestMatch, globSpecificity, resolveKbTarget, extractName, expandGlob, maxGlobDepth }
+export type { PathPattern, NameExtraction, GlobExpansion }

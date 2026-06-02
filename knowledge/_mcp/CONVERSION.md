@@ -177,21 +177,21 @@ tool requires that are already `.ts` use `as typeof import('./x')`.
 `any` count: 0 (documented casts only at MCP-arg / dynamic-YAML boundaries)
 
 ## Phase 4 — tools/ complex half (+ subdirs)
-- [ ] get
-- [ ] drift  + drift/kb-match, drift/baseline, drift/queue
+- [x] get
+- [ ] drift  *(subdirs done: drift/kb-match, drift/baseline, drift/queue — parent drift.ts pending)*
 - [ ] conform + conform/queue
-- [ ] impact
-- [ ] import + import/images, import/extract
-- [ ] export
-- [ ] analyze
-- [ ] extract
-- [ ] write
-- [ ] **F2:** update `packages/shared/scripts/build-tool-catalog.cjs` to require
-      compiled `dist/tools/<file>.js` (it currently requires `tools/<file>.js`,
-      which won't be requirable once tools are `.ts`). Implies kb-mcp builds
-      before shared's catalog step.
+- [x] impact
+- [x] import + import/images, import/extract
+- [x] export
+- [x] analyze
+- [x] extract
+- [x] write
+- [x] **F2:** build-tool-catalog now registers `tsx/cjs` and requires the tool
+      SOURCE (.ts then .js fallback), NOT dist — avoids a shared↔kb-mcp build
+      cycle.
 
-`any` count: ___
+`any` count: 0 (documented `as typeof import(...)` typed-require casts + narrowing predicates only)
+- drift subdir types live in `src/types/drift.ts`; `PathPattern` re-exported from `lib/patterns`.
 
 ## Phase 5 — drivers/ + scripts/ (extension + CI critical)
 - [ ] scripts/live-status   *(extension spawns this; gate: bundled runner JSON)*
